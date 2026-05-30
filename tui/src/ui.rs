@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph},
     Frame,
 };
@@ -511,17 +511,30 @@ fn draw_field_label(f: &mut Frame, area: Rect, label: &str, active: bool) {
 
 // wrap=true for multi-line areas (description)
 fn draw_field_input(f: &mut Frame, area: Rect, value: &str, active: bool, wrap: bool) {
-    let style = if active {
-        Style::new().add_modifier(Modifier::UNDERLINED)
+    if active {
+        // Split on newlines so the blinking cursor lands on the correct last line
+        let cursor = Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK));
+        let mut lines: Vec<Line> = value
+            .split('\n')
+            .map(|l| Line::from(l.to_string()))
+            .collect();
+        match lines.last_mut() {
+            Some(last) => last.spans.push(cursor),
+            None => lines.push(Line::from(vec![cursor])),
+        }
+        let para = Paragraph::new(Text::from(lines));
+        if wrap {
+            f.render_widget(para.wrap(ratatui::widgets::Wrap { trim: false }), area);
+        } else {
+            f.render_widget(para, area);
+        }
     } else {
-        Style::new().add_modifier(Modifier::DIM)
-    };
-    let display = format!("{value}_");
-    let para = Paragraph::new(display).style(style);
-    if wrap {
-        f.render_widget(para.wrap(ratatui::widgets::Wrap { trim: false }), area);
-    } else {
-        f.render_widget(para, area);
+        let para = Paragraph::new(value).style(Style::new().add_modifier(Modifier::DIM));
+        if wrap {
+            f.render_widget(para.wrap(ratatui::widgets::Wrap { trim: false }), area);
+        } else {
+            f.render_widget(para, area);
+        }
     }
 }
 
