@@ -6,6 +6,22 @@ Future: export to Jira, Azure DevOps, or similar tools. The git repo is the sour
 
 ---
 
+## Vision
+
+**git-task should become as important to developers as git itself.**
+
+The target group is developers — not management, not product owners, not team leads. If developers love it, adoption follows naturally. No top-down mandate required.
+
+This shapes every decision:
+
+- **Lives where developers live.** The terminal, not a browser tab or a PM tool. Zero friction to start — a single binary, a git repo you already have.
+- **Owned by the developer.** Data lives in your git repo. You control it. You can delete the tool tomorrow and the files are still there, readable by any text editor.
+- **Composable.** Plain markdown files in a git repo. Scripts, grep, GitHub Actions, future exporters — anything can read it without an API or account.
+- **No lock-in, no server, no account.** Like git itself — install it, use it, stop using it. No subscription, no cloud dependency.
+- **Open core.** The `git-task-core` library is the open API. Anyone can build frontends, integrations, or extensions. A healthy ecosystem around the core is what turns a useful tool into something developers depend on.
+
+---
+
 ## Stack
 
 | Layer | Technology |
