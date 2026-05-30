@@ -445,38 +445,41 @@ fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
 
 fn draw_sync_confirm(f: &mut Frame) {
     let area = f.area();
-    let popup = centered_rect(50, 7, area);
+    let popup = centered_rect(54, 7, area);
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(" Sync ")
+        .title(" Task Sync ")
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded);
+        .border_type(BorderType::Rounded)
+        .padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Fill(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Fill(1),
+            Constraint::Length(1),
         ])
         .split(inner);
 
     f.render_widget(
-        Paragraph::new("Push local changes to remote?").alignment(Alignment::Center),
+        Paragraph::new("This will commit and push your tasks.")
+            .style(Style::new().add_modifier(Modifier::DIM)),
+        rows[0],
+    );
+    f.render_widget(
+        Paragraph::new("Continue? [y/N]"),
         rows[1],
     );
     f.render_widget(
-        Paragraph::new("This will commit and push your task folder.")
-            .alignment(Alignment::Center)
+        Paragraph::new("y: sync  Enter/n/q: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[2],
+        rows[3],
     );
-
-    render_help(f, popup, "Enter/y: yes  q/n: cancel");
 }
 
 // ── push prompt ───────────────────────────────────────────────────────────────
@@ -503,7 +506,7 @@ fn draw_push_prompt(f: &mut Frame) {
         rows[1],
     );
     f.render_widget(
-        Paragraph::new("[Y/n]  —  Esc to go back")
+        Paragraph::new("y: push and quit  Enter/n: quit without pushing  Esc: go back")
             .alignment(Alignment::Center)
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[2],

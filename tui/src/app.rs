@@ -424,21 +424,21 @@ impl App {
 
     fn handle_sync_confirm(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+            // y confirms — N is the default so Enter cancels
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
                 let result = self
                     .repo
                     .as_ref()
                     .map(|r| r.push())
                     .unwrap_or(Err(git_task_core::error::AppError::NoRepo));
                 let msg = match result {
-                    Ok(out) => {
-                        if out.trim().is_empty() { "Synced.".into() } else { out }
-                    }
+                    Ok(out) if out.trim().is_empty() => "Synced.".into(),
+                    Ok(out) => out,
                     Err(e) => e.to_string(),
                 };
                 self.enter_task_list(Some(msg));
             }
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') | KeyCode::Char('N') => {
+            KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') | KeyCode::Char('N') => {
                 self.enter_task_list(None);
             }
             _ => {}
@@ -449,15 +449,15 @@ impl App {
 
     fn handle_push_prompt(&mut self, key: KeyEvent) {
         match key.code {
-            // Y is the default — Enter or Y pushes then quits
-            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+            // y pushes then quits — N is the default so Enter just quits
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
                 if let Some(repo) = &self.repo {
                     let _ = repo.push();
                 }
                 self.should_quit = true;
             }
-            // n quits without pushing
-            KeyCode::Char('n') | KeyCode::Char('N') => {
+            // Enter or n quits without pushing
+            KeyCode::Enter | KeyCode::Char('n') | KeyCode::Char('N') => {
                 self.should_quit = true;
             }
             // Esc cancels the quit entirely — back to task list
