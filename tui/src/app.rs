@@ -228,13 +228,13 @@ impl App {
         let task_count = tasks.len();
 
         match key.code {
-            KeyCode::Char(c) if c == km.up.chars().next().unwrap_or('w') && km.up.len() == 1 => {
+            KeyCode::Char(c) if c == km.up.chars().next().unwrap_or('w') && km.up.len() == 1 && key.modifiers == KeyModifiers::NONE => {
                 if task_count > 0 {
                     *selected = selected.checked_sub(1).unwrap_or(task_count - 1);
                     *message = None;
                 }
             }
-            KeyCode::Char(c) if c == km.down.chars().next().unwrap_or('s') && km.down.len() == 1 => {
+            KeyCode::Char(c) if c == km.down.chars().next().unwrap_or('s') && km.down.len() == 1 && key.modifiers == KeyModifiers::NONE => {
                 if task_count > 0 {
                     *selected = (*selected + 1) % task_count;
                     *message = None;
@@ -252,12 +252,12 @@ impl App {
                     *message = None;
                 }
             }
-            KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 => {
+            KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 && key.modifiers == KeyModifiers::NONE => {
                 if let Some(task) = tasks.get(*selected).cloned() {
                     self.screen = Screen::Detail { task, message: None };
                 }
             }
-            KeyCode::Char(c) if c == km.create.chars().next().unwrap_or('c') && km.create.len() == 1 => {
+            KeyCode::Char(c) if c == km.create.chars().next().unwrap_or('c') && km.create.len() == 1 && key.modifiers == KeyModifiers::NONE => {
                 let default_assignee = self.repo.as_ref()
                     .map(|r| r.info.username.clone())
                     .unwrap_or_default();
@@ -269,7 +269,7 @@ impl App {
                     field: CreateField::Title,
                 };
             }
-            KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 => {
+            KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 && key.modifiers == KeyModifiers::NONE => {
                 let sel = *selected;
                 if let Some(task) = tasks.get(sel).cloned() {
                     let id = task.id.clone();
@@ -294,7 +294,8 @@ impl App {
             }
             KeyCode::Char(c)
                 if c == km.status_cycle.chars().next().unwrap_or('f')
-                    && km.status_cycle.len() == 1 =>
+                    && km.status_cycle.len() == 1
+                    && key.modifiers == KeyModifiers::NONE =>
             {
                 let sel = *selected;
                 if let Some(task) = tasks.get(sel).cloned() {
@@ -302,7 +303,7 @@ impl App {
                 }
             }
             // b — toggle personal ↔ backlog context
-            KeyCode::Char('b') => {
+            KeyCode::Char('b') if key.modifiers == KeyModifiers::NONE => {
                 self.context = match self.context {
                     TaskContext::Personal => TaskContext::Backlog,
                     TaskContext::Backlog => TaskContext::Personal,
