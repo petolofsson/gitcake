@@ -1038,7 +1038,7 @@ fn parse_editor_content(content: &str) -> Option<(String, Option<String>)> {
 fn open_in_editor(content: &str) -> Option<String> {
     use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 
-    let tmp_path = env::temp_dir().join(format!("cake-desc-{}.md", std::process::id()));
+    let tmp_path = env::temp_dir().join(format!("gitcake-desc-{}.md", std::process::id()));
     fs::write(&tmp_path, content).ok()?;
 
     let _ = disable_raw_mode();
