@@ -67,7 +67,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
     );
 
     f.render_widget(
-        Paragraph::new("The repo must have git-task.toml and a remote configured.")
+        Paragraph::new("Local path to a cloned git repo — e.g. ~/tasks or /home/you/my-tasks")
             .alignment(Alignment::Center)
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[3],

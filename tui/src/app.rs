@@ -468,6 +468,7 @@ impl App {
     // Check 2: has other files, no git-task.toml → assume code repo, reject.
     // Check 3: only README/.gitignore/empty → offer to initialize.
     fn evaluate_path(&mut self, path: String) {
+        let path = expand_tilde(&path);
         let p = Path::new(&path);
 
         if !p.join(".git").exists() {
@@ -565,6 +566,19 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
         return event.modifiers == KeyModifiers::NONE && event.code == KeyCode::Char(ch);
     }
     false
+}
+
+fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest).to_string_lossy().into_owned();
+        }
+    } else if path == "~" {
+        if let Some(home) = dirs::home_dir() {
+            return home.to_string_lossy().into_owned();
+        }
+    }
+    path.to_string()
 }
 
 // Returns true if the repo contains only README/gitignore-style files —
