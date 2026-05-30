@@ -493,7 +493,7 @@ impl App {
                     .unwrap_or(Err(git_task_core::error::AppError::NoRepo));
                 let msg = match result {
                     Ok(_) => "Successfully pushed.".into(),
-                    Err(e) => format!("Sync failed: {e}"),
+                    Err(e) => classify_push_error(&e.to_string()),
                 };
                 self.enter_task_list(Some(msg));
             }
@@ -512,7 +512,7 @@ impl App {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 self.exit_message = Some(match self.repo.as_ref().map(|r| r.push()) {
                     Some(Ok(_)) => "Successfully pushed.".into(),
-                    Some(Err(e)) => format!("Push failed: {e}"),
+                    Some(Err(e)) => classify_push_error(&e.to_string()),
                     None => "No repo connected.".into(),
                 });
                 self.should_quit = true;
@@ -796,6 +796,21 @@ fn merge_messages(primary: Option<String>, secondary: Option<String>) -> Option<
         (Some(a), Some(b)) => Some(format!("{a} · {b}")),
         (a, None) => a,
         (None, b) => b,
+    }
+}
+
+/// Converts a push error into a user-facing message.
+/// Rejected/conflict pushes get resolution steps; other errors get the raw text.
+fn classify_push_error(err: &str) -> String {
+    let lower = err.to_lowercase();
+    if lower.contains("rejected")
+        || lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+        || lower.contains("updates were rejected")
+    {
+        "Push rejected: remote has new commits — run `git pull` in the repo, then ^R to retry".to_string()
+    } else {
+        format!("Sync failed: {err}")
     }
 }
 
