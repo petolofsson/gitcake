@@ -135,15 +135,15 @@ impl TaskRepo {
         Ok(task)
     }
 
-    /// Transitions an `open` task to `in-progress`. No-op if already
-    /// `in-progress` or `done`.
+    /// Transitions a task to `in-progress`. No-op if already `in-progress`.
+    /// Works from both `open` and `done` (supports cycling back from done).
     pub fn set_task_in_progress(&self, id: &str) -> Result<Task, AppError> {
         let path = self.task_path(id);
         if !path.exists() {
             return Err(AppError::TaskNotFound(id.to_string()));
         }
         let mut task = task_file::read_task(&path, false)?;
-        if task.status == TaskStatus::Open {
+        if task.status != TaskStatus::InProgress {
             task.status = TaskStatus::InProgress;
             task_file::write_task(&path, &task)?;
         }
@@ -447,6 +447,19 @@ mod tests {
         repo.set_task_in_progress("001").unwrap();
         let task = repo.set_task_in_progress("001").unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
+        drop(dir);
+    }
+
+    #[test]
+    fn set_task_in_progress_cycles_back_from_done() {
+        let (dir, repo) = make_repo("Alice Smith");
+        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        repo.set_task_in_progress("001").unwrap();
+        repo.mark_task_done("001").unwrap();
+        let task = repo.set_task_in_progress("001").unwrap();
+        assert_eq!(task.status, TaskStatus::InProgress);
+        let task = repo.mark_task_done("001").unwrap();
+        assert_eq!(task.status, TaskStatus::Done);
         drop(dir);
     }
 
