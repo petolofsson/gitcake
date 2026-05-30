@@ -101,7 +101,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool)
     let bar = if can_cancel {
         action_bar(&[("Enter", "connect"), ("Esc", "cancel")])
     } else {
-        action_bar(&[("Enter", "connect"), ("Q", "quit")])
+        action_bar(&[("Enter", "connect"), ("^Q", "quit")])
     };
     f.render_widget(Paragraph::new(bar), rows[6]);
 }
