@@ -31,7 +31,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         return;
     }
     match &app.screen {
-        Screen::Setup { input, error } => draw_setup(f, input, error.as_deref()),
+        Screen::Setup { input, error, can_cancel } => draw_setup(f, input, error.as_deref(), *can_cancel),
         Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
         Screen::TaskList { tasks, selected, message } => {
             let (repo_name, username) = app.repo.as_ref()
@@ -54,7 +54,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 // ── setup ─────────────────────────────────────────────────────────────────────
 
-fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
+fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool) {
     let area = f.area();
     let block = padded_block("git-task");
     let inner = block.inner(area);
@@ -96,7 +96,8 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
     );
 
     draw_error_line(f, rows[4], error);
-    render_help(f, area, "Enter: connect  Q: quit");
+    let hint = if can_cancel { "Enter: connect  Esc: cancel" } else { "Enter: connect  Q: quit" };
+    render_help(f, area, hint);
 }
 
 // ── init repo ─────────────────────────────────────────────────────────────────

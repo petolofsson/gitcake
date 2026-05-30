@@ -26,6 +26,8 @@ pub enum Screen {
     Setup {
         input: String,
         error: Option<String>,
+        /// True when reached via Ctrl+O from the task list; Esc returns instead of quitting.
+        can_cancel: bool,
     },
     InitRepo {
         path: String,
@@ -97,7 +99,7 @@ impl App {
     pub fn new(config: Config) -> Self {
         if config.repo_path.is_none() {
             return Self {
-                screen: Screen::Setup { input: String::new(), error: None },
+                screen: Screen::Setup { input: String::new(), error: None, can_cancel: false },
                 repo: None,
                 config,
                 context: TaskContext::Personal,
@@ -116,6 +118,7 @@ impl App {
                 screen: Screen::Setup {
                     input: config.repo_path.clone().unwrap_or_default(),
                     error: Some("Could not open repo — check the path.".into()),
+                    can_cancel: false,
                 },
                 repo: None,
                 config,
@@ -165,20 +168,25 @@ impl App {
     // ── setup ─────────────────────────────────────────────────────────────────
 
     fn handle_setup(&mut self, key: KeyEvent) {
-        let Screen::Setup { input, error: _ } = &mut self.screen else {
+        let Screen::Setup { input, error: _, can_cancel } = &mut self.screen else {
             return;
         };
-        // Ctrl+Q always quits
+        let can_cancel = *can_cancel;
         if is_ctrl_q(&key) { self.should_quit = true; return; }
         match key.code {
-            // 'q' in a path input types the letter — Esc quits
             KeyCode::Char(c) => input.push(c),
             KeyCode::Backspace => { input.pop(); }
             KeyCode::Enter => {
                 let path = input.trim().to_string();
-                self.evaluate_path(path);
+                self.evaluate_path(path, can_cancel);
             }
-            KeyCode::Esc => self.should_quit = true,
+            KeyCode::Esc => {
+                if can_cancel {
+                    self.enter_task_list(None, None);
+                } else {
+                    self.should_quit = true;
+                }
+            }
             _ => {}
         }
     }
@@ -216,7 +224,7 @@ impl App {
             }
             KeyCode::Esc => {
                 let path = path.clone();
-                self.screen = Screen::Setup { input: path, error: None };
+                self.screen = Screen::Setup { input: path, error: None, can_cancel: false };
             }
             _ => {}
         }
@@ -237,6 +245,11 @@ impl App {
         }
         if key.code == KeyCode::Esc {
             self.pull_error = None;
+            return;
+        }
+        if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            let current_path = self.config.repo_path.clone().unwrap_or_default();
+            self.screen = Screen::Setup { input: current_path, error: None, can_cancel: true };
             return;
         }
         if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -562,7 +575,7 @@ impl App {
     // Check 1: has git-task.toml → open.
     // Check 2: has other files, no git-task.toml → assume code repo, reject.
     // Check 3: only README/.gitignore/empty → offer to initialize.
-    fn evaluate_path(&mut self, path: String) {
+    fn evaluate_path(&mut self, path: String, can_cancel: bool) {
         let path = expand_tilde(&path);
         let p = Path::new(&path);
 
@@ -570,6 +583,7 @@ impl App {
             self.screen = Screen::Setup {
                 input: path,
                 error: Some("Not a git repository.".into()),
+                can_cancel,
             };
             return;
         }
@@ -588,7 +602,7 @@ impl App {
                     self.enter_task_list(merge_messages(pull_msg, lock_warn), None);
                 }
                 Err(e) => {
-                    self.screen = Screen::Setup { input: path, error: Some(e.to_string()) };
+                    self.screen = Screen::Setup { input: path, error: Some(e.to_string()), can_cancel };
                 }
             }
             return;
@@ -600,6 +614,7 @@ impl App {
             self.screen = Screen::Setup {
                 input: path,
                 error: Some("This looks like a code repo. Point to a dedicated git-task repo.".into()),
+                can_cancel,
             };
         }
     }
