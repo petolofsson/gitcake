@@ -145,11 +145,17 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
 fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>) {
     let area = f.area();
 
-    let title = match context {
-        TaskContext::Personal => "git-task",
-        TaskContext::Backlog => "git-task · BACKLOG",
+    let app_title = match context {
+        TaskContext::Personal => " git-task ",
+        TaskContext::Backlog => " git-task · BACKLOG ",
     };
-    let block = outer_block(title);
+    let mut block = Block::default()
+        .title(app_title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded);
+    if let Some(msg) = message {
+        block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
+    }
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -275,14 +281,9 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
 
-    // Regular shortcuts — with optional status message prefix
-    let nav_help = "w/s: move  c: new  e: edit  f: cycle  a: assign  b: backlog";
-    let nav_text = match message {
-        Some(msg) => format!("{msg}  ·  {nav_help}"),
-        None => nav_help.to_string(),
-    };
     f.render_widget(
-        Paragraph::new(nav_text).style(Style::new().add_modifier(Modifier::DIM)),
+        Paragraph::new("w/s: move  c: new  e: edit  f: cycle  a: assign  b: backlog")
+            .style(Style::new().add_modifier(Modifier::DIM)),
         rows[1],
     );
 
