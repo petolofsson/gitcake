@@ -33,7 +33,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     match &app.screen {
         Screen::Setup { input, error, can_cancel } => draw_setup(f, input, error.as_deref(), *can_cancel),
         Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
-        Screen::TaskList { tasks, selected, message, filter, filter_active } => {
+        Screen::TaskList { tasks, selected, message } => {
             let (repo_name, username) = app.repo.as_ref()
                 .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
                 .unwrap_or(("", ""));
@@ -44,8 +44,8 @@ pub fn draw(f: &mut Frame, app: &App) {
                 message: message.as_deref(),
                 pull_error: app.pull_error.as_deref(),
                 lock_warning: app.lock_warning.as_deref(),
-                filter,
-                filter_active: *filter_active,
+                filter: &app.filter,
+                filter_active: app.filter_active,
                 repo_name,
                 username,
             })

@@ -38,8 +38,6 @@ pub enum Screen {
         tasks: Vec<Task>,
         selected: usize,
         message: Option<String>,
-        filter: String,
-        filter_active: bool,
     },
     Detail {
         task: Task,
@@ -95,6 +93,9 @@ pub struct App {
     pub pull_error: Option<String>,
     pub lock_warning: Option<String>,
     pub lock_path: Option<PathBuf>,
+    /// Persists across screen transitions — cleared only by Esc.
+    pub filter: String,
+    pub filter_active: bool,
 }
 
 impl App {
@@ -111,6 +112,8 @@ impl App {
                 pull_error: None,
                 lock_warning: None,
                 lock_path: None,
+                filter: String::new(),
+                filter_active: false,
             };
         }
 
@@ -132,6 +135,8 @@ impl App {
                 pull_error: None,
                 lock_warning: None,
                 lock_path: None,
+                filter: String::new(),
+                filter_active: false,
             };
         }
 
@@ -144,9 +149,9 @@ impl App {
         let (raw_tasks, task_warnings) = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
         let startup_msg = merge_messages(pull_msg, warn_summary(&task_warnings));
         let tasks = sort_for_display(raw_tasks);
-        let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg, filter: String::new(), filter_active: false };
+        let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg };
 
-        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error, lock_warning, lock_path }
+        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error, lock_warning, lock_path, filter: String::new(), filter_active: false }
     }
 
     pub fn handle_event(&mut self, event: Event) {
@@ -243,24 +248,24 @@ impl App {
         }
 
         // Filter-active mode intercepts all other keys first
-        if let Screen::TaskList { filter, filter_active, selected, .. } = &mut self.screen {
-            if *filter_active {
+        if self.filter_active {
+            if let Screen::TaskList { selected, .. } = &mut self.screen {
                 match key.code {
                     KeyCode::Esc => {
-                        if filter.is_empty() {
-                            *filter_active = false;
+                        if self.filter.is_empty() {
+                            self.filter_active = false;
                         } else {
-                            filter.clear();
+                            self.filter.clear();
                             *selected = 0;
                         }
                     }
-                    KeyCode::Enter => { *filter_active = false; }
-                    KeyCode::Backspace => { filter.pop(); *selected = 0; }
-                    KeyCode::Char(c) => { filter.push(c); *selected = 0; }
+                    KeyCode::Enter => { self.filter_active = false; }
+                    KeyCode::Backspace => { self.filter.pop(); *selected = 0; }
+                    KeyCode::Char(c) => { self.filter.push(c); *selected = 0; }
                     _ => {}
                 }
-                return;
             }
+            return;
         }
 
         if is_key(&key, &km.push) {
@@ -268,13 +273,12 @@ impl App {
             return;
         }
         if key.code == KeyCode::Esc {
-            // Clear filter if active, otherwise dismiss pull error
-            if let Screen::TaskList { filter, selected, .. } = &mut self.screen {
-                if !filter.is_empty() {
-                    filter.clear();
+            if !self.filter.is_empty() {
+                self.filter.clear();
+                if let Screen::TaskList { selected, .. } = &mut self.screen {
                     *selected = 0;
-                    return;
                 }
+                return;
             }
             self.pull_error = None;
             return;
@@ -285,8 +289,8 @@ impl App {
             return;
         }
         if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            let current_id = if let Screen::TaskList { tasks, selected, filter, .. } = &self.screen {
-                let visible = apply_filter_indices(tasks, filter);
+            let current_id = if let Screen::TaskList { tasks, selected, .. } = &self.screen {
+                let visible = apply_filter_indices(tasks, &self.filter);
                 visible.get(*selected).and_then(|&i| tasks.get(i)).map(|t| t.id.clone())
             } else {
                 None
@@ -303,19 +307,20 @@ impl App {
             return;
         }
 
-        let Screen::TaskList { tasks, selected, message, filter, filter_active } = &mut self.screen else {
+        let Screen::TaskList { tasks, selected, message } = &mut self.screen else {
             return;
         };
 
         // / enters filter mode
         if key.code == KeyCode::Char('/') && key.modifiers == KeyModifiers::NONE {
-            *filter_active = true;
-            filter.clear();
+            self.filter_active = true;
+            self.filter.clear();
             *selected = 0;
             return;
         }
 
-        let visible: Vec<usize> = apply_filter_indices(tasks, filter);
+        let filter = self.filter.clone();
+        let visible: Vec<usize> = apply_filter_indices(tasks, &filter);
         let visible_count = visible.len();
 
         match key.code {
@@ -413,6 +418,8 @@ impl App {
                     TaskContext::Personal => TaskContext::Backlog,
                     TaskContext::Backlog => TaskContext::Personal,
                 };
+                self.filter.clear();
+                self.filter_active = false;
                 self.enter_task_list(None, None);
             }
             // t — team view (read-only, all users' active tasks)
@@ -705,17 +712,11 @@ impl App {
         }).unwrap_or_default();
         let msg = merge_messages(message, warn_summary(&warnings));
         let sorted = sort_for_display(tasks);
-        // Preserve existing filter when returning from sub-screens
-        let (filter, filter_active) = if let Screen::TaskList { filter, .. } = &self.screen {
-            (filter.clone(), false)
-        } else {
-            (String::new(), false)
-        };
-        let visible = apply_filter(&sorted, &filter);
+        let visible = apply_filter(&sorted, &self.filter);
         let selected = preserve_id
             .and_then(|id| visible.iter().position(|t| t.id == id))
             .unwrap_or(0);
-        self.screen = Screen::TaskList { tasks: sorted, selected, message: msg, filter, filter_active };
+        self.screen = Screen::TaskList { tasks: sorted, selected, message: msg };
     }
 
     fn cycle_status(&mut self, task_id: &str) {
