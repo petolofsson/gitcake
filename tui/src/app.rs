@@ -283,11 +283,6 @@ impl App {
             self.pull_error = None;
             return;
         }
-        if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            let current_path = self.config.repo_path.clone().unwrap_or_default();
-            self.screen = Screen::Setup { input: current_path, error: None, can_cancel: true };
-            return;
-        }
         if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
             let current_id = if let Screen::TaskList { tasks, selected, .. } = &self.screen {
                 let visible = apply_filter_indices(tasks, &self.filter);

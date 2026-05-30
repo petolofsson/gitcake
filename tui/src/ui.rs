@@ -330,22 +330,28 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
 
-    // Filter bar
-    if filter_active {
-        let filter_line = Line::from(vec![
+    // Filter line — always present above the nav bar
+    // 2 leading spaces align '/' with the 'W' in WASD
+    let filter_widget = if filter_active {
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
             Span::styled("/ ", Style::new().add_modifier(Modifier::DIM)),
             Span::styled(filter.to_string(), Style::new().add_modifier(Modifier::BOLD)),
             Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
-        ]);
-        f.render_widget(Paragraph::new(filter_line), rows[1]);
+        ]))
     } else if !filter.is_empty() {
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(format!("/{filter}"), Style::new().add_modifier(Modifier::DIM)),
-            ])),
-            rows[1],
-        );
-    }
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("/{filter}"), Style::new().add_modifier(Modifier::DIM)),
+            Span::styled("  Esc: clear", Style::new().add_modifier(Modifier::DIM)),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Use '/' to filter", Style::new().add_modifier(Modifier::DIM)),
+        ]))
+    };
+    f.render_widget(filter_widget, rows[1]);
 
     let nb = if context == TaskContext::Backlog { backlog_nav_bar() } else { nav_bar() };
     f.render_widget(Paragraph::new(nb), rows[2]);
@@ -759,7 +765,6 @@ fn nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("F", "cycle"),
-        ("/", "filter"),
         ("B", "backlog"),
         ("T", "team"),
     ];
@@ -783,7 +788,6 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("F", "claim"),
-        ("/", "filter"),
         ("B", "personal"),
         ("T", "team"),
     ];
@@ -800,7 +804,7 @@ fn ctrl_bar<'a>(context: TaskContext) -> Line<'a> {
     if context == TaskContext::Personal {
         items.push(("^A", "assign"));
     }
-    items.extend_from_slice(&[("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^O", "repo"), ("^Q", "quit")]);
+    items.extend_from_slice(&[("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^Q", "quit")]);
     let mut spans = vec![Span::raw(" ")];
     for (key, label) in &items {
         spans.push(Span::styled(
