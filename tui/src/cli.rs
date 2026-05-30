@@ -29,9 +29,12 @@ pub enum Command {
     },
     /// Create a new slice
     Create {
+        /// Slice title
         title: String,
+        /// Slice type
         #[arg(long, default_value = "task")]
         r#type: CliType,
+        /// Assign to this username
         #[arg(long)]
         assign: Option<String>,
     },
