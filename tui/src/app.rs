@@ -85,6 +85,7 @@ pub struct App {
     pub should_quit: bool,
     pub needs_clear: bool,
     pub exit_message: Option<String>,
+    pub pull_error: Option<String>,
 }
 
 impl App {
@@ -98,6 +99,7 @@ impl App {
                 should_quit: false,
                 needs_clear: false,
                 exit_message: None,
+                pull_error: None,
             };
         }
 
@@ -115,20 +117,17 @@ impl App {
                 should_quit: false,
                 needs_clear: false,
                 exit_message: None,
+                pull_error: None,
             };
         }
 
         // Auto-pull on startup; failures are non-fatal
-        let pull_msg = match repo.as_ref().unwrap().pull() {
-            Ok(out) if out.trim().is_empty() || out.contains("Already up to date") => None,
-            Ok(_) => Some("Pulled latest changes.".to_string()),
-            Err(e) => Some(format!("Pull failed ({})", e)),
-        };
+        let (pull_msg, pull_error) = classify_pull_result(repo.as_ref().unwrap().pull());
 
         let tasks = sort_for_display(repo.as_ref().unwrap().list_tasks().unwrap_or_default());
         let screen = Screen::TaskList { tasks, selected: 0, message: pull_msg };
 
-        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None }
+        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error }
     }
 
     pub fn handle_event(&mut self, event: Event) {
@@ -218,6 +217,10 @@ impl App {
         }
         if is_key(&key, &km.sync) {
             self.screen = Screen::SyncConfirm;
+            return;
+        }
+        if key.code == KeyCode::Esc {
+            self.pull_error = None;
             return;
         }
 
@@ -539,11 +542,8 @@ impl App {
                     self.config.repo_path = Some(path);
                     self.config.save();
                     self.repo = Some(repo);
-                    let pull_msg = match self.repo.as_ref().unwrap().pull() {
-                        Ok(out) if out.trim().is_empty() || out.contains("Already up to date") => None,
-                        Ok(_) => Some("Pulled latest changes.".to_string()),
-                        Err(e) => Some(format!("Pull failed ({e})")),
-                    };
+                    let (pull_msg, pull_err) = classify_pull_result(self.repo.as_ref().unwrap().pull());
+                    self.pull_error = pull_err;
                     self.enter_task_list(pull_msg);
                 }
                 Err(e) => {
@@ -709,6 +709,39 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
 
 pub fn is_ctrl_q(event: &KeyEvent) -> bool {
     event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('q')
+}
+
+/// Interprets a pull result into an ephemeral message and a persistent error.
+/// Auth and network failures are classified so the user gets actionable text.
+fn classify_pull_result(result: Result<String, git_task_core::error::AppError>) -> (Option<String>, Option<String>) {
+    match result {
+        Ok(out) if out.trim().is_empty() || out.contains("Already up to date") => (None, None),
+        Ok(_) => (Some("Pulled latest changes.".to_string()), None),
+        Err(e) => {
+            let raw = e.to_string();
+            let lower = raw.to_lowercase();
+            let msg = if lower.contains("permission denied")
+                || lower.contains("authentication failed")
+                || lower.contains("could not read username")
+                || lower.contains("access denied")
+                || lower.contains("publickey")
+                || lower.contains("invalid username or password")
+            {
+                "Pull failed: auth error — SSH key not loaded or credentials expired".to_string()
+            } else if lower.contains("could not resolve host")
+                || lower.contains("could not resolve hostname")
+                || lower.contains("network is unreachable")
+                || lower.contains("connection timed out")
+                || lower.contains("no route to host")
+                || lower.contains("unable to connect")
+            {
+                "Pull failed: no network — check VPN or connection".to_string()
+            } else {
+                format!("Pull failed: {raw}")
+            };
+            (None, Some(msg))
+        }
+    }
 }
 
 /// Sorts tasks into display order: in-progress → open → done.

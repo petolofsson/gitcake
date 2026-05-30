@@ -15,7 +15,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Setup { input, error } => draw_setup(f, input, error.as_deref()),
         Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
         Screen::TaskList { tasks, selected, message } => {
-            draw_task_list(f, app.context, tasks, *selected, message.as_deref())
+            draw_task_list(f, app.context, tasks, *selected, message.as_deref(), app.pull_error.as_deref())
         }
         Screen::Detail { task, message } => draw_detail(f, task, message.as_deref()),
         Screen::Create { title, task_type, assignee, description, field } => {
@@ -124,7 +124,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
 
 // ── task list ─────────────────────────────────────────────────────────────────
 
-fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>) {
+fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>, pull_error: Option<&str>) {
     let area = f.area();
 
     let app_title = match context {
@@ -138,6 +138,15 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
         .padding(Padding::new(1, 1, 1, 1));
     if let Some(msg) = message {
         block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
+    }
+    if let Some(err) = pull_error {
+        block = block.title_bottom(
+            Line::from(vec![
+                Span::styled(format!(" ⚠ {err} "), Style::new().fg(Color::Yellow)),
+                Span::styled(" Esc: dismiss ", Style::new().add_modifier(Modifier::DIM)),
+            ])
+            .left_aligned(),
+        );
     }
     let inner = block.inner(area);
     f.render_widget(block, area);
