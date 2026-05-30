@@ -231,8 +231,9 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Fill(1),
+            Constraint::Length(1), // filter bar (two lines above nav bar)
+            Constraint::Length(1), // blank spacer
             Constraint::Length(1), // nav shortcuts
-            Constraint::Length(1), // filter bar (always present, empty when not filtering)
             Constraint::Length(1), // ctrl shortcuts
         ])
         .split(inner);
@@ -352,9 +353,10 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         ]))
     };
     let nb = if context == TaskContext::Backlog { backlog_nav_bar() } else { nav_bar() };
-    f.render_widget(Paragraph::new(nb), rows[1]);
-    f.render_widget(filter_widget, rows[2]);
-    f.render_widget(Paragraph::new(ctrl_bar(context)), rows[3]);
+    f.render_widget(filter_widget, rows[1]);
+    // rows[2] blank spacer
+    f.render_widget(Paragraph::new(nb), rows[3]);
+    f.render_widget(Paragraph::new(ctrl_bar(context)), rows[4]);
 }
 
 // ── detail ────────────────────────────────────────────────────────────────────
