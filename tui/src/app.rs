@@ -1,4 +1,4 @@
-use std::{env, fs, path::Path, process::Command};
+use std::{env, fs, path::{Path, PathBuf}, process::Command};
 
 use crossterm::{
     event::{Event, KeyCode, KeyEvent, KeyModifiers},
@@ -86,6 +86,7 @@ pub struct App {
     pub needs_clear: bool,
     pub exit_message: Option<String>,
     pub pull_error: Option<String>,
+    pub lock_path: Option<PathBuf>,
 }
 
 impl App {
@@ -100,6 +101,7 @@ impl App {
                 needs_clear: false,
                 exit_message: None,
                 pull_error: None,
+                lock_path: None,
             };
         }
 
@@ -118,18 +120,25 @@ impl App {
                 needs_clear: false,
                 exit_message: None,
                 pull_error: None,
+                lock_path: None,
             };
         }
 
         // Auto-pull on startup; failures are non-fatal
         let (pull_msg, pull_error) = classify_pull_result(repo.as_ref().unwrap().pull());
 
+        let repo_path = repo.as_ref().unwrap().info.path.clone();
+        let (lock_path, lock_warn) = acquire_lock(&repo_path);
+
         let (raw_tasks, task_warnings) = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
-        let startup_msg = merge_messages(pull_msg, warn_summary(&task_warnings));
+        let startup_msg = merge_messages(
+            merge_messages(pull_msg, lock_warn),
+            warn_summary(&task_warnings),
+        );
         let tasks = sort_for_display(raw_tasks);
         let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg };
 
-        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error }
+        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error, lock_path }
     }
 
     pub fn handle_event(&mut self, event: Event) {
@@ -544,9 +553,12 @@ impl App {
                     self.config.repo_path = Some(path);
                     self.config.save();
                     self.repo = Some(repo);
+                    let repo_path = self.repo.as_ref().unwrap().info.path.clone();
+                    let (lock_path, lock_warn) = acquire_lock(&repo_path);
+                    self.lock_path = lock_path;
                     let (pull_msg, pull_err) = classify_pull_result(self.repo.as_ref().unwrap().pull());
                     self.pull_error = pull_err;
-                    self.enter_task_list(pull_msg);
+                    self.enter_task_list(merge_messages(pull_msg, lock_warn));
                 }
                 Err(e) => {
                     self.screen = Screen::Setup { input: path, error: Some(e.to_string()) };
@@ -693,6 +705,13 @@ impl App {
     fn try_quit(&mut self) {
         self.screen = Screen::PushPrompt;
     }
+
+    /// Removes the session lock file. Call only on clean exit.
+    pub fn cleanup(&self) {
+        if let Some(ref path) = self.lock_path {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 // ── key matching ──────────────────────────────────────────────────────────────
@@ -712,6 +731,52 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
 
 pub fn is_ctrl_q(event: &KeyEvent) -> bool {
     event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('q')
+}
+
+/// Writes a session lock file for `repo_path` and returns its path plus an
+/// optional warning when a stale or concurrent lock is detected.
+fn acquire_lock(repo_path: &str) -> (Option<PathBuf>, Option<String>) {
+    let Some(path) = lock_file_path(repo_path) else { return (None, None) };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let warn = if path.exists() {
+        stale_lock_warning(&path)
+    } else {
+        None
+    };
+    let _ = fs::write(&path, std::process::id().to_string());
+    (Some(path), warn)
+}
+
+/// Returns a user-facing warning if the lock at `path` belongs to a dead or
+/// concurrent process, or `None` if the lock is absent or owned by us.
+fn stale_lock_warning(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let pid: u32 = content.trim().parse().ok()?;
+    if pid == std::process::id() {
+        return None;
+    }
+    if process_running(pid) {
+        Some("Another git-task session is already open for this repo".to_string())
+    } else {
+        Some("Last session ended without pushing — consider ^R to sync".to_string())
+    }
+}
+
+/// Returns the lock file path for a repo, stored in the config directory so
+/// it does not appear as an untracked file in the cake repo.
+fn lock_file_path(repo_path: &str) -> Option<PathBuf> {
+    let key: String = repo_path
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    dirs::config_dir().map(|d| d.join("git-task").join(format!("{key}.lock")))
+}
+
+/// Checks whether a process with the given PID is currently running.
+fn process_running(pid: u32) -> bool {
+    Path::new(&format!("/proc/{pid}")).exists()
 }
 
 /// Formats a list of unreadable filenames into a single warning string.

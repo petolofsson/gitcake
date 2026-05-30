@@ -26,6 +26,9 @@ fn main() -> io::Result<()> {
 
     let result = run(&mut terminal, &mut app);
 
+    // Clean exit — remove the session lock so future startups don't warn.
+    app.cleanup();
+
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
