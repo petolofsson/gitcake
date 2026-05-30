@@ -598,7 +598,7 @@ fn nav_bar<'a>() -> Line<'a> {
     for (key, label) in &items {
         spans.push(Span::styled(
             format!(" {key} "),
-            Style::new().fg(Color::Black).bg(Color::White),
+            Style::new().bg(Color::White).fg(Color::Reset),
         ));
         spans.push(Span::styled(
             format!(" {label}  "),
@@ -619,7 +619,7 @@ fn ctrl_bar<'a>() -> Line<'a> {
     for (key, label) in &items {
         spans.push(Span::styled(
             format!(" {key} "),
-            Style::new().fg(Color::Black).bg(Color::White),
+            Style::new().bg(Color::White).fg(Color::Reset),
         ));
         spans.push(Span::styled(
             format!(" {label}  "),
