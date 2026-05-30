@@ -359,6 +359,8 @@ fn draw_create(
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1), // editor hint (top)
+            Constraint::Length(1), // blank
             Constraint::Length(1), // TITLE: label
             Constraint::Length(1), // title input
             Constraint::Length(1), // blank
@@ -366,37 +368,34 @@ fn draw_create(
             Constraint::Length(1), // type selector
             Constraint::Length(1), // blank
             Constraint::Length(1), // DESCRIPTION: label
-            Constraint::Length(4), // description preview
-            Constraint::Length(1), // editor hint
-            Constraint::Fill(1),   // spacer
+            Constraint::Fill(1),   // description preview — all remaining space
             Constraint::Length(1), // commands
         ])
         .split(inner);
 
-    draw_field_label(f, rows[0], "TITLE:", *field == CreateField::Title);
-    draw_field_input(f, rows[1], title, *field == CreateField::Title, false);
+    draw_editor_hint(f, rows[0], *field == CreateField::Description);
 
-    draw_field_label(f, rows[3], "TYPE:", *field == CreateField::Type);
+    draw_field_label(f, rows[2], "TITLE:", *field == CreateField::Title);
+    draw_field_input(f, rows[3], title, *field == CreateField::Title, false);
+
+    draw_field_label(f, rows[5], "TYPE:", *field == CreateField::Type);
     let type_str = match task_type {
         TaskType::Task => "task",
         TaskType::Bug => "bug",
         TaskType::Incident => "incident",
     };
-    let active_type = *field == CreateField::Type;
-    let type_style = if active_type {
+    let type_style = if *field == CreateField::Type {
         Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
     } else {
         Style::new().add_modifier(Modifier::DIM)
     };
     f.render_widget(
         Paragraph::new(format!("[ {type_str} ]  Space to cycle")).style(type_style),
-        rows[4],
+        rows[6],
     );
 
-    let desc_active = *field == CreateField::Description;
-    draw_field_label(f, rows[6], "DESCRIPTION: (markdown)", desc_active);
-    draw_description_preview(f, rows[7], description, desc_active);
-    draw_editor_hint(f, rows[8], desc_active);
+    draw_field_label(f, rows[8], "DESCRIPTION: (markdown)", *field == CreateField::Description);
+    draw_description_preview(f, rows[9], description, *field == CreateField::Description);
 
     f.render_widget(
         Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Esc: cancel")
@@ -416,24 +415,24 @@ fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1), // editor hint (top)
+            Constraint::Length(1), // blank
             Constraint::Length(1), // TITLE: label
             Constraint::Length(1), // title input
             Constraint::Length(1), // blank
             Constraint::Length(1), // DESCRIPTION: label
-            Constraint::Length(4), // description preview
-            Constraint::Length(1), // editor hint
-            Constraint::Fill(1),   // spacer
+            Constraint::Fill(1),   // description preview — all remaining space
             Constraint::Length(1), // commands
         ])
         .split(inner);
 
-    draw_field_label(f, rows[0], "TITLE:", *field == EditField::Title);
-    draw_field_input(f, rows[1], title, *field == EditField::Title, false);
+    draw_editor_hint(f, rows[0], *field == EditField::Description);
 
-    let desc_active = *field == EditField::Description;
-    draw_field_label(f, rows[3], "DESCRIPTION: (markdown)", desc_active);
-    draw_description_preview(f, rows[4], description, desc_active);
-    draw_editor_hint(f, rows[5], desc_active);
+    draw_field_label(f, rows[2], "TITLE:", *field == EditField::Title);
+    draw_field_input(f, rows[3], title, *field == EditField::Title, false);
+
+    draw_field_label(f, rows[5], "DESCRIPTION: (markdown)", *field == EditField::Description);
+    draw_description_preview(f, rows[6], description, *field == EditField::Description);
 
     f.render_widget(
         Paragraph::new("Tab: switch field  ·  Ctrl+S: save  ·  Esc: cancel")
@@ -554,19 +553,16 @@ fn draw_description_preview(f: &mut Frame, area: Rect, content: &str, active: bo
     );
 }
 
-fn draw_editor_hint(f: &mut Frame, area: Rect, active: bool) {
-    let (text, style) = if active {
-        (
-            "Enter: open in $EDITOR",
-            Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan),
-        )
+fn draw_editor_hint(f: &mut Frame, area: Rect, desc_active: bool) {
+    let style = if desc_active {
+        Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
     } else {
-        (
-            "Enter: open in $EDITOR",
-            Style::new().add_modifier(Modifier::DIM),
-        )
+        Style::new().add_modifier(Modifier::DIM)
     };
-    f.render_widget(Paragraph::new(text).style(style), area);
+    f.render_widget(
+        Paragraph::new("Press Enter to open description in $EDITOR").style(style),
+        area,
+    );
 }
 
 // wrap=true for multi-line areas (description)
