@@ -66,6 +66,10 @@ pub enum Screen {
     },
     SyncConfirm,
     PushPrompt,
+    TeamView {
+        tasks: Vec<(String, git_task_core::models::task::Task)>,
+        selected: usize,
+    },
 }
 
 #[derive(PartialEq, Clone)]
@@ -154,6 +158,7 @@ impl App {
             Screen::DeleteConfirm { .. } => self.handle_delete_confirm(key),
             Screen::SyncConfirm => self.handle_sync_confirm(key),
             Screen::PushPrompt => self.handle_push_prompt(key),
+            Screen::TeamView { .. } => self.handle_team_view(key),
         }
     }
 
@@ -338,6 +343,13 @@ impl App {
                     TaskContext::Backlog => TaskContext::Personal,
                 };
                 self.enter_task_list(None, None);
+            }
+            // t — team view (read-only, all users' active tasks)
+            KeyCode::Char('t') if key.modifiers == KeyModifiers::NONE => {
+                let tasks = self.repo.as_ref()
+                    .and_then(|r| r.list_team_tasks().ok())
+                    .unwrap_or_default();
+                self.screen = Screen::TeamView { tasks, selected: 0 };
             }
             // Ctrl+A — assign selected task
             KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -719,6 +731,24 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 self.enter_task_list(None, Some(&id));
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_team_view(&mut self, key: KeyEvent) {
+        if is_ctrl_q(&key) { self.try_quit(); return; }
+        let Screen::TeamView { tasks, selected } = &mut self.screen else { return };
+        let count = tasks.len();
+        match key.code {
+            KeyCode::Char('w') | KeyCode::Up => {
+                if count > 0 { *selected = selected.checked_sub(1).unwrap_or(count - 1); }
+            }
+            KeyCode::Char('s') | KeyCode::Down => {
+                if count > 0 { *selected = (*selected + 1) % count; }
+            }
+            KeyCode::Char('a') | KeyCode::Esc | KeyCode::Char('q') => {
+                self.enter_task_list(None, None);
             }
             _ => {}
         }

@@ -92,6 +92,23 @@ impl TaskRepo {
         task_file::scan_tasks(&self.user_folder(), &self.completed_folder())
     }
 
+    /// Returns active (open + in-progress) tasks for every user folder in the
+    /// repo, paired with the folder owner's username. Used for team view.
+    pub fn list_team_tasks(&self) -> Result<Vec<(String, Task)>, AppError> {
+        let root = Path::new(&self.info.path);
+        let users = self.list_users()?;
+        let mut result = Vec::new();
+        for user in &users {
+            let user_folder = root.join(user);
+            let completed_folder = root.join("completed").join(user);
+            let (tasks, _) = task_file::scan_tasks(&user_folder, &completed_folder)?;
+            for task in tasks.into_iter().filter(|t| !t.is_completed && t.status != TaskStatus::Done) {
+                result.push((user.clone(), task));
+            }
+        }
+        Ok(result)
+    }
+
     // ── task mutations ────────────────────────────────────────────────────────
 
     /// Creates a new task file with the next sequential ID. Status is `open`.
