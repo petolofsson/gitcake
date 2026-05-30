@@ -369,6 +369,21 @@ impl TaskRepo {
         self.backlog_folder().join(format!("{id}.md"))
     }
 
+    /// Returns the filesystem path for a personal task (active or completed).
+    pub fn find_task_file_path(&self, id: &str) -> Option<PathBuf> {
+        let active = self.task_path(id);
+        if active.exists() { return Some(active); }
+        let completed = self.completed_task_path(id);
+        if completed.exists() { return Some(completed); }
+        None
+    }
+
+    /// Returns the filesystem path for a backlog task.
+    pub fn backlog_file_path(&self, id: &str) -> Option<PathBuf> {
+        let path = self.backlog_task_path(id);
+        if path.exists() { Some(path) } else { None }
+    }
+
     /// Finds a task file by ID, checking active folder first then completed.
     fn find_task(&self, id: &str) -> Result<(PathBuf, bool), AppError> {
         let active = self.task_path(id);

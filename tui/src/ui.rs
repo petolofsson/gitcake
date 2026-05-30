@@ -8,7 +8,7 @@ use ratatui::{
 
 use git_task_core::models::task::{Task, TaskStatus, TaskType};
 
-use crate::app::{App, CreateField, EditField, Screen, TaskContext};
+use crate::app::{App, CreateField, Screen, TaskContext};
 
 pub fn draw(f: &mut Frame, app: &App) {
     match &app.screen {
@@ -20,9 +20,6 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Detail { task, message } => draw_detail(f, task, message.as_deref()),
         Screen::Create { title, task_type, description, field } => {
             draw_create(f, title, task_type, description, field)
-        }
-        Screen::Edit { title, description, field, .. } => {
-            draw_edit(f, title, description, field)
         }
         Screen::AssignTask { users, selected, .. } => draw_assign_task(f, users, *selected),
         Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title),
@@ -423,43 +420,6 @@ fn draw_create(
         Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[10],
-    );
-}
-
-// ── edit ──────────────────────────────────────────────────────────────────────
-
-fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
-    let area = f.area();
-    let block = padded_block("Edit task");
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // editor hint (top)
-            Constraint::Length(1), // blank
-            Constraint::Length(1), // TITLE: label
-            Constraint::Length(1), // title input
-            Constraint::Length(1), // blank
-            Constraint::Length(1), // DESCRIPTION: label
-            Constraint::Fill(1),   // description preview — all remaining space
-            Constraint::Length(1), // commands
-        ])
-        .split(inner);
-
-    draw_editor_hint(f, rows[0], *field == EditField::Description);
-
-    draw_field_label(f, rows[2], "TITLE:", *field == EditField::Title);
-    draw_field_input(f, rows[3], title, *field == EditField::Title, false);
-
-    draw_field_label(f, rows[5], "DESCRIPTION: (markdown)", *field == EditField::Description);
-    draw_description_preview(f, rows[6], description, *field == EditField::Description);
-
-    f.render_widget(
-        Paragraph::new("Tab: switch field  ·  Ctrl+S: save  ·  Esc: cancel")
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[7],
     );
 }
 

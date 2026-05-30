@@ -47,12 +47,6 @@ pub enum Screen {
         description: String,
         field: CreateField,
     },
-    Edit {
-        task_id: String,
-        title: String,
-        description: String,
-        field: EditField,
-    },
     AssignTask {
         task_id: String,
         users: Vec<String>,
@@ -70,12 +64,6 @@ pub enum Screen {
 pub enum CreateField {
     Title,
     Type,
-    Description,
-}
-
-#[derive(PartialEq)]
-pub enum EditField {
-    Title,
     Description,
 }
 
@@ -143,7 +131,6 @@ impl App {
             Screen::TaskList { .. } => self.handle_task_list(key),
             Screen::Detail { .. } => self.handle_detail(key),
             Screen::Create { .. } => self.handle_create(key),
-            Screen::Edit { .. } => self.handle_edit(key),
             Screen::AssignTask { .. } => self.handle_assign_task(key),
             Screen::DeleteConfirm { .. } => self.handle_delete_confirm(key),
             Screen::SyncConfirm => self.handle_sync_confirm(key),
@@ -270,13 +257,17 @@ impl App {
                 };
             }
             KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 => {
-                if let Some(task) = tasks.get(*selected).cloned() {
-                    self.screen = Screen::Edit {
-                        task_id: task.id.clone(),
-                        title: task.title.clone(),
-                        description: task.description.clone().unwrap_or_default(),
-                        field: EditField::Description,
+                let sel = *selected;
+                if let Some(task) = tasks.get(sel).cloned() {
+                    let path = match self.context {
+                        TaskContext::Personal => self.repo.as_ref().and_then(|r| r.find_task_file_path(&task.id)),
+                        TaskContext::Backlog => self.repo.as_ref().and_then(|r| r.backlog_file_path(&task.id)),
                     };
+                    if let Some(path) = path {
+                        open_file_in_editor(&path);
+                        self.needs_clear = true;
+                        self.enter_task_list(Some("Task updated.".into()));
+                    }
                 }
             }
             KeyCode::Char(c)
@@ -338,15 +329,15 @@ impl App {
             return;
         }
         if is_key(&key, &km.edit) {
-            let Screen::Detail { task, .. } = &self.screen else {
-                return;
+            let path = match self.context {
+                TaskContext::Personal => self.repo.as_ref().and_then(|r| r.find_task_file_path(&task_id)),
+                TaskContext::Backlog => self.repo.as_ref().and_then(|r| r.backlog_file_path(&task_id)),
             };
-            self.screen = Screen::Edit {
-                task_id: task.id.clone(),
-                title: task.title.clone(),
-                description: task.description.clone().unwrap_or_default(),
-                field: EditField::Description,
-            };
+            if let Some(path) = path {
+                open_file_in_editor(&path);
+                self.needs_clear = true;
+            }
+            self.enter_task_list(Some("Task updated.".into()));
             return;
         }
         if is_key(&key, &km.status_cycle) {
@@ -426,62 +417,6 @@ impl App {
             }
             KeyCode::Backspace if *field == CreateField::Title => { title.pop(); }
             KeyCode::Char(c) if *field == CreateField::Title => title.push(c),
-            _ => {}
-        }
-        if launched_editor {
-            self.needs_clear = true;
-        }
-    }
-
-    // ── edit ──────────────────────────────────────────────────────────────────
-
-    fn handle_edit(&mut self, key: KeyEvent) {
-        if is_ctrl_q(&key) { self.should_quit = true; return; }
-
-        let Screen::Edit { task_id, title, description, field } = &mut self.screen else {
-            return;
-        };
-
-        // Ctrl+S saves from any field
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
-            let id = task_id.clone();
-            let new_title = Some(title.trim().to_string()).filter(|s| !s.is_empty());
-            let new_desc = Some(description.trim().to_string()).filter(|s| !s.is_empty());
-            if let Some(repo) = &self.repo {
-                let result = match self.context {
-                    TaskContext::Personal => repo.update_task(&id, new_title, new_desc),
-                    TaskContext::Backlog => repo.update_backlog_task(&id, new_title, new_desc),
-                };
-                match result {
-                    Ok(_) => self.enter_task_list(Some("Task updated.".into())),
-                    Err(e) => self.enter_task_list(Some(e.to_string())),
-                }
-            }
-            return;
-        }
-
-        let mut launched_editor = false;
-        match key.code {
-            KeyCode::Esc => self.enter_task_list(None),
-            KeyCode::Tab => {
-                *field = match field {
-                    EditField::Title => EditField::Description,
-                    EditField::Description => EditField::Title,
-                };
-            }
-            KeyCode::Enter if *field == EditField::Title => {
-                *field = EditField::Description;
-            }
-            // Enter on description opens $EDITOR
-            KeyCode::Enter if *field == EditField::Description => {
-                let current = description.clone();
-                if let Some(edited) = open_in_editor(&current) {
-                    *description = edited;
-                }
-                launched_editor = true;
-            }
-            KeyCode::Backspace if *field == EditField::Title => { title.pop(); }
-            KeyCode::Char(c) if *field == EditField::Title => title.push(c),
             _ => {}
         }
         if launched_editor {
@@ -727,6 +662,20 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+// Opens an existing file directly in $VISUAL/$EDITOR.
+// Edits are saved in-place — no temp file.
+fn open_file_in_editor(path: &std::path::Path) {
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    let _ = disable_raw_mode();
+    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+    let _ = Command::new(&editor).arg(path).status();
+    let _ = enable_raw_mode();
+    let _ = execute!(std::io::stdout(), EnterAlternateScreen);
 }
 
 // Suspends ratatui, opens content in $VISUAL/$EDITOR, resumes ratatui.
