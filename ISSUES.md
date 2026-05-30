@@ -6,81 +6,86 @@ Captured during 100-user stress analysis. Ordered by impact.
 
 ## Critical — breaks core usage
 
-- [ ] **Editor trap on first use**
-  `$EDITOR`/`$VISUAL` not set → falls back to `vi`. Users unfamiliar with vi have no way out.
-  Fix: default to `nano`; detect if neither env var is set and show a one-time hint on how to save/quit.
+- [x] **Editor trap on first use**
+  Default editor changed to `nano`; falls back to `vi` silently if `nano` is absent.
+  `$EDITOR`/`$VISUAL` respected first; hint shown only when falling back to `nano`.
 
-- [ ] **Silent auth failures at startup**
-  Pull fails if SSH key not loaded, VPN not connected, or token expired. Error flashes in header and is cleared by the next keypress — user has no idea their state is stale and push will also fail later.
-  Fix: keep auth/pull errors visible until explicitly dismissed; distinguish "no network" from "auth failure".
+- [x] **Silent auth failures at startup**
+  Pull errors now stored in `App.pull_error` (separate from ephemeral message).
+  Classified as auth / network / other with actionable text. Visible on bottom border
+  in yellow until Esc. Same classifier applied to Ctrl+P mid-session pull.
 
-- [ ] **One bad task file kills the entire list**
-  Malformed YAML frontmatter in a single `.md` file causes `list_tasks()` to fail — all tasks vanish with no explanation.
-  Fix: skip unreadable files, collect parse errors, and show a warning ("1 task could not be read: alice-smith/003.md").
+- [x] **One bad task file kills the entire list**
+  `collect_tasks()` skips unreadable files and collects their filenames as warnings.
+  `scan_tasks()` / `scan_folder()` return `(Vec<Task>, Vec<String>)`. Warning shown
+  in header: "N slice(s) could not be read: filename".
 
-- [ ] **Terminal close bypasses push prompt**
-  Alt+F4 or closing the terminal tab skips Ctrl+Q entirely. Work since last sync is silently lost.
-  Fix: document prominently; consider writing a `.lock` file on open and cleaning up on exit so users can detect incomplete sessions.
+- [x] **Terminal close bypasses push prompt**
+  Lock file written to `~/.config/git-task/{repo-key}.lock` on open (contains PID).
+  Removed on clean exit. Stale lock (PID absent from `/proc`) shows warning at next
+  startup: "Last session ended without pushing — consider ^R to sync".
 
-- [ ] **Git conflict has no in-app resolution path**
-  Two users editing the same backlog task, or same user on two machines, causes push to fail with a raw git error string. No retry, no guidance.
-  Fix: detect conflict errors specifically, show a clear message with resolution steps ("run `git pull` then `gt` again").
+- [x] **Git conflict has no in-app resolution path**
+  `classify_push_error()` detects rejected/non-fast-forward pushes and shows:
+  "Push rejected: remote has new commits — run `git pull` in the repo, then ^R to retry".
 
 ---
 
 ## High — degrades experience at scale
 
-- [ ] **Cursor resets to position 0 after every action**
-  Every status cycle, edit, create, sync, or delete resets the selected index to the top of the list. Marking 10 tasks done in a row means jumping back to the top each time.
-  Fix: remember selected task by ID, restore position after reloading the list.
+- [x] **Cursor resets to position 0 after every action**
+  `enter_task_list()` accepts `preserve_id: Option<&str>`. All key actions that know
+  the selected task ID (cycle, edit, assign, delete-cancel, detail-back) pass it through.
+  Position is restored by searching the re-sorted list for the matching ID.
 
-- [ ] **Non-ASCII usernames break folder names**
-  `git config user.name = "José García"` → `josé-garcía`. Fails on some filesystems (older macOS HFS+, some Windows configs). Emoji or CJK names are worse.
-  Fix: normalize to ASCII (transliterate or strip), or at minimum validate and block with a clear error.
+- [x] **Non-ASCII usernames break folder names**
+  `get_username()` validates that the derived folder name contains only
+  `[a-z0-9-]`. Returns `AppError::UsernameInvalid(name)` with instructions to
+  set a simpler `git config user.name`.
 
-- [ ] **Long task titles overflow the row layout**
-  A 200-char title runs past the terminal edge. Emoji titles (double-width characters) misalign columns.
-  Fix: truncate titles to available width with `…`; handle double-width characters in column calculations.
+- [x] **Long task titles overflow the row layout**
+  `truncate_title()` in `ui.rs` uses `unicode-width` to measure display cells.
+  Per-row budget = `inner_width − 17 (fixed prefix) − assignee_cols`.
+  Truncated titles append `…` at the correct visual boundary.
 
-- [ ] **No manual pull mid-session**
-  If a teammate pushes while you're working, there's no way to refresh without restarting `gt`.
-  Fix: add `Ctrl+P` to pull and reload the task list.
+- [x] **No manual pull mid-session**
+  `Ctrl+P` pulls and reloads the task list, preserving cursor position.
+  Shown in ctrl bar. Uses same error classifier as startup pull.
 
-- [ ] **Small terminal windows garble the UI**
-  Below ~60 columns, block borders overlap content and command bars wrap unpredictably.
-  Fix: detect terminal size on render; show a "terminal too small" message below minimum dimensions (e.g. 60×20).
+- [x] **Small terminal windows garble the UI**
+  `draw()` checks `area.width < 60 || area.height < 20` before any rendering.
+  Shows "Terminal too small (WxH) — resize to at least 60×20" centred on screen.
 
 ---
 
 ## Medium — noticeable friction
 
-- [ ] **"DONE (local)" label is wrong for synced tasks**
-  After sync, tasks move to `completed/` and `is_completed = true` but still appear under "DONE (local)".
-  Fix: separate into "DONE (local)" (pending sync) and "DONE (synced)" or just "DONE" — removing the label when already synced.
+- [x] **"DONE (local)" label is wrong for synced tasks**
+  Done group split: `done_local` (status=Done, is_completed=false) shows "DONE (local)";
+  `done_synced` (is_completed=true) shows "DONE". Section headers include counts.
 
-- [ ] **No way to view other team members' tasks**
-  Core product promise is team visibility, but there's no UI to browse other users' folders.
-  Fix: add a "team view" mode that lists all user folders and their active tasks (read-only).
+- [x] **No way to view other team members' tasks**
+  `T` key opens a read-only team view grouped by user folder. Shows all active
+  (open + in-progress) tasks from every user. WS to navigate, A/Esc to return.
+  `list_team_tasks()` added to `TaskRepo` in core.
 
-- [ ] **No way to change repo path without editing config manually**
-  Once set, the repo path in `~/.config/git-task/config.toml` can only be changed by editing the file directly.
-  Fix: add a "change repo" option reachable from within the app (e.g. from the setup screen or a settings screen).
+- [x] **No way to change repo path without editing config manually**
+  `Ctrl+O` from the task list opens the setup screen with the current path pre-filled.
+  `Screen::Setup` gained `can_cancel: bool`; Esc returns to task list when true.
 
-- [ ] **Backlog assignee not validated**
-  You can assign a backlog task to a username that has no folder in the repo. Silently succeeds.
-  Fix: picker already enforces valid users — ensure backlog assign always uses the picker, never free text.
+- [x] **Backlog assignee not validated**
+  `assign_backlog_task()` now calls `list_users()` and returns `AppError::InvalidRepo`
+  if the assignee has no user folder. The TUI picker already restricts to known users.
 
-- [ ] **No scroll position memory when returning from detail view**
-  Viewing a task detail and pressing back returns to position 0 in the list, not to the task you came from.
-  Fix: pass the current selected index back when returning from detail view.
+- [x] **No scroll position memory when returning from detail view**
+  Fixed by the cursor-preservation work: `handle_detail` back passes `Some(&task_id)`
+  to `enter_task_list()`.
 
-- [ ] **Repo name and current user not shown in header**
-  The header just says `git-task`. You don't know which repo you're connected to or who you are.
-  Fix: show `git-task · repo-name · username` in the header.
+- [x] **Repo name and current user not shown in header**
+  Task list title now reads: `git-task · {repo_name} · {username}` (or `· BACKLOG`).
 
-- [ ] **No task count per group**
-  No indication of how many tasks are in each status group.
-  Fix: show counts in section headers, e.g. `● IN PROGRESS (3)`.
+- [x] **No task count per group**
+  Section headers show counts: `● IN PROGRESS (2)`, `○ OPEN (4)`, etc.
 
 ---
 
@@ -127,7 +132,7 @@ No business logic in the CLI layer. Same rule as the TUI: just call core.
 
 ### MCP server (Claude / AI integration)
 A Model Context Protocol server wrapping `git-task-core` as a set of typed AI tools.
-Enables Claude Code, Cursor, and any MCP-compatible AI to read and write tasks natively.
+Enables Claude Code, Cursor, and any MCP-compatible AI to read and write slices natively.
 
 Tools to expose:
 - `list_tasks` — returns current tasks with status, assignee, description
