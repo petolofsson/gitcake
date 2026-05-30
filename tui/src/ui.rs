@@ -744,7 +744,7 @@ fn nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("F", "cycle"),
-        ("R", "pull"),
+        ("⇧R", "pull"),
         ("B", "backlog"),
         ("T", "team"),
     ];
@@ -768,7 +768,7 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("G", "claim"),
-        ("R", "pull"),
+        ("⇧R", "pull"),
         ("B", "personal"),
         ("T", "team"),
     ];
