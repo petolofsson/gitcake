@@ -21,14 +21,15 @@ pub enum TaskStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
-    #[serde(rename = "type")]
+    /// Derived from the parent folder name (tasks/, bugs/, incidents/).
+    /// Not stored in frontmatter.
     pub task_type: TaskType,
     pub title: String,
     pub status: TaskStatus,
     pub created: NaiveDateTime,
     pub done: Option<NaiveDateTime>,
     pub description: Option<String>,
-    pub assignee: Option<String>,
-    /// true when the file lives in completed/{username}/
-    pub is_completed: bool,
+    /// Who owns this task. None = unowned (backlog). Replaces both the old
+    /// personal-folder ownership model and the assignee field.
+    pub owner: Option<String>,
 }

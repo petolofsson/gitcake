@@ -38,6 +38,8 @@ pub enum Screen {
         tasks: Vec<Task>,
         selected: usize,
         message: Option<String>,
+        filter: String,
+        filter_active: bool,
     },
     Detail {
         task: Task,
@@ -142,7 +144,7 @@ impl App {
         let (raw_tasks, task_warnings) = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
         let startup_msg = merge_messages(pull_msg, warn_summary(&task_warnings));
         let tasks = sort_for_display(raw_tasks);
-        let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg };
+        let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg, filter: String::new(), filter_active: false };
 
         Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error, lock_warning, lock_path }
     }
@@ -234,15 +236,46 @@ impl App {
     fn handle_task_list(&mut self, key: KeyEvent) {
         let km = self.config.keys.clone();
 
+        // Ctrl+Q always quits regardless of filter state
         if is_key(&key, &km.quit) {
             self.try_quit();
             return;
         }
+
+        // Filter-active mode intercepts all other keys first
+        if let Screen::TaskList { filter, filter_active, selected, .. } = &mut self.screen {
+            if *filter_active {
+                match key.code {
+                    KeyCode::Esc => {
+                        if filter.is_empty() {
+                            *filter_active = false;
+                        } else {
+                            filter.clear();
+                            *selected = 0;
+                        }
+                    }
+                    KeyCode::Enter => { *filter_active = false; }
+                    KeyCode::Backspace => { filter.pop(); *selected = 0; }
+                    KeyCode::Char(c) => { filter.push(c); *selected = 0; }
+                    _ => {}
+                }
+                return;
+            }
+        }
+
         if is_key(&key, &km.push) {
             self.screen = Screen::SyncConfirm;
             return;
         }
         if key.code == KeyCode::Esc {
+            // Clear filter if active, otherwise dismiss pull error
+            if let Screen::TaskList { filter, selected, .. } = &mut self.screen {
+                if !filter.is_empty() {
+                    filter.clear();
+                    *selected = 0;
+                    return;
+                }
+            }
             self.pull_error = None;
             return;
         }
@@ -252,8 +285,9 @@ impl App {
             return;
         }
         if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            let current_id = if let Screen::TaskList { tasks, selected, .. } = &self.screen {
-                tasks.get(*selected).map(|t| t.id.clone())
+            let current_id = if let Screen::TaskList { tasks, selected, filter, .. } = &self.screen {
+                let visible = apply_filter_indices(tasks, filter);
+                visible.get(*selected).and_then(|&i| tasks.get(i)).map(|t| t.id.clone())
             } else {
                 None
             };
@@ -269,39 +303,49 @@ impl App {
             return;
         }
 
-        let Screen::TaskList { tasks, selected, message } = &mut self.screen else {
+        let Screen::TaskList { tasks, selected, message, filter, filter_active } = &mut self.screen else {
             return;
         };
 
-        let task_count = tasks.len();
+        // / enters filter mode
+        if key.code == KeyCode::Char('/') && key.modifiers == KeyModifiers::NONE {
+            *filter_active = true;
+            filter.clear();
+            *selected = 0;
+            return;
+        }
+
+        let visible: Vec<usize> = apply_filter_indices(tasks, filter);
+        let visible_count = visible.len();
 
         match key.code {
             KeyCode::Char(c) if c == km.up.chars().next().unwrap_or('w') && km.up.len() == 1 && key.modifiers == KeyModifiers::NONE => {
-                if task_count > 0 {
-                    *selected = selected.checked_sub(1).unwrap_or(task_count - 1);
+                if visible_count > 0 {
+                    *selected = selected.checked_sub(1).unwrap_or(visible_count - 1);
                     *message = None;
                 }
             }
             KeyCode::Char(c) if c == km.down.chars().next().unwrap_or('s') && km.down.len() == 1 && key.modifiers == KeyModifiers::NONE => {
-                if task_count > 0 {
-                    *selected = (*selected + 1) % task_count;
+                if visible_count > 0 {
+                    *selected = (*selected + 1) % visible_count;
                     *message = None;
                 }
             }
             KeyCode::Up => {
-                if task_count > 0 {
-                    *selected = selected.checked_sub(1).unwrap_or(task_count - 1);
+                if visible_count > 0 {
+                    *selected = selected.checked_sub(1).unwrap_or(visible_count - 1);
                     *message = None;
                 }
             }
             KeyCode::Down => {
-                if task_count > 0 {
-                    *selected = (*selected + 1) % task_count;
+                if visible_count > 0 {
+                    *selected = (*selected + 1) % visible_count;
                     *message = None;
                 }
             }
             KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 && key.modifiers == KeyModifiers::NONE => {
-                if let Some(task) = tasks.get(*selected).cloned() {
+                let real_idx = visible.get(*selected).copied();
+                if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
                     self.screen = Screen::Detail { task, message: None };
                 }
             }
@@ -316,16 +360,14 @@ impl App {
                 };
             }
             KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 && key.modifiers == KeyModifiers::NONE => {
-                let sel = *selected;
-                if let Some(task) = tasks.get(sel).cloned() {
+                let real_idx = visible.get(*selected).copied();
+                if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
                     let id = task.id.clone();
                     let title = task.title.clone();
                     let desc = task.description.clone().unwrap_or_default();
-                    let ctx = self.context;
                     if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
-                        let msg = self.repo.as_ref().map(|r| match ctx {
-                            TaskContext::Personal => r.update_task(&id, Some(new_title), new_desc),
-                            TaskContext::Backlog => r.update_backlog_task(&id, Some(new_title), new_desc),
+                        let msg = self.repo.as_ref().map(|r| {
+                            r.update_task(&id, Some(new_title), new_desc)
                         }).map(|res| match res {
                             Ok(_) => "Task updated.".to_string(),
                             Err(e) => e.to_string(),
@@ -344,8 +386,8 @@ impl App {
                     && key.modifiers == KeyModifiers::NONE
                     && self.context == TaskContext::Personal =>
             {
-                let sel = *selected;
-                if let Some(task) = tasks.get(sel).cloned() {
+                let real_idx = visible.get(*selected).copied();
+                if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
                     self.cycle_status(&task.id);
                 }
             }
@@ -353,8 +395,8 @@ impl App {
             KeyCode::Char('f') if key.modifiers == KeyModifiers::NONE
                 && self.context == TaskContext::Backlog =>
             {
-                let sel = *selected;
-                if let Some(task) = tasks.get(sel).cloned() {
+                let real_idx = visible.get(*selected).copied();
+                if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
                     let msg = self.repo.as_ref().map(|r| {
                         match r.claim_backlog_task(&task.id) {
                             Ok(t) => format!("Claimed — now #{} in your personal slices.", t.id),
@@ -384,8 +426,8 @@ impl App {
             KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL)
                 && self.context == TaskContext::Personal =>
             {
-                let sel = *selected;
-                if let Some(task) = tasks.get(sel).cloned() {
+                let real_idx = visible.get(*selected).copied();
+                if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
                     let me = self.repo.as_ref().map(|r| r.info.username.as_str()).unwrap_or("");
                     let users = self.repo.as_ref()
                         .and_then(|r| r.list_users().ok())
@@ -403,8 +445,8 @@ impl App {
             }
             // Ctrl+D — delete selected task
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                let sel = *selected;
-                if let Some(task) = tasks.get(sel).cloned() {
+                let real_idx = visible.get(*selected).copied();
+                if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
                     self.screen = Screen::DeleteConfirm {
                         task_id: task.id.clone(),
                         task_title: task.title.clone(),
@@ -540,10 +582,7 @@ impl App {
             match result {
                 Ok(task) => {
                     if let Some(a) = asgn_opt {
-                        let _ = match ctx {
-                            TaskContext::Personal => repo.assign_task(&task.id, Some(a)),
-                            TaskContext::Backlog => repo.assign_backlog_task(&task.id, Some(a)),
-                        };
+                        let _ = repo.assign_task(&task.id, Some(a));
                     }
                     self.enter_task_list(Some("Task created.".into()), None);
                 }
@@ -658,7 +697,6 @@ impl App {
             TaskContext::Personal => r.list_tasks().unwrap_or_default(),
             TaskContext::Backlog => {
                 let (all, w) = r.list_backlog_tasks().unwrap_or_default();
-                // Backlog has no done lifecycle — filter out any stale done tasks
                 let active = all.into_iter()
                     .filter(|t| t.status != TaskStatus::Done)
                     .collect();
@@ -667,10 +705,17 @@ impl App {
         }).unwrap_or_default();
         let msg = merge_messages(message, warn_summary(&warnings));
         let sorted = sort_for_display(tasks);
+        // Preserve existing filter when returning from sub-screens
+        let (filter, filter_active) = if let Screen::TaskList { filter, .. } = &self.screen {
+            (filter.clone(), false)
+        } else {
+            (String::new(), false)
+        };
+        let visible = apply_filter(&sorted, &filter);
         let selected = preserve_id
-            .and_then(|id| sorted.iter().position(|t| t.id == id))
+            .and_then(|id| visible.iter().position(|t| t.id == id))
             .unwrap_or(0);
-        self.screen = Screen::TaskList { tasks: sorted, selected, message: msg };
+        self.screen = Screen::TaskList { tasks: sorted, selected, message: msg, filter, filter_active };
     }
 
     fn cycle_status(&mut self, task_id: &str) {
@@ -982,14 +1027,60 @@ fn classify_pull_result(result: Result<String, gitcake_core::error::AppError>) -
 }
 
 /// Sorts tasks into display order: in-progress → open → done.
-/// This makes `selected` a direct index into visual position.
 fn sort_for_display(mut tasks: Vec<Task>) -> Vec<Task> {
-    tasks.sort_by_key(|t| match (&t.status, t.is_completed) {
-        (TaskStatus::InProgress, false) => 0,
-        (TaskStatus::Open, false) => 1,
-        _ => 2,
+    tasks.sort_by_key(|t| match &t.status {
+        TaskStatus::InProgress => 0,
+        TaskStatus::Open => 1,
+        TaskStatus::Done => 2,
     });
     tasks
+}
+
+/// Returns tasks matching the filter string (all fields, case-insensitive).
+/// Empty filter returns all tasks.
+pub fn apply_filter<'a>(tasks: &'a [Task], filter: &str) -> Vec<&'a Task> {
+    if filter.is_empty() {
+        return tasks.iter().collect();
+    }
+    let f = filter.to_lowercase();
+    tasks.iter().filter(|t| task_matches(t, &f)).collect()
+}
+
+/// Returns the indices of tasks matching the filter. Empty filter returns all indices.
+fn apply_filter_indices(tasks: &[Task], filter: &str) -> Vec<usize> {
+    if filter.is_empty() {
+        return (0..tasks.len()).collect();
+    }
+    let f = filter.to_lowercase();
+    tasks.iter().enumerate()
+        .filter(|(_, t)| task_matches(t, &f))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+fn task_matches(t: &Task, f: &str) -> bool {
+    t.id.starts_with(f)
+        || t.title.to_lowercase().contains(f)
+        || t.owner.as_deref().map(|o| o.to_lowercase().contains(f)).unwrap_or(false)
+        || type_str(&t.task_type).contains(f)
+        || status_str(&t.status).contains(f)
+}
+
+fn type_str(t: &gitcake_core::models::task::TaskType) -> &'static str {
+    use gitcake_core::models::task::TaskType;
+    match t {
+        TaskType::Task => "task",
+        TaskType::Bug => "bug",
+        TaskType::Incident => "incident",
+    }
+}
+
+fn status_str(s: &TaskStatus) -> &'static str {
+    match s {
+        TaskStatus::Open => "open",
+        TaskStatus::InProgress => "in-progress",
+        TaskStatus::Done => "done",
+    }
 }
 
 fn expand_tilde(path: &str) -> String {

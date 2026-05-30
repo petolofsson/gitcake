@@ -177,11 +177,11 @@ fn print_task_table(tasks: &[Task]) {
             TaskType::Bug => "bug     ",
             TaskType::Incident => "incident",
         };
-        let assignee = task.assignee.as_deref().unwrap_or("");
-        if assignee.is_empty() {
+        let owner = task.owner.as_deref().unwrap_or("");
+        if owner.is_empty() {
             println!("{}  {}  {}  {}", task.id, type_str, status, task.title);
         } else {
-            println!("{}  {}  {}  {}  → {}", task.id, type_str, status, task.title, assignee);
+            println!("{}  {}  {}  {}  → {}", task.id, type_str, status, task.title, owner);
         }
     }
 }

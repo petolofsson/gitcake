@@ -33,7 +33,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     match &app.screen {
         Screen::Setup { input, error, can_cancel } => draw_setup(f, input, error.as_deref(), *can_cancel),
         Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
-        Screen::TaskList { tasks, selected, message } => {
+        Screen::TaskList { tasks, selected, message, filter, filter_active } => {
             let (repo_name, username) = app.repo.as_ref()
                 .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
                 .unwrap_or(("", ""));
@@ -44,13 +44,14 @@ pub fn draw(f: &mut Frame, app: &App) {
                 message: message.as_deref(),
                 pull_error: app.pull_error.as_deref(),
                 lock_warning: app.lock_warning.as_deref(),
+                filter,
+                filter_active: *filter_active,
                 repo_name,
                 username,
             })
         }
         Screen::Detail { task, message } => {
-            let username = app.repo.as_ref().map(|r| r.info.username.as_str());
-            draw_detail(f, app.context, task, message.as_deref(), username);
+            draw_detail(f, app.context, task, message.as_deref());
         }
         Screen::Create { task_type, assignee, field } => {
             draw_create(f, task_type, assignee, field)
@@ -173,17 +174,17 @@ struct TaskListParams<'a> {
     message: Option<&'a str>,
     pull_error: Option<&'a str>,
     lock_warning: Option<&'a str>,
+    filter: &'a str,
+    filter_active: bool,
     repo_name: &'a str,
     username: &'a str,
 }
 
 fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
-    let TaskListParams { context, tasks, selected, message, pull_error, lock_warning, repo_name, username } = p;
+    let TaskListParams { context, tasks, selected, message, pull_error, lock_warning, filter, filter_active, repo_name, username } = p;
     let area = f.area();
-    // Usable column width after borders + padding (computed before the block
-    // consumes `area`, then captured by the add_section closure below).
     let inner_width = {
-        let b = padded_block(""); // same geometry as the real block
+        let b = padded_block("");
         b.inner(area).width as usize
     };
 
@@ -198,6 +199,15 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         .padding(Padding::new(1, 1, 1, 1));
     if let Some(msg) = message {
         block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
+    }
+    if !filter.is_empty() && !filter_active {
+        block = block.title_top(
+            Line::from(vec![
+                Span::styled(format!(" /{filter} "), Style::new().add_modifier(Modifier::DIM)),
+                Span::styled(" Esc: clear ", Style::new().add_modifier(Modifier::DIM)),
+            ])
+            .left_aligned(),
+        );
     }
     if let Some(err) = pull_error {
         block = block.title_bottom(
@@ -221,35 +231,32 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Fill(1),
-            Constraint::Length(1), // regular shortcuts
-            Constraint::Length(1), // ctrl shortcuts (reversed)
+            Constraint::Length(1), // filter bar (always present, empty when not filtering)
+            Constraint::Length(1), // nav shortcuts
+            Constraint::Length(1), // ctrl shortcuts
         ])
         .split(inner);
 
-    // Build grouped list items
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut index_map: Vec<usize> = Vec::new(); // maps list index → task index
+    // Apply filter — selected is an index into the visible list
+    use crate::app::apply_filter;
+    let visible: Vec<&Task> = apply_filter(tasks, filter);
+    let safe_selected = selected.min(visible.len().saturating_sub(1));
 
-    let in_progress: Vec<(usize, &Task)> = tasks
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.status == TaskStatus::InProgress && !t.is_completed)
+    let in_progress: Vec<(usize, &Task)> = visible.iter().enumerate()
+        .filter(|(_, t)| t.status == TaskStatus::InProgress)
+        .map(|(i, t)| (i, *t))
         .collect();
-    let open: Vec<(usize, &Task)> = tasks
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.status == TaskStatus::Open && !t.is_completed)
+    let open: Vec<(usize, &Task)> = visible.iter().enumerate()
+        .filter(|(_, t)| t.status == TaskStatus::Open)
+        .map(|(i, t)| (i, *t))
         .collect();
-    let done_local: Vec<(usize, &Task)> = tasks
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.status == TaskStatus::Done && !t.is_completed)
+    let done: Vec<(usize, &Task)> = visible.iter().enumerate()
+        .filter(|(_, t)| t.status == TaskStatus::Done)
+        .map(|(i, t)| (i, *t))
         .collect();
-    let done_synced: Vec<(usize, &Task)> = tasks
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.is_completed)
-        .collect();
+
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut index_map: Vec<usize> = Vec::new(); // maps list-item pos → visible index
 
     let add_section = |items: &mut Vec<ListItem>,
                        index_map: &mut Vec<usize>,
@@ -257,103 +264,97 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
                        group: &[(usize, &Task)],
                        current_selected: usize,
                        section_color: Option<Color>| {
-        if group.is_empty() {
-            return;
-        }
+        if group.is_empty() { return; }
         let header_style = match section_color {
             Some(c) => Style::new().add_modifier(Modifier::BOLD).fg(c),
             None => Style::new().add_modifier(Modifier::BOLD | Modifier::DIM),
         };
-        items.push(ListItem::new(Line::from(vec![Span::styled(
-            format!(" {header}"),
-            header_style,
-        )])));
+        items.push(ListItem::new(Line::from(vec![Span::styled(format!(" {header}"), header_style)])));
         index_map.push(usize::MAX);
 
-        for (task_idx, task) in group {
-            let is_sel = *task_idx == current_selected;
+        for (vis_idx, task) in group {
+            let is_sel = *vis_idx == current_selected;
             let cursor = if is_sel { "▶ " } else { "  " };
-
             let tl = format!("{:<8}", type_label(&task.task_type));
-
             let id_str = format!("{}  ", task.id);
             let type_str = format!("{tl}  ");
-
-            // cursor(2) + id(10) + type(10) = 22 fixed cells; assignee is ASCII-only
-            let assignee_cols = task.assignee.as_deref().map(|a| 4 + a.len()).unwrap_or(0);
-            let title_budget = inner_width.saturating_sub(22 + assignee_cols);
+            let title_budget = inner_width.saturating_sub(22);
             let title_str = truncate_title(&task.title, title_budget);
-
-            let base = if task.status == TaskStatus::Done || task.is_completed {
+            let base = if task.status == TaskStatus::Done {
                 Style::new().add_modifier(Modifier::DIM)
             } else if task.status == TaskStatus::InProgress {
                 Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow)
             } else {
                 Style::new()
             };
-
             let cursor_style = if is_sel {
                 Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
             } else {
                 Style::new().add_modifier(Modifier::DIM)
             };
-
-            let row_style = if is_sel {
-                base.add_modifier(Modifier::REVERSED)
-            } else {
-                base
-            };
-
-            let assignee_str = task.assignee.as_deref()
-                .map(|a| format!("  → {a}"))
-                .unwrap_or_default();
-
+            let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
             let line = Line::from(vec![
                 Span::styled(cursor.to_string(), cursor_style),
                 Span::styled(id_str, row_style.add_modifier(Modifier::DIM)),
                 Span::styled(type_str, row_style.add_modifier(Modifier::DIM)),
                 Span::styled(title_str, row_style),
-                Span::styled(assignee_str, row_style.add_modifier(Modifier::DIM)),
             ]);
-
             items.push(ListItem::new(line));
-            index_map.push(*task_idx);
+            index_map.push(*vis_idx);
         }
-
         items.push(ListItem::new(Line::from("")));
         index_map.push(usize::MAX);
     };
 
     let hdr = |sym: &str, label: &str, n: usize| format!("{sym} {label} ({n})");
-    add_section(&mut items, &mut index_map, &hdr("●", "IN PROGRESS", in_progress.len()), &in_progress, selected, Some(Color::Yellow));
-    add_section(&mut items, &mut index_map, &hdr("○", "OPEN", open.len()), &open, selected, None);
-    add_section(&mut items, &mut index_map, &hdr("✓", "DONE (local)", done_local.len()), &done_local, selected, None);
-    add_section(&mut items, &mut index_map, &hdr("✓", "DONE", done_synced.len()), &done_synced, selected, None);
+    add_section(&mut items, &mut index_map, &hdr("●", "IN PROGRESS", in_progress.len()), &in_progress, safe_selected, Some(Color::Yellow));
+    add_section(&mut items, &mut index_map, &hdr("○", "OPEN", open.len()), &open, safe_selected, None);
+    add_section(&mut items, &mut index_map, &hdr("✓", "DONE", done.len()), &done, safe_selected, None);
 
     if items.is_empty() {
+        let empty_msg = if filter.is_empty() {
+            "No tasks yet. Press c to create one."
+        } else {
+            "No tasks match the filter."
+        };
         f.render_widget(
-            Paragraph::new("No tasks yet. Press c to create one.")
+            Paragraph::new(empty_msg)
                 .alignment(Alignment::Center)
                 .style(Style::new().add_modifier(Modifier::DIM)),
             rows[0],
         );
     } else {
-        // Find the list position of the selected task
-        let list_pos = index_map.iter().position(|&i| i == selected);
+        let list_pos = index_map.iter().position(|&i| i == safe_selected);
         let mut state = ListState::default();
         state.select(list_pos);
-
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
 
+    // Filter bar
+    if filter_active {
+        let filter_line = Line::from(vec![
+            Span::styled("/ ", Style::new().add_modifier(Modifier::DIM)),
+            Span::styled(filter.to_string(), Style::new().add_modifier(Modifier::BOLD)),
+            Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+        ]);
+        f.render_widget(Paragraph::new(filter_line), rows[1]);
+    } else if !filter.is_empty() {
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!("/{filter}"), Style::new().add_modifier(Modifier::DIM)),
+            ])),
+            rows[1],
+        );
+    }
+
     let nb = if context == TaskContext::Backlog { backlog_nav_bar() } else { nav_bar() };
-    f.render_widget(Paragraph::new(nb), rows[1]);
-    f.render_widget(Paragraph::new(ctrl_bar(context)), rows[2]);
+    f.render_widget(Paragraph::new(nb), rows[2]);
+    f.render_widget(Paragraph::new(ctrl_bar(context)), rows[3]);
 }
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>, username: Option<&str>) {
+fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
     let area = f.area();
     let block = padded_block(&format!("Task {}", task.id));
     let inner = block.inner(area);
@@ -375,16 +376,13 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
         ])
         .split(inner);
 
-    let file_path = match context {
-        TaskContext::Backlog => format!("backlog/{}.md", task.id),
-        TaskContext::Personal => {
-            let user = username.unwrap_or("?");
-            if task.is_completed {
-                format!("completed/{}/{}.md", user, task.id)
-            } else {
-                format!("{}/{}.md", user, task.id)
-            }
-        }
+    let file_path = {
+        let type_folder = match task.task_type {
+            TaskType::Task => "tasks",
+            TaskType::Bug => "bugs",
+            TaskType::Incident => "incidents",
+        };
+        format!("{type_folder}/{}.md", task.id)
     };
 
     let dim = Style::new().add_modifier(Modifier::DIM);
@@ -761,7 +759,7 @@ fn nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("F", "cycle"),
-        ("⇧R", "pull"),
+        ("/", "filter"),
         ("B", "backlog"),
         ("T", "team"),
     ];
@@ -785,7 +783,7 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("F", "claim"),
-        ("⇧R", "pull"),
+        ("/", "filter"),
         ("B", "personal"),
         ("T", "team"),
     ];
@@ -802,7 +800,7 @@ fn ctrl_bar<'a>(context: TaskContext) -> Line<'a> {
     if context == TaskContext::Personal {
         items.push(("^A", "assign"));
     }
-    items.extend_from_slice(&[("^R", "push"), ("^D", "delete"), ("^O", "repo"), ("^Q", "quit")]);
+    items.extend_from_slice(&[("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^O", "repo"), ("^Q", "quit")]);
     let mut spans = vec![Span::raw(" ")];
     for (key, label) in &items {
         spans.push(Span::styled(
