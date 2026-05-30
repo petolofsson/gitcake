@@ -70,6 +70,7 @@ pub struct App {
     pub repo: Option<TaskRepo>,
     pub config: Config,
     pub should_quit: bool,
+    pub needs_clear: bool,
 }
 
 impl App {
@@ -103,6 +104,7 @@ impl App {
             repo,
             config,
             should_quit: false,
+            needs_clear: false,
         }
     }
 
@@ -342,6 +344,7 @@ impl App {
             return;
         }
 
+        let mut launched_editor = false;
         match key.code {
             KeyCode::Esc => self.enter_task_list(None),
             KeyCode::Tab => {
@@ -363,6 +366,7 @@ impl App {
                 if let Some(edited) = open_in_editor(&current) {
                     *description = edited;
                 }
+                launched_editor = true;
             }
             KeyCode::Char(' ') if *field == CreateField::Type => {
                 *task_type = match task_type {
@@ -374,6 +378,9 @@ impl App {
             KeyCode::Backspace if *field == CreateField::Title => { title.pop(); }
             KeyCode::Char(c) if *field == CreateField::Title => title.push(c),
             _ => {}
+        }
+        if launched_editor {
+            self.needs_clear = true;
         }
     }
 
@@ -400,6 +407,7 @@ impl App {
             return;
         }
 
+        let mut launched_editor = false;
         match key.code {
             KeyCode::Esc => self.enter_task_list(None),
             KeyCode::Tab => {
@@ -417,10 +425,14 @@ impl App {
                 if let Some(edited) = open_in_editor(&current) {
                     *description = edited;
                 }
+                launched_editor = true;
             }
             KeyCode::Backspace if *field == EditField::Title => { title.pop(); }
             KeyCode::Char(c) if *field == EditField::Title => title.push(c),
             _ => {}
+        }
+        if launched_editor {
+            self.needs_clear = true;
         }
     }
 
