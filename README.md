@@ -25,7 +25,13 @@ cargo install --git https://github.com/petolofsson/gitcake gitcake-mcp  # option
 
 ## TUI
 
-Run `gitcake` with no arguments to open the terminal UI.
+```sh
+gitcake                        # open last used repo
+gitcake --repo /path/to/repo   # open a specific repo (session only)
+gitcake --new                  # fresh setup screen to enter any repo
+```
+
+`--repo` and `--new` are session-only — they do not change your saved default. To permanently switch repos, use `Ctrl+O` inside the TUI.
 
 | Key | Action |
 |---|---|
@@ -57,6 +63,9 @@ gitcake done <id>
 gitcake delete <id>
 gitcake assign <id> --to <username>
 gitcake sync
+
+# run any command against a specific repo without changing saved config
+gitcake --repo /path/to/repo list
 ```
 
 ## MCP
