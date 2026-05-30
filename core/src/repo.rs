@@ -62,6 +62,28 @@ impl TaskRepo {
         Ok(Self { git, info })
     }
 
+    /// Initializes a plain git repo as a git-task repo.
+    ///
+    /// Creates `git-task.toml`, stages it, commits, then opens the repo.
+    /// The repo must already exist and have `git config user.name` set.
+    /// Does NOT require a remote — that is validated on first sync.
+    pub fn init(path: impl Into<PathBuf>, name: &str) -> Result<Self, AppError> {
+        let path = path.into();
+        let git = GitRepo::new(&path);
+
+        if !git.is_git_repo() {
+            return Err(AppError::InvalidRepo("not a git repository".into()));
+        }
+
+        let toml_content = format!("name = \"{name}\"\n");
+        fs::write(path.join("git-task.toml"), toml_content)?;
+
+        git.stage("git-task.toml")?;
+        git.commit_staged("init git-task")?;
+
+        Self::open(path)
+    }
+
     // ── task queries ──────────────────────────────────────────────────────────
 
     /// Returns all tasks for the current user (active + completed).

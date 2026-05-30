@@ -1,3 +1,5 @@
+use std::{fs, path::Path};
+
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use git_task_core::{
     models::task::{Task, TaskStatus, TaskType},
@@ -11,6 +13,11 @@ use crate::config::Config;
 pub enum Screen {
     Setup {
         input: String,
+        error: Option<String>,
+    },
+    InitRepo {
+        path: String,
+        name: String,
         error: Option<String>,
     },
     PullPrompt,
@@ -99,6 +106,7 @@ impl App {
         let Event::Key(key) = event else { return };
         match &self.screen {
             Screen::Setup { .. } => self.handle_setup(key),
+            Screen::InitRepo { .. } => self.handle_init_repo(key),
             Screen::PullPrompt => self.handle_pull_prompt(key),
             Screen::TaskList { .. } => self.handle_task_list(key),
             Screen::Detail { .. } => self.handle_detail(key),
@@ -117,12 +125,32 @@ impl App {
         };
         match key.code {
             KeyCode::Char(c) => input.push(c),
-            KeyCode::Backspace => {
-                input.pop();
-            }
+            KeyCode::Backspace => { input.pop(); }
             KeyCode::Enter => {
                 let path = input.trim().to_string();
-                match TaskRepo::open(&path) {
+                self.evaluate_path(path);
+            }
+            KeyCode::Esc => self.should_quit = true,
+            _ => {}
+        }
+    }
+
+    // ── init repo ─────────────────────────────────────────────────────────────
+
+    fn handle_init_repo(&mut self, key: KeyEvent) {
+        let Screen::InitRepo { path, name, error: _ } = &mut self.screen else {
+            return;
+        };
+        match key.code {
+            KeyCode::Char(c) => name.push(c),
+            KeyCode::Backspace => { name.pop(); }
+            KeyCode::Enter => {
+                let path = path.clone();
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return;
+                }
+                match TaskRepo::init(&path, &name) {
                     Ok(repo) => {
                         self.config.repo_path = Some(path);
                         self.config.save();
@@ -130,14 +158,18 @@ impl App {
                         self.screen = Screen::PullPrompt;
                     }
                     Err(e) => {
-                        self.screen = Screen::Setup {
-                            input: path,
+                        self.screen = Screen::InitRepo {
+                            path,
+                            name,
                             error: Some(e.to_string()),
                         };
                     }
                 }
             }
-            KeyCode::Esc => self.should_quit = true,
+            KeyCode::Esc => {
+                let path = path.clone();
+                self.screen = Screen::Setup { input: path, error: None };
+            }
             _ => {}
         }
     }
@@ -432,6 +464,45 @@ impl App {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
+    // Check 1: has git-task.toml → open.
+    // Check 2: has other files, no git-task.toml → assume code repo, reject.
+    // Check 3: only README/.gitignore/empty → offer to initialize.
+    fn evaluate_path(&mut self, path: String) {
+        let p = Path::new(&path);
+
+        if !p.join(".git").exists() {
+            self.screen = Screen::Setup {
+                input: path,
+                error: Some("Not a git repository.".into()),
+            };
+            return;
+        }
+
+        if p.join("git-task.toml").exists() {
+            match TaskRepo::open(&path) {
+                Ok(repo) => {
+                    self.config.repo_path = Some(path);
+                    self.config.save();
+                    self.repo = Some(repo);
+                    self.screen = Screen::PullPrompt;
+                }
+                Err(e) => {
+                    self.screen = Screen::Setup { input: path, error: Some(e.to_string()) };
+                }
+            }
+            return;
+        }
+
+        if is_empty_repo(p) {
+            self.screen = Screen::InitRepo { path, name: String::new(), error: None };
+        } else {
+            self.screen = Screen::Setup {
+                input: path,
+                error: Some("This looks like a code repo. Point to a dedicated git-task repo.".into()),
+            };
+        }
+    }
+
     fn enter_task_list(&mut self, message: Option<String>) {
         let tasks = self
             .repo
@@ -494,4 +565,17 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
         return event.modifiers == KeyModifiers::NONE && event.code == KeyCode::Char(ch);
     }
     false
+}
+
+// Returns true if the repo contains only README/gitignore-style files —
+// safe to offer initialization without risk of clobbering real code.
+fn is_empty_repo(path: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(path) else { return false };
+    entries.flatten().all(|entry| {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        matches!(
+            name.as_str(),
+            ".git" | "readme.md" | "readme" | "readme.txt" | ".gitignore" | ".gitattributes" | ".gitkeep"
+        )
+    })
 }

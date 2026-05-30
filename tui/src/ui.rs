@@ -24,6 +24,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Edit { title, description, field, .. } => {
             draw_edit(f, title, description, field)
         }
+        Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
         Screen::SyncConfirm => draw_sync_confirm(f),
         Screen::PushPrompt => draw_push_prompt(f),
     }
@@ -82,6 +83,58 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
     }
 
     render_help(f, area, "Enter: connect  Esc: quit");
+}
+
+// ── init repo ─────────────────────────────────────────────────────────────────
+
+fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
+    let area = f.area();
+    let block = outer_block("git-task — initialize repo");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .split(inner);
+
+    f.render_widget(
+        Paragraph::new("Empty git repo detected. Initialize as a git-task repo?")
+            .alignment(Alignment::Center),
+        rows[1],
+    );
+    f.render_widget(
+        Paragraph::new(path)
+            .alignment(Alignment::Center)
+            .style(Style::new().add_modifier(Modifier::DIM)),
+        rows[2],
+    );
+
+    let name_line = Line::from(vec![
+        Span::raw("Repo name: "),
+        Span::styled(name, Style::new().add_modifier(Modifier::BOLD)),
+        Span::styled("_", Style::new().add_modifier(Modifier::BOLD)),
+    ]);
+    f.render_widget(Paragraph::new(name_line).alignment(Alignment::Center), rows[3]);
+
+    if let Some(err) = error {
+        f.render_widget(
+            Paragraph::new(format!("✗ {err}"))
+                .alignment(Alignment::Center)
+                .style(Style::new().add_modifier(Modifier::DIM)),
+            rows[4],
+        );
+    }
+
+    render_help(f, area, "Enter: initialize  Esc: back");
 }
 
 // ── pull prompt ───────────────────────────────────────────────────────────────
