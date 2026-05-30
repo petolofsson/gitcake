@@ -74,6 +74,25 @@ impl GitRepo {
         self.run_git(&["commit", "-m", message])
     }
 
+    /// Stages changes under `path` (relative to repo root) without committing.
+    /// Used when building a single commit from multiple paths.
+    pub fn stage(&self, path: &str) -> Result<(), AppError> {
+        self.run_git(&["add", path])?;
+        Ok(())
+    }
+
+    /// Commits whatever is currently staged. Treats "nothing to commit" as
+    /// `Ok` rather than an error.
+    pub fn commit_staged(&self, message: &str) -> Result<String, AppError> {
+        match self.run_git(&["commit", "-m", message]) {
+            Ok(out) => Ok(out),
+            Err(AppError::Git(msg)) if msg.contains("nothing to commit") => {
+                Ok("Nothing to commit".to_string())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Runs `git push` and returns stdout.
     pub fn push(&self) -> Result<String, AppError> {
         self.run_git(&["push"])
