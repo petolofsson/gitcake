@@ -1,6 +1,4 @@
 mod commands;
-mod error;
-mod git;
 mod models;
 mod state;
 
@@ -19,22 +17,18 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            // repo
             pick_repo,
             connect_repo,
             get_connected_repo,
-            // tasks
             list_tasks,
             create_task,
             update_task,
             set_task_in_progress,
             mark_task_done,
-            // sync
             has_local_changes,
             pull,
             push,
             sync,
-            // preferences
             get_preferences,
             set_preferences,
         ])

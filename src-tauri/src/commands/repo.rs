@@ -1,10 +1,7 @@
+use git_task_core::{error::AppError, models::config::RepoInfo};
 use tauri::{AppHandle, State};
 
-use crate::{
-    error::AppError,
-    models::config::RepoInfo,
-    state::AppState,
-};
+use crate::state::AppState;
 
 /// Opens a directory picker and returns the chosen path.
 /// The caller should pass the result to `connect_repo`.

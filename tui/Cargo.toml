@@ -1,0 +1,14 @@
+[package]
+name = "git-task-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal UI for git-task"
+
+[[bin]]
+name = "gt"
+path = "src/main.rs"
+
+[dependencies]
+git-task-core = { path = "../core" }
+ratatui = "0.29"
+crossterm = "0.28"

@@ -1,6 +1,8 @@
 use std::sync::Mutex;
 
-use crate::models::config::{AppConfig, RepoInfo};
+use git_task_core::models::config::RepoInfo;
+
+use crate::models::config::AppConfig;
 
 pub struct AppState {
     pub config: Mutex<AppConfig>,
