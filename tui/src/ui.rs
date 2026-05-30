@@ -72,15 +72,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
         rows[3],
     );
 
-    if let Some(err) = error {
-        f.render_widget(
-            Paragraph::new(format!("✗ {err}"))
-                .alignment(Alignment::Center)
-                .style(Style::new().fg(Color::Red)),
-            rows[4],
-        );
-    }
-
+    draw_error_line(f, rows[4], error);
     render_help(f, area, "Enter: connect  Q: quit");
 }
 
@@ -124,15 +116,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
     ]);
     f.render_widget(Paragraph::new(name_line).alignment(Alignment::Center), rows[3]);
 
-    if let Some(err) = error {
-        f.render_widget(
-            Paragraph::new(format!("✗ {err}"))
-                .alignment(Alignment::Center)
-                .style(Style::new().add_modifier(Modifier::DIM)),
-            rows[4],
-        );
-    }
-
+    draw_error_line(f, rows[4], error);
     render_help(f, area, "Enter: initialize  Q: back");
 }
 
@@ -210,14 +194,10 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
             let is_sel = *task_idx == current_selected;
             let cursor = if is_sel { "▶ " } else { "  " };
 
-            let type_label = match task.task_type {
-                TaskType::Task => "task    ",
-                TaskType::Bug => "bug     ",
-                TaskType::Incident => "incident",
-            };
+            let tl = format!("{:<8}", type_label(&task.task_type));
 
             let id_str = format!("{:>3}  ", task.id);
-            let type_str = format!("{type_label}  ");
+            let type_str = format!("{tl}  ");
             let title_str = task.title.clone();
 
             let base = if task.status == TaskStatus::Done || task.is_completed {
@@ -306,23 +286,12 @@ fn draw_detail(f: &mut Frame, task: &Task, _message: Option<&str>) {
         ])
         .split(inner);
 
-    let status_str = match task.status {
-        TaskStatus::Open => "open",
-        TaskStatus::InProgress => "in-progress",
-        TaskStatus::Done => "done",
-    };
-    let type_str = match task.task_type {
-        TaskType::Task => "task",
-        TaskType::Bug => "bug",
-        TaskType::Incident => "incident",
-    };
-
     f.render_widget(
         Paragraph::new(task.title.clone()).style(Style::new().add_modifier(Modifier::BOLD)),
         rows[0],
     );
     f.render_widget(
-        Paragraph::new(format!("{type_str}  ·  {status_str}"))
+        Paragraph::new(format!("{}  ·  {}", type_label(&task.task_type), status_label(&task.status)))
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[1],
     );
@@ -387,18 +356,13 @@ fn draw_create(
     draw_field_input(f, rows[1], title, *field == CreateField::Title, false);
 
     draw_field_label(f, rows[3], "TYPE:", *field == CreateField::Type);
-    let type_str = match task_type {
-        TaskType::Task => "task",
-        TaskType::Bug => "bug",
-        TaskType::Incident => "incident",
-    };
     let type_style = if *field == CreateField::Type {
         Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
     } else {
         Style::new().add_modifier(Modifier::DIM)
     };
     f.render_widget(
-        Paragraph::new(format!("[ {type_str} ]  Space to cycle")).style(type_style),
+        Paragraph::new(format!("[ {} ]  Space to cycle", type_label(task_type))).style(type_style),
         rows[4],
     );
 
@@ -426,17 +390,7 @@ fn draw_create(
 // ── sync confirm ──────────────────────────────────────────────────────────────
 
 fn draw_sync_confirm(f: &mut Frame, context: TaskContext) {
-    let area = f.area();
-    let popup = centered_rect(54, 7, area);
-    f.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .title(" Task Sync ")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(popup);
-    f.render_widget(block, popup);
+    let inner = render_popup(f, "Task Sync", 54, 7);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -511,17 +465,8 @@ fn draw_assign_task(f: &mut Frame, users: &[String], selected: usize) {
 }
 
 fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usize) {
-    let area = f.area();
-    let popup = centered_rect(50, (users.len() as u16 + 6).min(area.height), area);
-    f.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(popup);
-    f.render_widget(block, popup);
+    let height = (users.len() as u16 + 6).min(f.area().height);
+    let inner = render_popup(f, title, 50, height);
 
     if users.is_empty() {
         f.render_widget(
@@ -564,17 +509,7 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
 // ── delete confirm ────────────────────────────────────────────────────────────
 
 fn draw_delete_confirm(f: &mut Frame, task_title: &str) {
-    let area = f.area();
-    let popup = centered_rect(56, 7, area);
-    f.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .title(" Delete task ")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(popup);
-    f.render_widget(block, popup);
+    let inner = render_popup(f, "Delete task", 56, 7);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -616,7 +551,7 @@ fn nav_bar<'a>() -> Line<'a> {
     for (key, label) in &items {
         spans.push(Span::styled(
             format!(" {key} "),
-            Style::new().bg(Color::White).fg(Color::Reset),
+            Style::new().bg(Color::White).fg(Color::Black),
         ));
         spans.push(Span::styled(
             format!(" {label}  "),
@@ -637,7 +572,7 @@ fn ctrl_bar<'a>() -> Line<'a> {
     for (key, label) in &items {
         spans.push(Span::styled(
             format!(" {key} "),
-            Style::new().bg(Color::White).fg(Color::Reset),
+            Style::new().bg(Color::White).fg(Color::Black),
         ));
         spans.push(Span::styled(
             format!(" {label}  "),
@@ -648,6 +583,50 @@ fn ctrl_bar<'a>() -> Line<'a> {
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
+
+// ── type / status labels ──────────────────────────────────────────────────────
+
+fn type_label(t: &TaskType) -> &'static str {
+    match t {
+        TaskType::Task => "task",
+        TaskType::Bug => "bug",
+        TaskType::Incident => "incident",
+    }
+}
+
+fn status_label(s: &TaskStatus) -> &'static str {
+    match s {
+        TaskStatus::Open => "open",
+        TaskStatus::InProgress => "in-progress",
+        TaskStatus::Done => "done",
+    }
+}
+
+// ── popup helper ──────────────────────────────────────────────────────────────
+
+/// Renders a centred popup block and returns the inner rect.
+fn render_popup(f: &mut Frame, title: &str, percent_x: u16, height: u16) -> Rect {
+    let area = f.area();
+    let popup = centered_rect(percent_x, height, area);
+    f.render_widget(Clear, popup);
+    let block = padded_block(title);
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+    inner
+}
+
+// ── error line ────────────────────────────────────────────────────────────────
+
+fn draw_error_line(f: &mut Frame, area: Rect, err: Option<&str>) {
+    if let Some(e) = err {
+        f.render_widget(
+            Paragraph::new(format!("✗ {e}"))
+                .alignment(Alignment::Center)
+                .style(Style::new().fg(Color::Red)),
+            area,
+        );
+    }
+}
 
 fn outer_block(title: &str) -> Block<'static> {
     Block::default()
