@@ -790,12 +790,18 @@ impl App {
 
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let result = self.repo.as_ref().map(|r| match self.context {
-                    TaskContext::Personal => r.delete_task(&id),
-                    TaskContext::Backlog => r.delete_backlog_task(&id),
-                });
+                let (result, msg_ok) = match self.context {
+                    TaskContext::Personal => (
+                        self.repo.as_ref().map(|r| r.move_task_to_backlog(&id)),
+                        "Moved to backlog.",
+                    ),
+                    TaskContext::Backlog => (
+                        self.repo.as_ref().map(|r| r.delete_backlog_task(&id)),
+                        "Deleted.",
+                    ),
+                };
                 let msg = match result {
-                    Some(Ok(())) => Some("Task deleted.".into()),
+                    Some(Ok(())) => Some(msg_ok.into()),
                     Some(Err(e)) => Some(e.to_string()),
                     None => None,
                 };

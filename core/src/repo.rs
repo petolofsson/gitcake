@@ -373,6 +373,25 @@ impl TaskRepo {
 
     // ── delete ────────────────────────────────────────────────────────────────
 
+    /// Moves a personal task to the shared backlog, clearing its assignee and
+    /// resetting status to open. The hex ID is preserved.
+    pub fn move_task_to_backlog(&self, id: &str) -> Result<(), AppError> {
+        let (path, is_completed) = self.find_task(id)?;
+        if is_completed {
+            return Err(AppError::TaskNotFound(id.to_string()));
+        }
+        let mut task = task_file::read_task(&path, false)?;
+        task.assignee = None;
+        task.status = TaskStatus::Open;
+        task.done = None;
+        let backlog_folder = self.backlog_folder();
+        fs::create_dir_all(&backlog_folder)?;
+        task_file::write_task(&self.backlog_task_path(id), &task)?;
+        self.git.stage(&format!("backlog/{id}.md"))?;
+        self.git.remove_tracked(&format!("{}/{id}.md", self.info.username))?;
+        Ok(())
+    }
+
     pub fn delete_task(&self, id: &str) -> Result<(), AppError> {
         let path = self.task_path(id);
         if !path.exists() { return Err(AppError::TaskNotFound(id.to_string())); }

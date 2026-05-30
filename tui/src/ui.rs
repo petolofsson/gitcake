@@ -54,7 +54,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::AssignTask { users, selected, filter, .. } => draw_assign_task(f, users, *selected, filter),
         Screen::PickAssignee { users, selected, filter, .. } => draw_pick_assignee(f, users, *selected, filter),
 
-        Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title),
+        Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title, app.context),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context),
         Screen::PushPrompt => draw_push_prompt(f),
         Screen::TeamView { tasks, selected } => draw_team_view(f, tasks, *selected),
@@ -707,32 +707,55 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
 
 // ── delete confirm ────────────────────────────────────────────────────────────
 
-fn draw_delete_confirm(f: &mut Frame, task_title: &str) {
-    let inner = render_popup(f, "Delete task", 56, 7);
+fn draw_delete_confirm(f: &mut Frame, task_title: &str, context: TaskContext) {
+    let (title, question, subtext, action) = match context {
+        TaskContext::Personal => (
+            "Move to Backlog",
+            "Move this slice to the shared backlog?",
+            "Assignee will be cleared.",
+            "y: move   Enter/n/Esc: cancel",
+        ),
+        TaskContext::Backlog => (
+            "Delete",
+            "Permanently delete this slice?",
+            "This cannot be undone.",
+            "y: delete  Enter/n/Esc: cancel",
+        ),
+    };
+
+    let inner = render_popup(f, title, 56, 9);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(1), // question
+            Constraint::Length(1), // spacer
+            Constraint::Length(1), // task title
+            Constraint::Length(1), // spacer
+            Constraint::Length(1), // subtext
             Constraint::Fill(1),
-            Constraint::Length(1),
+            Constraint::Length(1), // action hint
         ])
         .split(inner);
 
+    f.render_widget(Paragraph::new(question), rows[0]);
+
+    let title_style = if context == TaskContext::Backlog {
+        Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().add_modifier(Modifier::BOLD)
+    };
     f.render_widget(
-        Paragraph::new(format!("Delete \"{}\"?", task_title)),
-        rows[0],
+        Paragraph::new(format!("\"{}\"", task_title)).style(title_style),
+        rows[2],
     );
     f.render_widget(
-        Paragraph::new("This cannot be undone.")
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[1],
+        Paragraph::new(subtext).style(Style::new().add_modifier(Modifier::DIM)),
+        rows[4],
     );
     f.render_widget(
-        Paragraph::new("y: delete  Enter/n/Esc: cancel")
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[3],
+        Paragraph::new(action).style(Style::new().add_modifier(Modifier::DIM)),
+        rows[6],
     );
 }
 
