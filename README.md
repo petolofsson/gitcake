@@ -28,10 +28,10 @@ cargo install --git https://github.com/petolofsson/gitcake gitcake-mcp  # option
 ```sh
 gitcake                        # open last used repo
 gitcake --repo /path/to/repo   # open a specific repo (session only)
-gitcake --new                  # fresh setup screen to enter any repo
+gitcake --new                  # fresh setup screen
 ```
 
-`--repo` and `--new` are session-only — they do not change your saved default. To permanently switch repos, use `Ctrl+O` inside the TUI.
+### Personal view
 
 | Key | Action |
 |---|---|
@@ -40,18 +40,25 @@ gitcake --new                  # fresh setup screen to enter any repo
 | `A` | Back |
 | `C` | Create new slice |
 | `E` | Edit in `$EDITOR` |
-| `F` | Cycle status (open → in-progress → done) |
-| `B` | Toggle personal / backlog |
+| `F` | Cycle status (open → in-progress → done, wraps) |
+| `B` | Switch to backlog |
 | `T` | Team view (read-only) |
-| `F` | Claim backlog slice (backlog) / Cycle status (personal) |
+| `/` | Filter by title, hex ID, owner, type or status. Esc to clear |
 | `Shift+R` | Pull |
-| `Ctrl+A` | Assign slice |
+| `Ctrl+A` | Assign to any user (including yourself) |
 | `Ctrl+R` | Push (commit + push) |
-| `Ctrl+D` | Move to backlog (personal) / Permanently delete (backlog) |
-| `Ctrl+O` | Change repo path |
+| `Ctrl+D` | Move to backlog |
 | `Ctrl+Q` | Quit |
 
-The TUI pulls on open and prompts to push on quit if there are unsynced changes.
+### Backlog view
+
+| Key | Action |
+|---|---|
+| `F` | Claim slice for yourself |
+| `Ctrl+A` | Assign to any user (opens picker) |
+| `Ctrl+D` | Permanently delete |
+
+The TUI pulls on open and prompts to push on quit if there are unsynced changes. Filter persists when navigating to detail and back — press Esc to clear.
 
 ## CLI
 
@@ -72,12 +79,12 @@ gitcake --repo /path/to/repo list
 
 `gitcake-mcp` exposes gitcake to Claude Code, Cursor, and any MCP-compatible AI tool.
 
-Add to `~/.claude/.mcp.json`:
+Add to `~/.claude/.mcp.json` (use the full binary path):
 
 ```json
 {
   "mcpServers": {
-    "gitcake": { "command": "/path/to/gitcake-mcp" }
+    "gitcake": { "command": "/home/you/.cargo/bin/gitcake-mcp" }
   }
 }
 ```

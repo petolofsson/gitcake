@@ -2,21 +2,25 @@
 
 **Practitioner**: Target user. Anyone doing hands-on technical work with git daily — developers, DevOps, SREs, data engineers, security engineers. Not management or product owners.
 
-**Slice**: A discrete unit of work. Has type, title, status, optional description, optional assignee. Not: task, ticket, issue, card.
+**Slice**: A discrete unit of work. Has type, title, status, optional description, optional owner. Not: task, ticket, issue, card.
 
-**Type**: Classification label on a slice — `task`, `bug`, or `incident`. Visual only, no lifecycle effect.
+**Type**: Classification label on a slice — `task`, `bug`, or `incident`. Determines which type folder the file lives in. Visual only, no lifecycle effect.
 
-**Status**: Lifecycle state — `open` (created), `in-progress` (activated), `done` (complete). Explicit transitions only.
+**Status**: Lifecycle state — `open` (created), `in-progress` (activated), `done` (complete). Explicit transitions only. Stored as frontmatter; the file does not move when status changes.
+
+**Owner**: Git username of the person responsible for a slice (`owner:` frontmatter field). Empty = unowned. Ownership determines which view the slice appears in — personal or backlog.
+
+**Personal view**: Filtered view showing all slices where `owner == current user`, across all type folders.
+
+**Backlog view**: Filtered view showing all slices where `owner` is empty, across all type folders.
+
+**Type folders**: `tasks/`, `bugs/`, `incidents/` at the repo root. All slices live here regardless of status or owner. No files move after initial creation.
 
 **Cake Repo**: The dedicated git repository used as source of truth for all slices. Separate from code repos. Must have a remote configured.
 
-**User Folder**: `{username}/` in the cake repo — named from `git config user.name` (lowercased, spaces → hyphens). Holds open and in-progress slices.
+**Claim**: Taking ownership of a backlog slice by setting `owner` to the current user. Fast path: F key. No file move — the slice stays in its type folder.
 
-**Completed Folder**: `completed/{username}/` — done slices moved here on sync via `git mv`.
-
-**Backlog**: `backlog/` — shared folder, no owner. Hex IDs prevent collision. Anyone can create; G key claims a slice into your personal folder.
-
-**Sync**: Explicit operation only — move done slices → commit → push. Never automatic.
+**Sync**: Explicit operation only — commit all type folder changes and push. Never automatic.
 
 **Core Library**: `gitcake-core` — all business logic, no UI dependencies. The open API that all frontends depend on.
 

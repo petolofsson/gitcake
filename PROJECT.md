@@ -26,28 +26,26 @@ gitcake/
 
 ---
 
-## Repository structure
+## Repository structure (v2)
 
 ```
 (dedicated gitcake repo)/
-  gitcake.toml           ← repo marker
-  alice-smith/           ← open + in-progress slices
-    a3f2b1c4.md
-  completed/
-    alice-smith/         ← done slices, moved here on sync
-      d7e91a2b.md
-  backlog/               ← shared team backlog
-    b5c0f3a1.md
-  bob-jones/
+  gitcake.toml      ← repo marker
+  tasks/
+    a3f2b1c4.md     ← owner: alice-smith
+    b5c0f3a1.md     ← owner: (none) = backlog
+  bugs/
+    d7e91a2b.md     ← owner: bob-jones
+  incidents/
     f1a2b3c4.md
 ```
 
-- Dedicated git repo, separate from code repos
-- One folder per developer (`git config user.name` lowercased, spaces → hyphens, ASCII only)
-- One file per slice, named by 8-char hex ID
-- Done slices move to `completed/{username}/` on sync via `git mv`
-- Backlog slices live in `backlog/` — shared, no ownership, hex IDs prevent collision
-- Repo must already exist with a remote configured
+- One folder per **type** (`tasks/`, `bugs/`, `incidents/`) — not per person
+- Ownership is a frontmatter field (`owner:`), not a directory
+- `owner: alice-smith` → appears in Alice's personal view
+- No `owner:` field → appears in the shared backlog view
+- Done slices stay in their type folder — status is frontmatter only, no file moves
+- Auto-migrates v1 repos (personal folders + backlog/) on first open
 
 ---
 
@@ -61,17 +59,16 @@ Lives at the repo root. Marks the directory as a gitcake repo.
 
 ---
 
-## Slice file format
+## Slice file format (v2)
 
 ```yaml
 ---
 id: "a3f2b1c4"
-type: task
 title: Fix login redirect
 status: in-progress
 created: 2026-05-29T09:14:00
 done:
-assignee: alice-smith
+owner: alice-smith
 ---
 Optional description in markdown.
 ```
@@ -79,12 +76,13 @@ Optional description in markdown.
 | Field | Description |
 |---|---|
 | `id` | 8-char hex string — same as the filename stem |
-| `type` | `task`, `bug`, or `incident` — visual label only |
 | `title` | Short slice title |
 | `status` | `open`, `in-progress`, or `done` |
 | `created` | Timestamp when created |
 | `done` | Timestamp when marked done (empty until then) |
-| `assignee` | Optional. Git username of the person responsible |
+| `owner` | Optional. Git username of the person responsible. Empty = unowned (backlog) |
+
+Type is derived from the parent folder name (`tasks/` → task, `bugs/` → bug, `incidents/` → incident) and is not stored in the file.
 
 ---
 
@@ -94,28 +92,41 @@ Optional description in markdown.
 open → in-progress → done
 ```
 
-Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in personal context. In backlog context, F claims the selected slice into your personal list instead.
+Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in personal context. In backlog context, F claims the selected slice into your personal list; Ctrl+A opens a user picker to assign to anyone.
 
 ---
 
 ## TUI key bindings
 
+### Personal view
+
 | Key | Action |
 |---|---|
-| `W` / `↑` / `S` / `↓` | Navigate |
+| `W` / `↑`  `S` / `↓` | Navigate |
 | `D` | View slice detail |
 | `A` | Back |
 | `C` | Create new slice |
 | `E` | Edit slice in `$EDITOR` |
-| `F` | Cycle status (personal) / Claim slice (backlog) |
-| `B` | Toggle personal / backlog |
+| `F` | Cycle status (open → in-progress → done, wraps) |
+| `B` | Switch to backlog view |
 | `T` | Team view (read-only) |
+| `/` | Filter — matches title, hex ID, owner, type, status. Esc to clear |
 | `Shift+R` | Pull |
-| `Ctrl+A` | Assign slice (moves file to assignee's folder) |
-| `Ctrl+O` | Change repo path |
+| `Ctrl+A` | Assign slice to any user (including yourself) |
 | `Ctrl+R` | Push (commit + push) |
-| `Ctrl+D` | Move to backlog (personal) / Permanently delete (backlog) |
+| `Ctrl+D` | Move to backlog (clears owner, resets status) |
 | `Ctrl+Q` | Quit |
+
+### Backlog view
+
+| Key | Action |
+|---|---|
+| `F` | Claim slice for yourself |
+| `Ctrl+A` | Assign slice to any user (opens picker) |
+| `Ctrl+D` | Permanently delete slice |
+| `B` | Switch to personal view |
+
+Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 
 Auto-pulls on open. Prompts to push on quit if uncommitted changes exist.
 
@@ -148,11 +159,11 @@ Plain text by default; `--json` for machine-readable output. Thin layer on `gitc
 
 Tools: `list_slices`, `create_slice`, `start_slice`, `done_slice`, `assign_slice`, `list_users`, `sync`.
 
-Configure in `.mcp.json`:
+Configure in `~/.claude/.mcp.json` (use full binary path):
 ```json
 {
   "mcpServers": {
-    "gitcake": { "command": "gitcake-mcp" }
+    "gitcake": { "command": "/home/you/.cargo/bin/gitcake-mcp" }
   }
 }
 ```
