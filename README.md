@@ -44,11 +44,11 @@ gitcake --new                  # fresh setup screen to enter any repo
 | `B` | Toggle personal / backlog |
 | `T` | Team view (read-only) |
 | `G` | Claim backlog slice |
+| `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice |
-| `Ctrl+P` | Pull |
-| `Ctrl+O` | Change repo path |
-| `Ctrl+R` | Sync (commit + push) |
+| `Ctrl+R` | Push (commit + push) |
 | `Ctrl+D` | Delete slice |
+| `Ctrl+O` | Change repo path |
 | `Ctrl+Q` | Quit |
 
 The TUI pulls on open and prompts to push on quit if there are unsynced changes.
