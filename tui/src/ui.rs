@@ -362,7 +362,8 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 
 fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
     let area = f.area();
-    let block = padded_block(&format!("Task {}", task.id));
+    let block = outer_block(&format!("Task {}", task.id))
+        .padding(Padding::new(3, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
