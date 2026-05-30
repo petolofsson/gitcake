@@ -123,7 +123,10 @@ impl App {
         let Screen::Setup { input, error: _ } = &mut self.screen else {
             return;
         };
+        // Ctrl+Q always quits
+        if is_ctrl_q(&key) { self.should_quit = true; return; }
         match key.code {
+            // 'q' in a path input types the letter — Esc quits
             KeyCode::Char(c) => input.push(c),
             KeyCode::Backspace => { input.pop(); }
             KeyCode::Enter => {
@@ -186,7 +189,7 @@ impl App {
                     .unwrap_or_else(|| "Pull failed.".into());
                 self.enter_task_list(Some(message));
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc | KeyCode::Enter => {
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
                 self.enter_task_list(None);
             }
             _ => {}
@@ -198,7 +201,7 @@ impl App {
     fn handle_task_list(&mut self, key: KeyEvent) {
         let km = self.config.keys.clone();
 
-        if is_key(&key, &km.quit) {
+        if is_key(&key, &km.quit) || key.code == KeyCode::Char('q') {
             self.try_quit();
             return;
         }
@@ -279,7 +282,7 @@ impl App {
         };
         let task_id = task.id.clone();
 
-        if is_key(&key, &km.back) || key.code == KeyCode::Esc {
+        if is_key(&key, &km.back) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
             self.enter_task_list(None);
             return;
         }
@@ -311,9 +314,29 @@ impl App {
     // ── create ────────────────────────────────────────────────────────────────
 
     fn handle_create(&mut self, key: KeyEvent) {
+        if is_ctrl_q(&key) { self.should_quit = true; return; }
+
         let Screen::Create { title, task_type, description, field } = &mut self.screen else {
             return;
         };
+
+        // Ctrl+S saves from any field
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            if title.trim().is_empty() {
+                return;
+            }
+            let title = title.trim().to_string();
+            let task_type = task_type.clone();
+            let desc = description.trim().to_string();
+            let desc = if desc.is_empty() { None } else { Some(desc) };
+            if let Some(repo) = &self.repo {
+                match repo.create_task(title, task_type, desc) {
+                    Ok(_) => self.enter_task_list(Some("Task created.".into())),
+                    Err(e) => self.enter_task_list(Some(e.to_string())),
+                }
+            }
+            return;
+        }
 
         match key.code {
             KeyCode::Esc => self.enter_task_list(None),
@@ -324,36 +347,16 @@ impl App {
                     CreateField::Description => CreateField::Title,
                 };
             }
-            KeyCode::Enter if *field != CreateField::Description => {
-                if title.trim().is_empty() {
-                    return;
-                }
-                let title = title.trim().to_string();
-                let task_type = task_type.clone();
-                let description = description.trim().to_string();
-                let desc = if description.is_empty() { None } else { Some(description) };
-                if let Some(repo) = &self.repo {
-                    match repo.create_task(title, task_type, desc) {
-                        Ok(_) => self.enter_task_list(Some("Task created.".into())),
-                        Err(e) => self.enter_task_list(Some(e.to_string())),
-                    }
-                }
+            // Enter in title/type advances to next field
+            KeyCode::Enter if *field == CreateField::Title => {
+                *field = CreateField::Type;
             }
+            KeyCode::Enter if *field == CreateField::Type => {
+                *field = CreateField::Description;
+            }
+            // Enter in description inserts a newline
             KeyCode::Enter if *field == CreateField::Description => {
-                // Enter in description field saves
-                let title = title.trim().to_string();
-                let task_type = task_type.clone();
-                let description = description.trim().to_string();
-                let desc = if description.is_empty() { None } else { Some(description) };
-                if title.is_empty() {
-                    return;
-                }
-                if let Some(repo) = &self.repo {
-                    match repo.create_task(title, task_type, desc) {
-                        Ok(_) => self.enter_task_list(Some("Task created.".into())),
-                        Err(e) => self.enter_task_list(Some(e.to_string())),
-                    }
-                }
+                description.push('\n');
             }
             KeyCode::Char(' ') if *field == CreateField::Type => {
                 *task_type = match task_type {
@@ -379,9 +382,25 @@ impl App {
     // ── edit ──────────────────────────────────────────────────────────────────
 
     fn handle_edit(&mut self, key: KeyEvent) {
+        if is_ctrl_q(&key) { self.should_quit = true; return; }
+
         let Screen::Edit { task_id, title, description, field } = &mut self.screen else {
             return;
         };
+
+        // Ctrl+S saves from any field
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            let id = task_id.clone();
+            let new_title = Some(title.trim().to_string()).filter(|s| !s.is_empty());
+            let new_desc = Some(description.trim().to_string()).filter(|s| !s.is_empty());
+            if let Some(repo) = &self.repo {
+                match repo.update_task(&id, new_title, new_desc) {
+                    Ok(_) => self.enter_task_list(Some("Task updated.".into())),
+                    Err(e) => self.enter_task_list(Some(e.to_string())),
+                }
+            }
+            return;
+        }
 
         match key.code {
             KeyCode::Esc => self.enter_task_list(None),
@@ -391,21 +410,13 @@ impl App {
                     EditField::Description => EditField::Title,
                 };
             }
-            KeyCode::Enter => {
-                let id = task_id.clone();
-                let new_title = if title.trim().is_empty() {
-                    None
-                } else {
-                    Some(title.trim().to_string())
-                };
-                let new_desc = Some(description.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                if let Some(repo) = &self.repo {
-                    match repo.update_task(&id, new_title, new_desc) {
-                        Ok(_) => self.enter_task_list(Some("Task updated.".into())),
-                        Err(e) => self.enter_task_list(Some(e.to_string())),
-                    }
-                }
+            // Enter in title advances to description
+            KeyCode::Enter if *field == EditField::Title => {
+                *field = EditField::Description;
+            }
+            // Enter in description inserts a newline
+            KeyCode::Enter if *field == EditField::Description => {
+                description.push('\n');
             }
             KeyCode::Backspace => match field {
                 EditField::Title => { title.pop(); }
@@ -437,7 +448,7 @@ impl App {
                 };
                 self.enter_task_list(Some(msg));
             }
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') | KeyCode::Char('N') => {
                 self.enter_task_list(None);
             }
             _ => {}
@@ -454,7 +465,7 @@ impl App {
                 }
                 self.should_quit = true;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Esc => {
                 self.should_quit = true;
             }
             _ => {}
@@ -566,6 +577,10 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
         return event.modifiers == KeyModifiers::NONE && event.code == KeyCode::Char(ch);
     }
     false
+}
+
+pub fn is_ctrl_q(event: &KeyEvent) -> bool {
+    event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('q')
 }
 
 fn expand_tilde(path: &str) -> String {

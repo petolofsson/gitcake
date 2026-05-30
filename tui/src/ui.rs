@@ -82,7 +82,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
         );
     }
 
-    render_help(f, area, "Enter: connect  Esc: quit");
+    render_help(f, area, "Enter: connect  Q: quit");
 }
 
 // ── init repo ─────────────────────────────────────────────────────────────────
@@ -134,13 +134,13 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
         );
     }
 
-    render_help(f, area, "Enter: initialize  Esc: back");
+    render_help(f, area, "Enter: initialize  Q: back");
 }
 
 // ── pull prompt ───────────────────────────────────────────────────────────────
 
 fn draw_pull_prompt(f: &mut Frame) {
-    draw_yes_no_prompt(f, "Pull latest changes?", "y: yes  n/Esc: skip");
+    draw_yes_no_prompt(f, "Pull latest changes?", "y: yes  n/q: skip");
 }
 
 // ── task list ─────────────────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ fn draw_task_list(f: &mut Frame, tasks: &[Task], selected: usize, message: Optio
     }
 
     let msg_text = message.unwrap_or("");
-    let help = format!("w/s:move  d:detail  c:new  e:edit  f:cycle  Ctrl+R:sync  Ctrl+Q:quit");
+    let help = "w/s:move  d:detail  c:new  e:edit  f:cycle  Ctrl+R:sync  Ctrl+Q:quit".to_string();
     let bottom_text = if msg_text.is_empty() {
         help
     } else {
@@ -341,7 +341,7 @@ fn draw_detail(f: &mut Frame, task: &Task, message: Option<&str>) {
 
     let msg_prefix = message.map(|m| format!("{m}  ·  ")).unwrap_or_default();
     f.render_widget(
-        Paragraph::new(format!("{msg_prefix}a:back  e:edit  f:cycle status  Ctrl+Q:quit"))
+        Paragraph::new(format!("{msg_prefix}a/q:back  e:edit  f:cycle  Ctrl+Q:quit"))
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[5],
     );
@@ -397,11 +397,11 @@ fn draw_create(
         rows[4],
     );
 
-    draw_field_label(f, rows[6], "DESCRIPTION:", *field == CreateField::Description);
+    draw_field_label(f, rows[6], "DESCRIPTION: (markdown)", *field == CreateField::Description);
     draw_field_input(f, rows[7], description, *field == CreateField::Description, true);
 
     f.render_widget(
-        Paragraph::new("Tab: next field  ·  Enter: save  ·  Esc: cancel")
+        Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Q: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[9],
     );
@@ -431,11 +431,11 @@ fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
     draw_field_label(f, rows[0], "TITLE:", *field == EditField::Title);
     draw_field_input(f, rows[1], title, *field == EditField::Title, false);
 
-    draw_field_label(f, rows[3], "DESCRIPTION:", *field == EditField::Description);
+    draw_field_label(f, rows[3], "DESCRIPTION: (markdown)", *field == EditField::Description);
     draw_field_input(f, rows[4], description, *field == EditField::Description, true);
 
     f.render_widget(
-        Paragraph::new("Tab: next field  ·  Enter: save  ·  Esc: cancel")
+        Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Q: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[6],
     );
@@ -476,13 +476,13 @@ fn draw_sync_confirm(f: &mut Frame) {
         rows[2],
     );
 
-    render_help(f, popup, "Enter/y: yes  Esc/n: cancel");
+    render_help(f, popup, "Enter/y: yes  q/n: cancel");
 }
 
 // ── push prompt ───────────────────────────────────────────────────────────────
 
 fn draw_push_prompt(f: &mut Frame) {
-    draw_yes_no_prompt(f, "Push before exiting?", "y/Enter: push  n/Esc: quit without pushing");
+    draw_yes_no_prompt(f, "Push before exiting?", "y/Enter: push  n/q: quit without pushing");
 }
 
 // ── error ─────────────────────────────────────────────────────────────────────
