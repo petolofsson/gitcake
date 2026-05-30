@@ -280,15 +280,14 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
     }
 
     f.render_widget(
-        Paragraph::new(" w/s: move  c: new  e: edit  f: cycle  b: backlog ")
-            .style(Style::new().fg(Color::White).bg(Color::DarkGray)),
+        Paragraph::new(nav_bar())
+            .style(Style::new().bg(Color::DarkGray)),
         rows[1],
     );
 
-    // Ctrl shortcuts — reversed (white bg, black text)
     f.render_widget(
-        Paragraph::new(" ^A: Assign   ^R: Task Sync   ^D: Delete Task   ^Q: Quit Git-task ")
-            .style(Style::new().add_modifier(Modifier::REVERSED)),
+        Paragraph::new(ctrl_bar())
+            .style(Style::new().bg(Color::White).fg(Color::Black)),
         rows[2],
     );
 }
@@ -592,6 +591,51 @@ fn draw_delete_confirm(f: &mut Frame, task_title: &str) {
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[3],
     );
+}
+
+// ── command bars ─────────────────────────────────────────────────────────────
+
+fn nav_bar<'a>() -> Line<'a> {
+    let items = [
+        ("WASD", "navigate"),
+        ("C", "create"),
+        ("E", "edit"),
+        ("F", "cycle"),
+        ("B", "backlog"),
+    ];
+    let mut spans = vec![Span::raw(" ")];
+    for (key, label) in &items {
+        spans.push(Span::styled(
+            format!(" {key} "),
+            Style::new().fg(Color::Black).bg(Color::White),
+        ));
+        spans.push(Span::styled(
+            format!(" {label}  "),
+            Style::new().fg(Color::White),
+        ));
+    }
+    Line::from(spans)
+}
+
+fn ctrl_bar<'a>() -> Line<'a> {
+    let items = [
+        ("^A", "assign"),
+        ("^R", "sync"),
+        ("^D", "delete"),
+        ("^Q", "quit"),
+    ];
+    let mut spans = vec![Span::raw(" ")];
+    for (key, label) in &items {
+        spans.push(Span::styled(
+            format!(" {key} "),
+            Style::new().fg(Color::White).bg(Color::Black),
+        ));
+        spans.push(Span::styled(
+            format!(" {label}  "),
+            Style::new().fg(Color::Black),
+        ));
+    }
+    Line::from(spans)
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
