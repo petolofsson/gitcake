@@ -483,7 +483,32 @@ fn draw_sync_confirm(f: &mut Frame) {
 // ── push prompt ───────────────────────────────────────────────────────────────
 
 fn draw_push_prompt(f: &mut Frame) {
-    draw_yes_no_prompt(f, "Push before exiting?", "y/Enter: push  n/q: quit without pushing");
+    let area = f.area();
+    let block = outer_block("git-task");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .split(inner);
+
+    f.render_widget(
+        Paragraph::new("You are closing git-task. Do you want to push all task states?")
+            .alignment(Alignment::Center),
+        rows[1],
+    );
+    f.render_widget(
+        Paragraph::new("[Y/n]  —  Esc to go back")
+            .alignment(Alignment::Center)
+            .style(Style::new().add_modifier(Modifier::DIM)),
+        rows[2],
+    );
 }
 
 // ── error ─────────────────────────────────────────────────────────────────────
@@ -573,24 +598,6 @@ fn draw_field_input(f: &mut Frame, area: Rect, value: &str, active: bool, wrap: 
     }
 }
 
-fn draw_yes_no_prompt(f: &mut Frame, question: &str, help: &str) {
-    let area = f.area();
-    let block = outer_block("git-task");
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(1), Constraint::Length(1), Constraint::Fill(1)])
-        .split(inner);
-
-    f.render_widget(
-        Paragraph::new(question).alignment(Alignment::Center),
-        rows[1],
-    );
-
-    render_help(f, area, help);
-}
 
 fn render_help(f: &mut Frame, area: Rect, text: &str) {
     let height = area.height;

@@ -191,7 +191,7 @@ impl App {
     fn handle_task_list(&mut self, key: KeyEvent) {
         let km = self.config.keys.clone();
 
-        if is_key(&key, &km.quit) || key.code == KeyCode::Char('q') {
+        if is_key(&key, &km.quit) {
             self.try_quit();
             return;
         }
@@ -449,14 +449,20 @@ impl App {
 
     fn handle_push_prompt(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+            // Y is the default — Enter or Y pushes then quits
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                 if let Some(repo) = &self.repo {
                     let _ = repo.push();
                 }
                 self.should_quit = true;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Esc => {
+            // n quits without pushing
+            KeyCode::Char('n') | KeyCode::Char('N') => {
                 self.should_quit = true;
+            }
+            // Esc cancels the quit entirely — back to task list
+            KeyCode::Esc => {
+                self.enter_task_list(None);
             }
             _ => {}
         }
@@ -545,17 +551,7 @@ impl App {
     }
 
     fn try_quit(&mut self) {
-        let has_changes = self
-            .repo
-            .as_ref()
-            .and_then(|r| r.has_local_changes().ok())
-            .unwrap_or(false);
-
-        if has_changes {
-            self.screen = Screen::PushPrompt;
-        } else {
-            self.should_quit = true;
-        }
+        self.screen = Screen::PushPrompt;
     }
 }
 
