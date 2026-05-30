@@ -256,7 +256,7 @@ impl App {
                         task_id: task.id.clone(),
                         title: task.title.clone(),
                         description: task.description.clone().unwrap_or_default(),
-                        field: EditField::Title,
+                        field: EditField::Description,
                     };
                 }
             }
@@ -294,7 +294,7 @@ impl App {
                 task_id: task.id.clone(),
                 title: task.title.clone(),
                 description: task.description.clone().unwrap_or_default(),
-                field: EditField::Title,
+                field: EditField::Description,
             };
             return;
         }
@@ -354,8 +354,13 @@ impl App {
             KeyCode::Enter if *field == CreateField::Type => {
                 *field = CreateField::Description;
             }
-            // Enter in description inserts a newline
+            // Enter or Shift+Enter in description inserts a newline
             KeyCode::Enter if *field == CreateField::Description => {
+                description.push('\n');
+            }
+            // Shift+Enter outside description: jump to description and insert newline
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                *field = CreateField::Description;
                 description.push('\n');
             }
             KeyCode::Char(' ') if *field == CreateField::Type => {
@@ -409,6 +414,11 @@ impl App {
                     EditField::Title => EditField::Description,
                     EditField::Description => EditField::Title,
                 };
+            }
+            // Shift+Enter from anywhere goes to description and inserts a newline
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                *field = EditField::Description;
+                description.push('\n');
             }
             // Enter in title advances to description
             KeyCode::Enter if *field == EditField::Title => {

@@ -401,7 +401,7 @@ fn draw_create(
     draw_field_input(f, rows[7], description, *field == CreateField::Description, true);
 
     f.render_widget(
-        Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Q: cancel")
+        Paragraph::new("Tab/Enter: next field  ·  Shift+Enter: new line  ·  Ctrl+S: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[9],
     );
@@ -435,7 +435,7 @@ fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
     draw_field_input(f, rows[4], description, *field == EditField::Description, true);
 
     f.render_widget(
-        Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Q: cancel")
+        Paragraph::new("Tab/Enter: next field  ·  Shift+Enter: new line  ·  Ctrl+S: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[6],
     );
