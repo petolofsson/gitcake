@@ -259,14 +259,23 @@ impl App {
             KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 => {
                 let sel = *selected;
                 if let Some(task) = tasks.get(sel).cloned() {
-                    let path = match self.context {
-                        TaskContext::Personal => self.repo.as_ref().and_then(|r| r.find_task_file_path(&task.id)),
-                        TaskContext::Backlog => self.repo.as_ref().and_then(|r| r.backlog_file_path(&task.id)),
-                    };
-                    if let Some(path) = path {
-                        open_file_in_editor(&path);
+                    let id = task.id.clone();
+                    let title = task.title.clone();
+                    let desc = task.description.clone().unwrap_or_default();
+                    let ctx = self.context;
+                    if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
+                        let msg = self.repo.as_ref().map(|r| match ctx {
+                            TaskContext::Personal => r.update_task(&id, Some(new_title), new_desc),
+                            TaskContext::Backlog => r.update_backlog_task(&id, Some(new_title), new_desc),
+                        }).map(|res| match res {
+                            Ok(_) => "Task updated.".to_string(),
+                            Err(e) => e.to_string(),
+                        });
                         self.needs_clear = true;
-                        self.enter_task_list(Some("Task updated.".into()));
+                        self.enter_task_list(msg);
+                    } else {
+                        self.needs_clear = true;
+                        self.enter_task_list(None);
                     }
                 }
             }
@@ -329,15 +338,25 @@ impl App {
             return;
         }
         if is_key(&key, &km.edit) {
-            let path = match self.context {
-                TaskContext::Personal => self.repo.as_ref().and_then(|r| r.find_task_file_path(&task_id)),
-                TaskContext::Backlog => self.repo.as_ref().and_then(|r| r.backlog_file_path(&task_id)),
+            // Clone task data before releasing borrow on self.screen
+            let (title, desc, ctx) = {
+                let Screen::Detail { task, .. } = &self.screen else { return };
+                (task.title.clone(), task.description.clone().unwrap_or_default(), self.context)
             };
-            if let Some(path) = path {
-                open_file_in_editor(&path);
+            if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
+                let msg = self.repo.as_ref().map(|r| match ctx {
+                    TaskContext::Personal => r.update_task(&task_id, Some(new_title), new_desc),
+                    TaskContext::Backlog => r.update_backlog_task(&task_id, Some(new_title), new_desc),
+                }).map(|res| match res {
+                    Ok(_) => "Task updated.".to_string(),
+                    Err(e) => e.to_string(),
+                });
                 self.needs_clear = true;
+                self.enter_task_list(msg);
+            } else {
+                self.needs_clear = true;
+                self.enter_task_list(None);
             }
-            self.enter_task_list(Some("Task updated.".into()));
             return;
         }
         if is_key(&key, &km.status_cycle) {
@@ -664,23 +683,47 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-// Opens an existing file directly in $VISUAL/$EDITOR.
-// Edits are saved in-place — no temp file.
-fn open_file_in_editor(path: &std::path::Path) {
-    let editor = env::var("VISUAL")
-        .or_else(|_| env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".to_string());
+// Opens a task for editing as "# Title\n\nDescription".
+// Returns (new_title, new_description) parsed from the saved file,
+// or None if the editor was cancelled or no # heading was found.
+fn edit_task_in_editor(title: &str, description: &str) -> Option<(String, Option<String>)> {
+    let content = if description.trim().is_empty() {
+        format!("# {title}\n")
+    } else {
+        format!("# {title}\n\n{description}")
+    };
+    let edited = open_in_editor(&content)?;
+    parse_editor_content(&edited)
+}
 
-    let _ = disable_raw_mode();
-    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
-    let _ = Command::new(&editor).arg(path).status();
-    let _ = enable_raw_mode();
-    let _ = execute!(std::io::stdout(), EnterAlternateScreen);
+// Parses "# Title\n\nDescription" back into (title, description).
+fn parse_editor_content(content: &str) -> Option<(String, Option<String>)> {
+    let mut title = String::new();
+    let mut after_heading = false;
+    let mut desc_lines: Vec<&str> = Vec::new();
+
+    for line in content.lines() {
+        if !after_heading && line.starts_with("# ") {
+            title = line.trim_start_matches("# ").trim().to_string();
+            after_heading = true;
+        } else if after_heading {
+            desc_lines.push(line);
+        }
+    }
+
+    if title.is_empty() {
+        return None;
+    }
+
+    let desc = desc_lines.join("\n").trim().to_string();
+    Some((title, if desc.is_empty() { None } else { Some(desc) }))
 }
 
 // Suspends ratatui, opens content in $VISUAL/$EDITOR, resumes ratatui.
 // Returns the edited content, or None if the editor couldn't be launched.
 fn open_in_editor(content: &str) -> Option<String> {
+    use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+
     let editor = env::var("VISUAL")
         .or_else(|_| env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_string());
@@ -689,12 +732,12 @@ fn open_in_editor(content: &str) -> Option<String> {
     fs::write(&tmp_path, content).ok()?;
 
     let _ = disable_raw_mode();
-    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+    let _ = execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
 
     let _ = Command::new(&editor).arg(&tmp_path).status();
 
     let _ = enable_raw_mode();
-    let _ = execute!(std::io::stdout(), EnterAlternateScreen);
+    let _ = execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture);
 
     let result = fs::read_to_string(&tmp_path).ok();
     let _ = fs::remove_file(&tmp_path);
