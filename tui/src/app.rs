@@ -238,7 +238,7 @@ impl App {
             self.try_quit();
             return;
         }
-        if is_key(&key, &km.sync) {
+        if is_key(&key, &km.push) {
             self.screen = Screen::SyncConfirm;
             return;
         }
@@ -251,7 +251,7 @@ impl App {
             self.screen = Screen::Setup { input: current_path, error: None, can_cancel: true };
             return;
         }
-        if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
             let current_id = if let Screen::TaskList { tasks, selected, .. } = &self.screen {
                 tasks.get(*selected).map(|t| t.id.clone())
             } else {
@@ -262,8 +262,6 @@ impl App {
                 Some(result) => classify_pull_result(result),
                 None => (None, Some("No repo connected.".to_string())),
             };
-            // Manual pull always shows feedback — if the result was silently
-            // "already up to date" (pull_msg None, pull_err None), say so explicitly.
             let no_error = pull_err.is_none();
             self.pull_error = pull_err;
             let msg = pull_msg.or_else(|| no_error.then(|| "Already up to date.".to_string()));

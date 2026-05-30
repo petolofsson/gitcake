@@ -568,7 +568,7 @@ fn draw_team_view(f: &mut Frame, tasks: &[(String, Task)], selected: usize) {
 // ── sync confirm ──────────────────────────────────────────────────────────────
 
 fn draw_sync_confirm(f: &mut Frame, context: TaskContext) {
-    let inner = render_popup(f, "Task Sync", 54, 7);
+    let inner = render_popup(f, "Push", 54, 7);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -593,7 +593,7 @@ fn draw_sync_confirm(f: &mut Frame, context: TaskContext) {
         rows[1],
     );
     f.render_widget(
-        Paragraph::new("y: sync  Enter/n/q: cancel")
+        Paragraph::new("y: push  Enter/n/q: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[3],
     );
@@ -744,6 +744,7 @@ fn nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("F", "cycle"),
+        ("R", "pull"),
         ("B", "backlog"),
         ("T", "team"),
     ];
@@ -767,6 +768,7 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
         ("C", "create"),
         ("E", "edit"),
         ("G", "claim"),
+        ("R", "pull"),
         ("B", "personal"),
         ("T", "team"),
     ];
@@ -781,9 +783,9 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
 fn ctrl_bar<'a>() -> Line<'a> {
     let items = [
         ("^A", "assign"),
-        ("^P", "pull"),
-        ("^R", "sync"),
+        ("^R", "push"),
         ("^D", "delete"),
+        ("^O", "repo"),
         ("^Q", "quit"),
     ];
     let mut spans = vec![Span::raw(" ")];

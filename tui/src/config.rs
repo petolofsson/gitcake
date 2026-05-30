@@ -11,7 +11,7 @@ pub struct KeyMap {
     pub create: String,
     pub edit: String,
     pub status_cycle: String,
-    pub sync: String,
+    pub push: String,
     pub quit: String,
 }
 
@@ -25,7 +25,7 @@ impl Default for KeyMap {
             create: "c".into(),
             edit: "e".into(),
             status_cycle: "f".into(),
-            sync: "ctrl+r".into(),
+            push: "ctrl+r".into(),
             quit: "ctrl+q".into(),
         }
     }
