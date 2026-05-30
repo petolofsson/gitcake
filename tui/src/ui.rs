@@ -355,46 +355,25 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 
 fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>, username: Option<&str>) {
     let area = f.area();
-    let title = format!("Task {}", task.id);
-    let block = padded_block(&title);
+    let block = padded_block(&format!("Task {}", task.id));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // title
-            Constraint::Length(1), // type · status
-            Constraint::Length(1), // created
-            Constraint::Length(1), // done
-            Constraint::Length(1), // file
+            Constraint::Length(1), // blank
+            Constraint::Length(1), // task: {status}
+            Constraint::Length(1), // file: {path}
+            Constraint::Length(1), // created: {timestamp}
+            Constraint::Length(1), // blank
+            Constraint::Length(1), // title: {title}
+            Constraint::Length(1), // blank
             Constraint::Fill(1),   // description
             Constraint::Length(1), // nav bar
             Constraint::Length(1), // ctrl bar
         ])
         .split(inner);
-
-    f.render_widget(
-        Paragraph::new(task.title.clone()).style(Style::new().add_modifier(Modifier::BOLD)),
-        rows[0],
-    );
-    f.render_widget(
-        Paragraph::new(format!("{}  ·  {}", type_label(&task.task_type), status_label(&task.status)))
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[1],
-    );
-    f.render_widget(
-        Paragraph::new(format!("created: {}", task.created.format("%Y-%m-%d %H:%M")))
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[2],
-    );
-    if let Some(done_at) = task.done {
-        f.render_widget(
-            Paragraph::new(format!("done:    {}", done_at.format("%Y-%m-%d %H:%M")))
-                .style(Style::new().add_modifier(Modifier::DIM)),
-            rows[3],
-        );
-    }
 
     let file_path = match context {
         TaskContext::Backlog => format!("backlog/{}.md", task.id),
@@ -407,20 +386,35 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
             }
         }
     };
-    f.render_widget(
-        Paragraph::new(format!("file:    {file_path}"))
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[4],
-    );
 
-    let desc = task.description.as_deref().unwrap_or("No description.");
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    // rows[0] blank
     f.render_widget(
-        Paragraph::new(desc).wrap(ratatui::widgets::Wrap { trim: false }),
+        Paragraph::new(format!("{}:  {}", type_label(&task.task_type), status_label(&task.status))).style(dim),
+        rows[1],
+    );
+    f.render_widget(
+        Paragraph::new(format!("file:     {file_path}")).style(dim),
+        rows[2],
+    );
+    f.render_widget(
+        Paragraph::new(format!("created:  {}", task.created.format("%Y-%m-%d %H:%M"))).style(dim),
+        rows[3],
+    );
+    // rows[4] blank
+    f.render_widget(
+        Paragraph::new(format!("title:    {}", task.title)).style(Style::new().add_modifier(Modifier::BOLD)),
         rows[5],
     );
+    // rows[6] blank
+    let desc = task.description.as_deref().unwrap_or_default();
+    f.render_widget(
+        Paragraph::new(desc).wrap(ratatui::widgets::Wrap { trim: false }),
+        rows[7],
+    );
 
-    f.render_widget(Paragraph::new(nav_bar()), rows[6]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[7]);
+    f.render_widget(Paragraph::new(nav_bar()), rows[8]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
