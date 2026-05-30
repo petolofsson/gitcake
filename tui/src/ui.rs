@@ -22,6 +22,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_create(f, title, task_type, assignee, description, field)
         }
         Screen::AssignTask { users, selected, .. } => draw_assign_task(f, users, *selected),
+        Screen::PickAssignee { users, selected, .. } => draw_pick_assignee(f, users, *selected),
         Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context),
         Screen::PushPrompt => draw_push_prompt(f),
@@ -285,7 +286,7 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, task: &Task, message: Option<&str>) {
+fn draw_detail(f: &mut Frame, task: &Task, _message: Option<&str>) {
     let area = f.area();
     let title = format!("Task {}", task.id);
     let block = padded_block(&title);
@@ -295,12 +296,13 @@ fn draw_detail(f: &mut Frame, task: &Task, message: Option<&str>) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(1),
+            Constraint::Length(1), // title
+            Constraint::Length(1), // type · status
+            Constraint::Length(1), // created
+            Constraint::Length(1), // done
+            Constraint::Fill(1),   // description
+            Constraint::Length(1), // nav bar
+            Constraint::Length(1), // ctrl bar
         ])
         .split(inner);
 
@@ -343,12 +345,8 @@ fn draw_detail(f: &mut Frame, task: &Task, message: Option<&str>) {
         rows[4],
     );
 
-    let msg_prefix = message.map(|m| format!("{m}  ·  ")).unwrap_or_default();
-    f.render_widget(
-        Paragraph::new(format!("{msg_prefix}a/q:back  e:edit  f:cycle  Ctrl+Q:quit"))
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[5],
-    );
+    f.render_widget(Paragraph::new(nav_bar()), rows[5]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[6]);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
@@ -376,11 +374,12 @@ fn draw_create(
             Constraint::Length(1), // type selector
             Constraint::Length(1), // blank
             Constraint::Length(1), // ASSIGN TO: label
-            Constraint::Length(1), // assignee input
+            Constraint::Length(1), // assignee display
             Constraint::Length(1), // blank
             Constraint::Length(1), // description hint
             Constraint::Fill(1),   // description preview
-            Constraint::Length(1), // commands
+            Constraint::Length(1), // nav bar
+            Constraint::Length(1), // ctrl bar
         ])
         .split(inner);
 
@@ -403,17 +402,25 @@ fn draw_create(
         rows[4],
     );
 
-    draw_field_label(f, rows[6], "ASSIGN TO:", *field == CreateField::Assignee);
-    draw_field_input(f, rows[7], assignee, *field == CreateField::Assignee, false);
+    let assign_active = *field == CreateField::Assignee;
+    draw_field_label(f, rows[6], "ASSIGN TO:", assign_active);
+    let assign_text = if assign_active {
+        format!("{assignee}  ← Enter to pick")
+    } else {
+        assignee.to_string()
+    };
+    let assign_style = if assign_active {
+        Style::new().fg(Color::Cyan)
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
+    };
+    f.render_widget(Paragraph::new(assign_text).style(assign_style), rows[7]);
 
-    draw_editor_hint(f, rows[9], *field == CreateField::Assignee);
+    draw_editor_hint(f, rows[9], assign_active);
     draw_description_preview(f, rows[10], description, false);
 
-    f.render_widget(
-        Paragraph::new("Tab/Enter: next  ·  Enter on Assign: write description  ·  Ctrl+S: save  ·  Esc: cancel")
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[11],
-    );
+    f.render_widget(Paragraph::new(nav_bar()), rows[11]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[12]);
 }
 
 // ── sync confirm ──────────────────────────────────────────────────────────────
@@ -495,13 +502,21 @@ fn draw_push_prompt(f: &mut Frame) {
 
 // ── assign task ───────────────────────────────────────────────────────────────
 
+fn draw_pick_assignee(f: &mut Frame, users: &[String], selected: usize) {
+    draw_user_picker(f, " Pick assignee ", users, selected);
+}
+
 fn draw_assign_task(f: &mut Frame, users: &[String], selected: usize) {
+    draw_user_picker(f, " Assign to ", users, selected);
+}
+
+fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usize) {
     let area = f.area();
     let popup = centered_rect(50, (users.len() as u16 + 6).min(area.height), area);
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(" Assign to ")
+        .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .padding(Padding::new(1, 1, 1, 1));
@@ -605,7 +620,7 @@ fn nav_bar<'a>() -> Line<'a> {
         ));
         spans.push(Span::styled(
             format!(" {label}  "),
-            Style::new().fg(Color::White),
+            Style::new().fg(Color::DarkGray),
         ));
     }
     Line::from(spans)
@@ -626,7 +641,7 @@ fn ctrl_bar<'a>() -> Line<'a> {
         ));
         spans.push(Span::styled(
             format!(" {label}  "),
-            Style::new().fg(Color::White),
+            Style::new().fg(Color::DarkGray),
         ));
     }
     Line::from(spans)

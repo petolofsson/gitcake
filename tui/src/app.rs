@@ -53,6 +53,13 @@ pub enum Screen {
         users: Vec<String>,
         selected: usize,
     },
+    PickAssignee {
+        title: String,
+        task_type: TaskType,
+        description: String,
+        users: Vec<String>,
+        selected: usize,
+    },
     DeleteConfirm {
         task_id: String,
         task_title: String,
@@ -133,6 +140,7 @@ impl App {
             Screen::Detail { .. } => self.handle_detail(key),
             Screen::Create { .. } => self.handle_create(key),
             Screen::AssignTask { .. } => self.handle_assign_task(key),
+            Screen::PickAssignee { .. } => self.handle_pick_assignee(key),
             Screen::DeleteConfirm { .. } => self.handle_delete_confirm(key),
             Screen::SyncConfirm => self.handle_sync_confirm(key),
             Screen::PushPrompt => self.handle_push_prompt(key),
@@ -415,7 +423,7 @@ impl App {
             return;
         }
 
-        let mut launched_editor = false;
+        let launched_editor = false;
         match key.code {
             KeyCode::Esc => self.enter_task_list(None),
             KeyCode::Tab => {
@@ -428,12 +436,19 @@ impl App {
             KeyCode::Enter if *field == CreateField::Title => { *field = CreateField::Type; }
             KeyCode::Enter if *field == CreateField::Type => { *field = CreateField::Assignee; }
             // Enter on Assignee opens description editor
+            // Enter on Assignee opens user picker
             KeyCode::Enter if *field == CreateField::Assignee => {
-                let current = description.clone();
-                if let Some(edited) = open_in_editor(&current) {
-                    *description = edited;
-                }
-                launched_editor = true;
+                let t = title.clone();
+                let tt = task_type.clone();
+                let d = description.clone();
+                let users = self.repo.as_ref()
+                    .and_then(|r| r.list_users().ok())
+                    .unwrap_or_default();
+                self.screen = Screen::PickAssignee {
+                    title: t, task_type: tt, description: d,
+                    users, selected: 0,
+                };
+                return;
             }
             KeyCode::Char(' ') if *field == CreateField::Type => {
                 *task_type = match task_type {
@@ -442,16 +457,8 @@ impl App {
                     TaskType::Incident => TaskType::Task,
                 };
             }
-            KeyCode::Backspace => match field {
-                CreateField::Title => { title.pop(); }
-                CreateField::Assignee => { assignee.pop(); }
-                CreateField::Type => {}
-            },
-            KeyCode::Char(c) => match field {
-                CreateField::Title => title.push(c),
-                CreateField::Assignee => assignee.push(c),
-                CreateField::Type => {}
-            },
+            KeyCode::Backspace if *field == CreateField::Title => { title.pop(); }
+            KeyCode::Char(c) if *field == CreateField::Title => title.push(c),
             _ => {}
         }
         if launched_editor { self.needs_clear = true; }
@@ -593,6 +600,36 @@ impl App {
 
         if let Screen::TaskList { .. } = &self.screen {
             self.enter_task_list(msg);
+        }
+    }
+
+    fn handle_pick_assignee(&mut self, key: KeyEvent) {
+        let Screen::PickAssignee { title, task_type, description, users, selected } = &mut self.screen else { return };
+
+        match key.code {
+            KeyCode::Char('w') | KeyCode::Up => {
+                if *selected > 0 { *selected -= 1; }
+            }
+            KeyCode::Char('s') | KeyCode::Down => {
+                if !users.is_empty() && *selected < users.len() - 1 { *selected += 1; }
+            }
+            KeyCode::Enter => {
+                let assignee = users.get(*selected).cloned().unwrap_or_default();
+                let t = title.clone(); let tt = task_type.clone(); let d = description.clone();
+                self.screen = Screen::Create {
+                    title: t, task_type: tt, assignee, description: d,
+                    field: CreateField::Assignee,
+                };
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                let t = title.clone(); let tt = task_type.clone(); let d = description.clone();
+                let default = self.repo.as_ref().map(|r| r.info.username.clone()).unwrap_or_default();
+                self.screen = Screen::Create {
+                    title: t, task_type: tt, assignee: default, description: d,
+                    field: CreateField::Assignee,
+                };
+            }
+            _ => {}
         }
     }
 
