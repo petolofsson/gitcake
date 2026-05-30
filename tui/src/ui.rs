@@ -404,28 +404,40 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
         TaskStatus::Done => Style::new().add_modifier(Modifier::DIM),
         TaskStatus::Open => Style::new().add_modifier(Modifier::BOLD),
     };
+    let bold = Style::new().add_modifier(Modifier::BOLD);
     // rows[0] blank
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{}:  ", type_label(&task.task_type)), dim),
+            Span::styled(format!("{}:", type_label(&task.task_type).to_uppercase()), bold),
+            Span::raw("  "),
             Span::styled(status_label(&task.status), status_style),
         ])),
         rows[1],
     );
     f.render_widget(
-        Paragraph::new(format!("  file:     {file_path}")).style(dim),
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("FILE:", bold),
+            Span::styled(format!("     {file_path}"), dim),
+        ])),
         rows[2],
     );
     f.render_widget(
-        Paragraph::new(format!("  created:  {}", task.created.format("%Y-%m-%d %H:%M"))).style(dim),
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("CREATED:", bold),
+            Span::styled(format!("  {}", task.created.format("%Y-%m-%d %H:%M")), dim),
+        ])),
         rows[3],
     );
     // rows[4] blank
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("title:    {}", task.title), Style::new().add_modifier(Modifier::BOLD)),
+            Span::styled("TITLE:", bold),
+            Span::raw("    "),
+            Span::styled(task.title.clone(), bold),
         ])),
         rows[5],
     );
