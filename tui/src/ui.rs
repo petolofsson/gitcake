@@ -283,14 +283,14 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
     }
 
     f.render_widget(
-        Paragraph::new("w/s: move  c: new  e: edit  f: cycle  b: backlog")
+        Paragraph::new(" w/s: move  c: new  e: edit  f: cycle  b: backlog ")
             .style(Style::new().fg(Color::White).bg(Color::DarkGray)),
         rows[1],
     );
 
     // Ctrl shortcuts — reversed (white bg, black text)
     f.render_widget(
-        Paragraph::new("^A: Assign   ^R: Task Sync   ^D: Delete Task   ^Q: Quit Git-task")
+        Paragraph::new(" ^A: Assign   ^R: Task Sync   ^D: Delete Task   ^Q: Quit Git-task ")
             .style(Style::new().add_modifier(Modifier::REVERSED)),
         rows[2],
     );
