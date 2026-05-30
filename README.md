@@ -47,7 +47,7 @@ gitcake --new                  # fresh setup screen to enter any repo
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice |
 | `Ctrl+R` | Push (commit + push) |
-| `Ctrl+D` | Delete slice |
+| `Ctrl+D` | Move to backlog (personal) / Permanently delete (backlog) |
 | `Ctrl+O` | Change repo path |
 | `Ctrl+Q` | Quit |
 
