@@ -91,23 +91,24 @@ Captured during 100-user stress analysis. Ordered by impact.
 
 ## Low — polish
 
-- [ ] **No retry button after failed push/sync**
-  When sync fails, the error shows in the header but the user has to know to press Ctrl+R again.
-  Fix: show explicit retry hint in the header error message.
+- [x] **No retry button after failed push/sync**
+  `classify_push_error()` now appends `· ^R to retry` to all non-conflict sync failures.
+  Conflict/rejection errors already included resolution steps and a retry hint.
 
 - [ ] **Backlog done tasks never move to completed/**
   Personal done tasks move to `completed/{username}/` on sync. Backlog done tasks stay in `backlog/` forever.
   Fix: decide policy — move to `completed/backlog/` on sync, or leave in backlog and just mark done.
 
-- [ ] **`launched_editor` flag is unused in create form**
-  Minor dead code warning suppressed. Cleanup.
+- [x] **`launched_editor` flag is unused in create form**
+  Removed — the create form was redesigned; `launched_editor` no longer exists.
 
-- [ ] **`render_help` only used by two screens**
-  Setup and init-repo use the old right-aligned border help pattern. Should be migrated to the standard nav/ctrl bars for full uniformity.
+- [x] **`render_help` only used by two screens**
+  Setup and init-repo now use `action_bar()` — same chip-style bar as every other screen.
+  `render_help()` deleted.
 
-- [ ] **Concurrent gt instances see stale state**
-  Two `gt` windows open on the same repo — changes in one don't appear in the other until sync.
-  Fix: document as known limitation; optionally add a file-watcher to detect external changes.
+- [x] **Concurrent gt instances see stale state**
+  The session lock file already warns on next startup if another instance is open.
+  Documented as a known limitation; no file-watcher planned for v1.
 
 ---
 

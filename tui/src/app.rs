@@ -913,7 +913,7 @@ fn classify_push_error(err: &str) -> String {
     {
         "Push rejected: remote has new commits — run `git pull` in the repo, then ^R to retry".to_string()
     } else {
-        format!("Sync failed: {err}")
+        format!("Sync failed: {err} · ^R to retry")
     }
 }
 

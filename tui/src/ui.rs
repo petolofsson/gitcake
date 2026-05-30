@@ -70,6 +70,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool)
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Fill(1),
+            Constraint::Length(1),
         ])
         .split(inner);
 
@@ -97,8 +98,12 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool)
     );
 
     draw_error_line(f, rows[4], error);
-    let hint = if can_cancel { "Enter: connect  Esc: cancel" } else { "Enter: connect  Q: quit" };
-    render_help(f, area, hint);
+    let bar = if can_cancel {
+        action_bar(&[("Enter", "connect"), ("Esc", "cancel")])
+    } else {
+        action_bar(&[("Enter", "connect"), ("Q", "quit")])
+    };
+    f.render_widget(Paragraph::new(bar), rows[6]);
 }
 
 // ── init repo ─────────────────────────────────────────────────────────────────
@@ -117,8 +122,8 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Fill(1),
+            Constraint::Length(1),
         ])
         .split(inner);
 
@@ -142,7 +147,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
     f.render_widget(Paragraph::new(name_line).alignment(Alignment::Center), rows[3]);
 
     draw_error_line(f, rows[4], error);
-    render_help(f, area, "Enter: initialize  Q: back");
+    f.render_widget(Paragraph::new(action_bar(&[("Enter", "initialize"), ("Esc", "back")])), rows[6]);
 }
 
 // ── pull prompt ───────────────────────────────────────────────────────────────
@@ -740,6 +745,22 @@ fn ctrl_bar<'a>() -> Line<'a> {
     Line::from(spans)
 }
 
+/// Generic chip-style bar — same visual style as nav_bar / ctrl_bar.
+fn action_bar<'a>(items: &[(&'a str, &'a str)]) -> Line<'a> {
+    let mut spans = vec![Span::raw(" ")];
+    for (key, label) in items {
+        spans.push(Span::styled(
+            format!(" {key} "),
+            Style::new().bg(Color::White).fg(Color::Black),
+        ));
+        spans.push(Span::styled(
+            format!(" {label}  "),
+            Style::new().fg(Color::DarkGray),
+        ));
+    }
+    Line::from(spans)
+}
+
 // ── shared helpers ────────────────────────────────────────────────────────────
 
 // ── type / status labels ──────────────────────────────────────────────────────
@@ -867,24 +888,6 @@ fn draw_field_input(f: &mut Frame, area: Rect, value: &str, active: bool, wrap: 
 }
 
 
-fn render_help(f: &mut Frame, area: Rect, text: &str) {
-    let height = area.height;
-    if height == 0 {
-        return;
-    }
-    let help_area = Rect {
-        x: area.x + 1,
-        y: area.y + height - 1,
-        width: area.width.saturating_sub(2),
-        height: 1,
-    };
-    f.render_widget(
-        Paragraph::new(format!(" {text} "))
-            .alignment(Alignment::Right)
-            .style(Style::new().add_modifier(Modifier::DIM)),
-        help_area,
-    );
-}
 
 fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
     let width = area.width * percent_x / 100;
