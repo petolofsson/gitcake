@@ -26,6 +26,8 @@ impl GitRepo {
     /// Reads `git config user.name` from the repo context and derives
     /// the username: lowercased with spaces replaced by hyphens.
     /// Returns `AppError::UserNotConfigured` if user.name is unset or empty.
+    /// Returns `AppError::UsernameInvalid` if user.name contains non-ASCII
+    /// characters that would produce an unsafe or ambiguous folder name.
     pub fn get_username(&self) -> Result<String, AppError> {
         let name = self
             .run_git(&["config", "user.name"])
@@ -33,7 +35,11 @@ impl GitRepo {
         if name.is_empty() {
             return Err(AppError::UserNotConfigured);
         }
-        Ok(name.to_lowercase().replace(' ', "-"))
+        let username = name.to_lowercase().replace(' ', "-");
+        if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err(AppError::UsernameInvalid(name));
+        }
+        Ok(username)
     }
 
     /// Returns true if there are staged or unstaged changes under `folder`
@@ -227,6 +233,28 @@ mod tests {
         let (dir, repo) = make_repo("alice");
         assert_eq!(repo.get_username().unwrap(), "alice");
         drop(dir);
+    }
+
+    #[test]
+    fn get_username_errors_on_non_ascii_name() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path();
+        git(p, &["init"]);
+        git(p, &["config", "user.name", "José García"]);
+        git(p, &["config", "user.email", "test@example.com"]);
+        let repo = GitRepo::new(p);
+        assert!(matches!(repo.get_username(), Err(AppError::UsernameInvalid(_))));
+    }
+
+    #[test]
+    fn get_username_errors_on_emoji_name() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path();
+        git(p, &["init"]);
+        git(p, &["config", "user.name", "dev🦀"]);
+        git(p, &["config", "user.email", "test@example.com"]);
+        let repo = GitRepo::new(p);
+        assert!(matches!(repo.get_username(), Err(AppError::UsernameInvalid(_))));
     }
 
     #[test]
