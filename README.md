@@ -43,7 +43,7 @@ gitcake --new                  # fresh setup screen to enter any repo
 | `F` | Cycle status (open → in-progress → done) |
 | `B` | Toggle personal / backlog |
 | `T` | Team view (read-only) |
-| `G` | Claim backlog slice |
+| `F` | Claim backlog slice (backlog) / Cycle status (personal) |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice |
 | `Ctrl+R` | Push (commit + push) |

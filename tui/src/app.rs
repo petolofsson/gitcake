@@ -349,8 +349,8 @@ impl App {
                     self.cycle_status(&task.id);
                 }
             }
-            // g — claim selected backlog task (backlog context only)
-            KeyCode::Char('g') if key.modifiers == KeyModifiers::NONE
+            // f — claim selected backlog task (backlog context only)
+            KeyCode::Char('f') if key.modifiers == KeyModifiers::NONE
                 && self.context == TaskContext::Backlog =>
             {
                 let sel = *selected;

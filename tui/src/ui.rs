@@ -767,7 +767,7 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
         ("WASD", "navigate"),
         ("C", "create"),
         ("E", "edit"),
-        ("G", "claim"),
+        ("F", "claim"),
         ("⇧R", "pull"),
         ("B", "personal"),
         ("T", "team"),
