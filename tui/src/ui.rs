@@ -585,6 +585,7 @@ fn nav_bar<'a>() -> Line<'a> {
 fn ctrl_bar<'a>() -> Line<'a> {
     let items = [
         ("^A", "assign"),
+        ("^P", "pull"),
         ("^R", "sync"),
         ("^D", "delete"),
         ("^Q", "quit"),

@@ -234,6 +234,21 @@ impl App {
             self.pull_error = None;
             return;
         }
+        if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            let current_id = if let Screen::TaskList { tasks, selected, .. } = &self.screen {
+                tasks.get(*selected).map(|t| t.id.clone())
+            } else {
+                None
+            };
+            let pull_result = self.repo.as_ref().map(|r| r.pull());
+            let (pull_msg, pull_err) = match pull_result {
+                Some(result) => classify_pull_result(result),
+                None => (None, Some("No repo connected.".to_string())),
+            };
+            self.pull_error = pull_err;
+            self.enter_task_list(pull_msg, current_id.as_deref());
+            return;
+        }
 
         let Screen::TaskList { tasks, selected, message } = &mut self.screen else {
             return;
