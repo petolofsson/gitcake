@@ -284,7 +284,7 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 
     f.render_widget(
         Paragraph::new("w/s: move  c: new  e: edit  f: cycle  a: assign  b: backlog")
-            .style(Style::new().add_modifier(Modifier::DIM)),
+            .style(Style::new().fg(Color::White).bg(Color::DarkGray)),
         rows[1],
     );
 
