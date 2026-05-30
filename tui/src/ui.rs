@@ -54,7 +54,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_detail(f, app.context, task, message.as_deref());
         }
         Screen::Create { task_type, assignee, field } => {
-            draw_create(f, task_type, assignee, field)
+            draw_create(f, app.context, task_type, assignee, field)
         }
         Screen::AssignTask { users, selected, filter, .. } => draw_assign_task(f, users, *selected, filter),
         Screen::PickAssignee { users, selected, filter, .. } => draw_pick_assignee(f, users, *selected, filter),
@@ -352,16 +352,16 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
             Span::styled("Use '/' to filter", Style::new().add_modifier(Modifier::DIM)),
         ]))
     };
-    let nb = if context == TaskContext::Backlog { backlog_nav_bar() } else { nav_bar() };
+    let nb = nav_bar(context);
     f.render_widget(filter_widget, rows[1]);
     // rows[2] blank spacer
     f.render_widget(Paragraph::new(nb), rows[3]);
-    f.render_widget(Paragraph::new(ctrl_bar(context)), rows[4]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[4]);
 }
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Option<&str>) {
+fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
     let area = f.area();
     let block = Block::default()
         .title(Line::from(vec![
@@ -452,14 +452,15 @@ fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Opti
         rows[7],
     );
 
-    f.render_widget(Paragraph::new(nav_bar()), rows[8]);
-    f.render_widget(Paragraph::new(ctrl_bar(TaskContext::Personal)), rows[9]);
+    f.render_widget(Paragraph::new(nav_bar(context)), rows[8]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
 
 fn draw_create(
     f: &mut Frame,
+    context: TaskContext,
     task_type: &TaskType,
     assignee: &str,
     field: &CreateField,
@@ -518,8 +519,8 @@ fn draw_create(
     };
     draw_field_label(f, rows[6], confirm_label, confirm_active);
 
-    f.render_widget(Paragraph::new(nav_bar()), rows[8]);
-    f.render_widget(Paragraph::new(ctrl_bar(TaskContext::Personal)), rows[9]);
+    f.render_widget(Paragraph::new(nav_bar(context)), rows[8]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
 }
 
 // ── team view ─────────────────────────────────────────────────────────────────
@@ -798,78 +799,36 @@ fn draw_delete_confirm(f: &mut Frame, task_title: &str, context: TaskContext) {
 
 // ── command bars ─────────────────────────────────────────────────────────────
 
-fn nav_bar<'a>() -> Line<'a> {
-    let items = [
+fn nav_bar<'a>(context: TaskContext) -> Line<'a> {
+    let f_label = if context == TaskContext::Backlog { "claim" } else { "cycle" };
+    let b_label = if context == TaskContext::Backlog { "personal" } else { "backlog" };
+    let items: &[(&str, &str)] = &[
         ("WASD", "navigate"),
         ("C", "create"),
         ("E", "edit"),
-        ("F", "cycle"),
-        ("B", "backlog"),
+        ("F", f_label),
+        ("B", b_label),
         ("T", "team"),
     ];
-    let mut spans = vec![Span::raw(" ")];
-    for (key, label) in &items {
-        spans.push(Span::styled(
-            format!(" {key} "),
-            Style::new().bg(Color::White).fg(Color::Black),
-        ));
-        spans.push(Span::styled(
-            format!(" {label}  "),
-            Style::new().fg(Color::DarkGray),
-        ));
-    }
-    Line::from(spans)
+    bar_line(items)
 }
 
-fn backlog_nav_bar<'a>() -> Line<'a> {
-    let items = [
-        ("WASD", "navigate"),
-        ("C", "create"),
-        ("E", "edit"),
-        ("F", "claim"),
-        ("B", "personal"),
-        ("T", "team"),
-    ];
+fn ctrl_bar<'a>() -> Line<'a> {
+    bar_line(&[("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^Q", "quit")])
+}
+
+fn bar_line<'a>(items: &[(&'a str, &'a str)]) -> Line<'a> {
     let mut spans = vec![Span::raw(" ")];
-    for (key, label) in &items {
+    for (key, label) in items {
         spans.push(Span::styled(format!(" {key} "), Style::new().bg(Color::White).fg(Color::Black)));
         spans.push(Span::styled(format!(" {label}  "), Style::new().fg(Color::DarkGray)));
     }
     Line::from(spans)
 }
 
-fn ctrl_bar<'a>(_context: TaskContext) -> Line<'a> {
-    let mut items: Vec<(&str, &str)> = Vec::new();
-    items.push(("^A", "assign"));
-    items.extend_from_slice(&[("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^Q", "quit")]);
-    let mut spans = vec![Span::raw(" ")];
-    for (key, label) in &items {
-        spans.push(Span::styled(
-            format!(" {key} "),
-            Style::new().bg(Color::White).fg(Color::Black),
-        ));
-        spans.push(Span::styled(
-            format!(" {label}  "),
-            Style::new().fg(Color::DarkGray),
-        ));
-    }
-    Line::from(spans)
-}
-
 /// Generic chip-style bar — same visual style as nav_bar / ctrl_bar.
 fn action_bar<'a>(items: &[(&'a str, &'a str)]) -> Line<'a> {
-    let mut spans = vec![Span::raw(" ")];
-    for (key, label) in items {
-        spans.push(Span::styled(
-            format!(" {key} "),
-            Style::new().bg(Color::White).fg(Color::Black),
-        ));
-        spans.push(Span::styled(
-            format!(" {label}  "),
-            Style::new().fg(Color::DarkGray),
-        ));
-    }
-    Line::from(spans)
+    bar_line(items)
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
