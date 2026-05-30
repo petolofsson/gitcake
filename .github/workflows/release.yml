@@ -16,6 +16,9 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             archive: gitcake-macos-aarch64.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: gitcake-macos-x86_64.tar.gz
 
     runs-on: ${{ matrix.os }}
 
@@ -62,3 +65,35 @@ jobs:
           files: |
             gitcake-linux-x86_64.tar.gz/gitcake-linux-x86_64.tar.gz
             gitcake-macos-aarch64.tar.gz/gitcake-macos-aarch64.tar.gz
+            gitcake-macos-x86_64.tar.gz/gitcake-macos-x86_64.tar.gz
+
+  update-tap:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: petolofsson/homebrew-gitcake
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Update formula
+        run: |
+          VERSION=${{ github.ref_name }}
+          ARM_SHA=$(sha256sum gitcake-macos-aarch64.tar.gz/gitcake-macos-aarch64.tar.gz | cut -d' ' -f1)
+          INTEL_SHA=$(sha256sum gitcake-macos-x86_64.tar.gz/gitcake-macos-x86_64.tar.gz | cut -d' ' -f1)
+          sed -i "s|version \".*\"|version \"${VERSION#v}\"|" Formula/gitcake.rb
+          sed -i "s|download/v[^/]*/gitcake-macos-aarch64|download/$VERSION/gitcake-macos-aarch64|" Formula/gitcake.rb
+          sed -i "s|download/v[^/]*/gitcake-macos-x86_64|download/$VERSION/gitcake-macos-x86_64|" Formula/gitcake.rb
+          sed -i "s|sha256 \".*\" # aarch64|sha256 \"$ARM_SHA\" # aarch64|" Formula/gitcake.rb
+          sed -i "s|sha256 \".*\" # x86_64|sha256 \"$INTEL_SHA\" # x86_64|" Formula/gitcake.rb
+
+      - name: Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "gitcake ${{ github.ref_name }}"
+          git push
