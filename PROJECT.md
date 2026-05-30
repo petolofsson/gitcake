@@ -94,7 +94,7 @@ Optional description in markdown.
 open → in-progress → done
 ```
 
-Cycling wraps: `done` → `in-progress`. Transition is explicit (F key). Status cycling disabled in backlog context.
+Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in personal context. In backlog context, F claims the selected slice into your personal list instead.
 
 ---
 
@@ -107,15 +107,14 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key). Status 
 | `A` | Back |
 | `C` | Create new slice |
 | `E` | Edit slice in `$EDITOR` |
-| `F` | Cycle status |
+| `F` | Cycle status (personal) / Claim slice (backlog) |
 | `B` | Toggle personal / backlog |
 | `T` | Team view (read-only) |
-| `G` | Claim backlog slice (backlog context only) |
-| `Ctrl+A` | Assign slice |
-| `Ctrl+P` | Pull mid-session |
+| `Shift+R` | Pull |
+| `Ctrl+A` | Assign slice (moves file to assignee's folder) |
 | `Ctrl+O` | Change repo path |
-| `Ctrl+R` | Sync (commit + push) |
-| `Ctrl+D` | Delete slice |
+| `Ctrl+R` | Push (commit + push) |
+| `Ctrl+D` | Move to backlog (personal) / Permanently delete (backlog) |
 | `Ctrl+Q` | Quit |
 
 Auto-pulls on open. Prompts to push on quit if uncommitted changes exist.
@@ -125,6 +124,10 @@ Auto-pulls on open. Prompts to push on quit if uncommitted changes exist.
 ## CLI subcommands
 
 ```bash
+gitcake                          # launch TUI (last saved repo)
+gitcake --repo /path/to/repo     # launch TUI with specific repo (session only)
+gitcake --new                    # launch TUI with fresh setup screen
+
 gitcake list [--json] [--status open|in-progress|done] [--backlog]
 gitcake create "title" [--type task|bug|incident] [--assign username]
 gitcake done <id>
@@ -132,6 +135,7 @@ gitcake start <id>
 gitcake delete <id>
 gitcake assign <id> --to <username>
 gitcake sync
+gitcake --repo /path/to/repo <subcommand>
 ```
 
 Plain text by default; `--json` for machine-readable output. Thin layer on `gitcake-core` — no business logic in the CLI. Running `gitcake` with no arguments launches the TUI.
