@@ -411,8 +411,7 @@ fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Opti
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{}:", type_label(&task.task_type).to_uppercase()), bold),
-            Span::raw("  "),
+            Span::styled(format!("{:<10}", format!("{}:", type_label(&task.task_type).to_uppercase())), bold),
             Span::styled(status_label(&task.status), status_style),
         ])),
         rows[1],
@@ -446,7 +445,7 @@ fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Opti
     // rows[6] blank
     let desc = task.description.as_deref().unwrap_or_default();
     let desc_lines: Vec<Line> = desc.lines()
-        .map(|l| Line::from(vec![Span::raw("  "), Span::raw(l.to_string())]))
+        .map(|l| Line::from(vec![Span::raw("            "), Span::raw(l.to_string())]))
         .collect();
     f.render_widget(
         Paragraph::new(desc_lines).wrap(ratatui::widgets::Wrap { trim: false }),
