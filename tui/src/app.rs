@@ -198,7 +198,7 @@ impl App {
                         self.config.repo_path = Some(path);
                         self.config.save();
                         self.repo = Some(repo);
-                        self.enter_task_list(Some("Repo initialized.".into()));
+                        self.enter_task_list(Some("Repo initialized.".into()), None);
                     }
                     Err(e) => {
                         self.screen = Screen::InitRepo {
@@ -299,10 +299,10 @@ impl App {
                             Err(e) => e.to_string(),
                         });
                         self.needs_clear = true;
-                        self.enter_task_list(msg);
+                        self.enter_task_list(msg, Some(&id));
                     } else {
                         self.needs_clear = true;
-                        self.enter_task_list(None);
+                        self.enter_task_list(None, Some(&id));
                     }
                 }
             }
@@ -322,7 +322,7 @@ impl App {
                     TaskContext::Personal => TaskContext::Backlog,
                     TaskContext::Backlog => TaskContext::Personal,
                 };
-                self.enter_task_list(None);
+                self.enter_task_list(None, None);
             }
             // Ctrl+A — assign selected task
             KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -362,7 +362,7 @@ impl App {
         let task_id = task.id.clone();
 
         if is_key(&key, &km.back) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
-            self.enter_task_list(None);
+            self.enter_task_list(None, Some(&task_id));
             return;
         }
         if is_key(&key, &km.edit) {
@@ -380,10 +380,10 @@ impl App {
                     Err(e) => e.to_string(),
                 });
                 self.needs_clear = true;
-                self.enter_task_list(msg);
+                self.enter_task_list(msg, Some(&task_id));
             } else {
                 self.needs_clear = true;
-                self.enter_task_list(None);
+                self.enter_task_list(None, Some(&task_id));
             }
             return;
         }
@@ -430,9 +430,9 @@ impl App {
                                 TaskContext::Backlog => repo.assign_backlog_task(&task.id, Some(a)),
                             };
                         }
-                        self.enter_task_list(Some("Task created.".into()));
+                        self.enter_task_list(Some("Task created.".into()), None);
                     }
-                    Err(e) => self.enter_task_list(Some(e.to_string())),
+                    Err(e) => self.enter_task_list(Some(e.to_string()), None),
                 }
             }
             return;
@@ -440,7 +440,7 @@ impl App {
 
         let launched_editor = false;
         match key.code {
-            KeyCode::Esc => self.enter_task_list(None),
+            KeyCode::Esc => self.enter_task_list(None, None),
             KeyCode::Tab => {
                 *field = match field {
                     CreateField::Title => CreateField::Type,
@@ -495,10 +495,10 @@ impl App {
                     Ok(_) => "Successfully pushed.".into(),
                     Err(e) => classify_push_error(&e.to_string()),
                 };
-                self.enter_task_list(Some(msg));
+                self.enter_task_list(Some(msg), None);
             }
             KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') | KeyCode::Char('N') => {
-                self.enter_task_list(None);
+                self.enter_task_list(None, None);
             }
             _ => {}
         }
@@ -523,7 +523,7 @@ impl App {
             }
             // Esc cancels the quit entirely — back to task list
             KeyCode::Esc => {
-                self.enter_task_list(None);
+                self.enter_task_list(None, None);
             }
             _ => {}
         }
@@ -558,7 +558,7 @@ impl App {
                     self.lock_path = lock_path;
                     let (pull_msg, pull_err) = classify_pull_result(self.repo.as_ref().unwrap().pull());
                     self.pull_error = pull_err;
-                    self.enter_task_list(merge_messages(pull_msg, lock_warn));
+                    self.enter_task_list(merge_messages(pull_msg, lock_warn), None);
                 }
                 Err(e) => {
                     self.screen = Screen::Setup { input: path, error: Some(e.to_string()) };
@@ -577,13 +577,17 @@ impl App {
         }
     }
 
-    fn enter_task_list(&mut self, message: Option<String>) {
+    fn enter_task_list(&mut self, message: Option<String>, preserve_id: Option<&str>) {
         let (tasks, warnings) = self.repo.as_ref().map(|r| match self.context {
             TaskContext::Personal => r.list_tasks().unwrap_or_default(),
             TaskContext::Backlog => r.list_backlog_tasks().unwrap_or_default(),
         }).unwrap_or_default();
         let msg = merge_messages(message, warn_summary(&warnings));
-        self.screen = Screen::TaskList { tasks: sort_for_display(tasks), selected: 0, message: msg };
+        let sorted = sort_for_display(tasks);
+        let selected = preserve_id
+            .and_then(|id| sorted.iter().position(|t| t.id == id))
+            .unwrap_or(0);
+        self.screen = Screen::TaskList { tasks: sorted, selected, message: msg };
     }
 
     fn cycle_status(&mut self, task_id: &str) {
@@ -615,7 +619,7 @@ impl App {
         };
 
         if let Screen::TaskList { .. } = &self.screen {
-            self.enter_task_list(msg);
+            self.enter_task_list(msg, Some(task_id));
         }
     }
 
@@ -671,9 +675,12 @@ impl App {
                     Some(Err(e)) => Some(e.to_string()),
                     None => None,
                 };
-                self.enter_task_list(msg);
+                self.enter_task_list(msg, Some(&id));
             }
-            KeyCode::Esc | KeyCode::Char('q') => self.enter_task_list(None),
+            KeyCode::Esc | KeyCode::Char('q') => {
+                let id = task_id.clone();
+                self.enter_task_list(None, Some(&id));
+            }
             _ => {}
         }
     }
@@ -693,10 +700,10 @@ impl App {
                     Some(Err(e)) => Some(e.to_string()),
                     None => None,
                 };
-                self.enter_task_list(msg);
+                self.enter_task_list(msg, None);
             }
             KeyCode::Enter | KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                self.enter_task_list(None);
+                self.enter_task_list(None, Some(&id));
             }
             _ => {}
         }
