@@ -44,6 +44,7 @@ pub enum Screen {
     Create {
         title: String,
         task_type: TaskType,
+        assignee: String,
         description: String,
         field: CreateField,
     },
@@ -60,11 +61,11 @@ pub enum Screen {
     PushPrompt,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum CreateField {
     Title,
     Type,
-    Description,
+    Assignee,
 }
 
 // ── app ───────────────────────────────────────────────────────────────────────
@@ -249,9 +250,13 @@ impl App {
                 }
             }
             KeyCode::Char(c) if c == km.create.chars().next().unwrap_or('c') && km.create.len() == 1 => {
+                let default_assignee = self.repo.as_ref()
+                    .map(|r| r.info.username.clone())
+                    .unwrap_or_default();
                 self.screen = Screen::Create {
                     title: String::new(),
                     task_type: TaskType::Task,
+                    assignee: default_assignee,
                     description: String::new(),
                     field: CreateField::Title,
                 };
@@ -377,26 +382,33 @@ impl App {
     fn handle_create(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.should_quit = true; return; }
 
-        let Screen::Create { title, task_type, description, field } = &mut self.screen else {
+        let Screen::Create { title, task_type, assignee, description, field } = &mut self.screen else {
             return;
         };
 
         // Ctrl+S saves from any field
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
-            if title.trim().is_empty() {
-                return;
-            }
-            let title = title.trim().to_string();
-            let task_type = task_type.clone();
-            let desc = description.trim().to_string();
-            let desc = if desc.is_empty() { None } else { Some(desc) };
+            if title.trim().is_empty() { return; }
+            let t = title.trim().to_string();
+            let tt = task_type.clone();
+            let desc = Some(description.trim().to_string()).filter(|s| !s.is_empty());
+            let asgn = Some(assignee.trim().to_string()).filter(|s| !s.is_empty());
+            let ctx = self.context;
             if let Some(repo) = &self.repo {
-                let result = match self.context {
-                    TaskContext::Personal => repo.create_task(title, task_type, desc),
-                    TaskContext::Backlog => repo.create_backlog_task(title, task_type, desc),
+                let result = match ctx {
+                    TaskContext::Personal => repo.create_task(t, tt, desc),
+                    TaskContext::Backlog => repo.create_backlog_task(t, tt, desc),
                 };
                 match result {
-                    Ok(_) => self.enter_task_list(Some("Task created.".into())),
+                    Ok(task) => {
+                        if let Some(a) = asgn {
+                            let _ = match ctx {
+                                TaskContext::Personal => repo.assign_task(&task.id, Some(a)),
+                                TaskContext::Backlog => repo.assign_backlog_task(&task.id, Some(a)),
+                            };
+                        }
+                        self.enter_task_list(Some("Task created.".into()));
+                    }
                     Err(e) => self.enter_task_list(Some(e.to_string())),
                 }
             }
@@ -409,18 +421,14 @@ impl App {
             KeyCode::Tab => {
                 *field = match field {
                     CreateField::Title => CreateField::Type,
-                    CreateField::Type => CreateField::Description,
-                    CreateField::Description => CreateField::Title,
+                    CreateField::Type => CreateField::Assignee,
+                    CreateField::Assignee => CreateField::Title,
                 };
             }
-            KeyCode::Enter if *field == CreateField::Title => {
-                *field = CreateField::Type;
-            }
-            KeyCode::Enter if *field == CreateField::Type => {
-                *field = CreateField::Description;
-            }
-            // Enter on description opens $EDITOR
-            KeyCode::Enter if *field == CreateField::Description => {
+            KeyCode::Enter if *field == CreateField::Title => { *field = CreateField::Type; }
+            KeyCode::Enter if *field == CreateField::Type => { *field = CreateField::Assignee; }
+            // Enter on Assignee opens description editor
+            KeyCode::Enter if *field == CreateField::Assignee => {
                 let current = description.clone();
                 if let Some(edited) = open_in_editor(&current) {
                     *description = edited;
@@ -434,13 +442,19 @@ impl App {
                     TaskType::Incident => TaskType::Task,
                 };
             }
-            KeyCode::Backspace if *field == CreateField::Title => { title.pop(); }
-            KeyCode::Char(c) if *field == CreateField::Title => title.push(c),
+            KeyCode::Backspace => match field {
+                CreateField::Title => { title.pop(); }
+                CreateField::Assignee => { assignee.pop(); }
+                CreateField::Type => {}
+            },
+            KeyCode::Char(c) => match field {
+                CreateField::Title => title.push(c),
+                CreateField::Assignee => assignee.push(c),
+                CreateField::Type => {}
+            },
             _ => {}
         }
-        if launched_editor {
-            self.needs_clear = true;
-        }
+        if launched_editor { self.needs_clear = true; }
     }
 
     // ── sync confirm ──────────────────────────────────────────────────────────

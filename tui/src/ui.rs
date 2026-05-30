@@ -18,8 +18,8 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_task_list(f, app.context, tasks, *selected, message.as_deref())
         }
         Screen::Detail { task, message } => draw_detail(f, task, message.as_deref()),
-        Screen::Create { title, task_type, description, field } => {
-            draw_create(f, title, task_type, description, field)
+        Screen::Create { title, task_type, assignee, description, field } => {
+            draw_create(f, title, task_type, assignee, description, field)
         }
         Screen::AssignTask { users, selected, .. } => draw_assign_task(f, users, *selected),
         Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title),
@@ -32,7 +32,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
     let area = f.area();
-    let block = outer_block("git-task");
+    let block = padded_block("git-task");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -87,7 +87,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
 
 fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
     let area = f.area();
-    let block = outer_block("git-task — initialize repo");
+    let block = padded_block("git-task — initialize repo");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -288,7 +288,7 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 fn draw_detail(f: &mut Frame, task: &Task, message: Option<&str>) {
     let area = f.area();
     let title = format!("Task {}", task.id);
-    let block = outer_block(&title);
+    let block = padded_block(&title);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -357,6 +357,7 @@ fn draw_create(
     f: &mut Frame,
     title: &str,
     task_type: &TaskType,
+    assignee: &str,
     description: &str,
     field: &CreateField,
 ) {
@@ -368,26 +369,25 @@ fn draw_create(
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // editor hint (top)
-            Constraint::Length(1), // blank
             Constraint::Length(1), // TITLE: label
             Constraint::Length(1), // title input
             Constraint::Length(1), // blank
             Constraint::Length(1), // TYPE: label
             Constraint::Length(1), // type selector
             Constraint::Length(1), // blank
-            Constraint::Length(1), // DESCRIPTION: label
-            Constraint::Fill(1),   // description preview — all remaining space
+            Constraint::Length(1), // ASSIGN TO: label
+            Constraint::Length(1), // assignee input
+            Constraint::Length(1), // blank
+            Constraint::Length(1), // description hint
+            Constraint::Fill(1),   // description preview
             Constraint::Length(1), // commands
         ])
         .split(inner);
 
-    draw_editor_hint(f, rows[0], *field == CreateField::Description);
+    draw_field_label(f, rows[0], "TITLE:", *field == CreateField::Title);
+    draw_field_input(f, rows[1], title, *field == CreateField::Title, false);
 
-    draw_field_label(f, rows[2], "TITLE:", *field == CreateField::Title);
-    draw_field_input(f, rows[3], title, *field == CreateField::Title, false);
-
-    draw_field_label(f, rows[5], "TYPE:", *field == CreateField::Type);
+    draw_field_label(f, rows[3], "TYPE:", *field == CreateField::Type);
     let type_str = match task_type {
         TaskType::Task => "task",
         TaskType::Bug => "bug",
@@ -400,16 +400,19 @@ fn draw_create(
     };
     f.render_widget(
         Paragraph::new(format!("[ {type_str} ]  Space to cycle")).style(type_style),
-        rows[6],
+        rows[4],
     );
 
-    draw_field_label(f, rows[8], "DESCRIPTION: (markdown)", *field == CreateField::Description);
-    draw_description_preview(f, rows[9], description, *field == CreateField::Description);
+    draw_field_label(f, rows[6], "ASSIGN TO:", *field == CreateField::Assignee);
+    draw_field_input(f, rows[7], assignee, *field == CreateField::Assignee, false);
+
+    draw_editor_hint(f, rows[9], *field == CreateField::Assignee);
+    draw_description_preview(f, rows[10], description, false);
 
     f.render_widget(
-        Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Esc: cancel")
+        Paragraph::new("Tab/Enter: next  ·  Enter on Assign: write description  ·  Ctrl+S: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[10],
+        rows[11],
     );
 }
 
@@ -461,7 +464,7 @@ fn draw_sync_confirm(f: &mut Frame, context: TaskContext) {
 
 fn draw_push_prompt(f: &mut Frame) {
     let area = f.area();
-    let block = outer_block("git-task");
+    let block = padded_block("git-task");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
