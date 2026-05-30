@@ -304,6 +304,26 @@ impl TaskRepo {
         Ok(task)
     }
 
+    /// Moves a backlog task into the current user's personal folder.
+    /// Assigns the next sequential personal ID, sets status to `open`,
+    /// sets assignee to the current user, and removes the backlog file.
+    pub fn claim_backlog_task(&self, id: &str) -> Result<Task, AppError> {
+        let backlog_path = self.backlog_task_path(id);
+        if !backlog_path.exists() {
+            return Err(AppError::TaskNotFound(id.to_string()));
+        }
+        let mut task = task_file::read_task(&backlog_path, false)?;
+        let new_id = task_file::next_id(&self.user_folder(), &self.completed_folder())?;
+        task.id = new_id.clone();
+        task.status = TaskStatus::Open;
+        task.done = None;
+        task.assignee = Some(self.info.username.clone());
+        task_file::write_task(&self.task_path(&new_id), &task)?;
+        self.git.stage(&format!("{}/{new_id}.md", self.info.username))?;
+        self.git.remove_tracked(&format!("backlog/{id}.md"))?;
+        Ok(task)
+    }
+
     pub fn push_backlog(&self) -> Result<String, AppError> {
         let msg = format!("git-task: {} (backlog)", self.info.username);
         self.git.stage("backlog")?;
@@ -791,6 +811,32 @@ mod tests {
             .exists());
         drop(work_dir);
         drop(bare_dir);
+    }
+
+    // ── claim_backlog_task ────────────────────────────────────────────────────
+
+    #[test]
+    fn claim_backlog_task_moves_to_personal_folder() {
+        let (dir, repo) = make_repo("Alice Smith");
+        let backlog = repo.create_backlog_task("Team item".into(), TaskType::Task, None).unwrap();
+        let claimed = repo.claim_backlog_task(&backlog.id).unwrap();
+
+        assert_eq!(claimed.id, "001");
+        assert_eq!(claimed.assignee.as_deref(), Some("alice-smith"));
+        assert_eq!(claimed.status, TaskStatus::Open);
+        assert!(Path::new(&repo.info.path).join("alice-smith/001.md").exists());
+        assert!(!Path::new(&repo.info.path).join(format!("backlog/{}.md", backlog.id)).exists());
+        drop(dir);
+    }
+
+    #[test]
+    fn claim_backlog_task_assigns_next_sequential_id() {
+        let (dir, repo) = make_repo("Alice Smith");
+        repo.create_task("Existing".into(), TaskType::Task, None).unwrap();
+        let backlog = repo.create_backlog_task("Team item".into(), TaskType::Task, None).unwrap();
+        let claimed = repo.claim_backlog_task(&backlog.id).unwrap();
+        assert_eq!(claimed.id, "002");
+        drop(dir);
     }
 
     // ── assign_backlog_task validation ────────────────────────────────────────

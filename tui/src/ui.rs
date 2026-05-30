@@ -316,7 +316,8 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
 
-    f.render_widget(Paragraph::new(nav_bar()), rows[1]);
+    let nb = if context == TaskContext::Backlog { backlog_nav_bar() } else { nav_bar() };
+    f.render_widget(Paragraph::new(nb), rows[1]);
     f.render_widget(Paragraph::new(ctrl_bar()), rows[2]);
 }
 
@@ -719,6 +720,23 @@ fn nav_bar<'a>() -> Line<'a> {
             format!(" {label}  "),
             Style::new().fg(Color::DarkGray),
         ));
+    }
+    Line::from(spans)
+}
+
+fn backlog_nav_bar<'a>() -> Line<'a> {
+    let items = [
+        ("WASD", "navigate"),
+        ("C", "create"),
+        ("E", "edit"),
+        ("G", "claim"),
+        ("B", "personal"),
+        ("T", "team"),
+    ];
+    let mut spans = vec![Span::raw(" ")];
+    for (key, label) in &items {
+        spans.push(Span::styled(format!(" {key} "), Style::new().bg(Color::White).fg(Color::Black)));
+        spans.push(Span::styled(format!(" {label}  "), Style::new().fg(Color::DarkGray)));
     }
     Line::from(spans)
 }

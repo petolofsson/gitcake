@@ -95,9 +95,12 @@ Captured during 100-user stress analysis. Ordered by impact.
   `classify_push_error()` now appends `· ^R to retry` to all non-conflict sync failures.
   Conflict/rejection errors already included resolution steps and a retry hint.
 
-- [ ] **Backlog done tasks never move to completed/**
-  Personal done tasks move to `completed/{username}/` on sync. Backlog done tasks stay in `backlog/` forever.
-  Fix: decide policy — move to `completed/backlog/` on sync, or leave in backlog and just mark done.
+- [x] **Backlog done tasks never move to completed/**
+  Policy decision: backlog tasks have no done lifecycle. A backlog task is either open (in the pool)
+  or claimed. Pressing G on a backlog task moves it into the current user's personal folder with the
+  next sequential ID, sets status open, assigns it to the user, and removes it from backlog/.
+  Status cycling (F) is disabled in backlog context. Any stale done backlog tasks are filtered from
+  the list view.
 
 - [x] **`launched_editor` flag is unused in create form**
   Removed — the create form was redesigned; `launched_editor` no longer exists.

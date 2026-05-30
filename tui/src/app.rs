@@ -343,11 +343,28 @@ impl App {
             KeyCode::Char(c)
                 if c == km.status_cycle.chars().next().unwrap_or('f')
                     && km.status_cycle.len() == 1
-                    && key.modifiers == KeyModifiers::NONE =>
+                    && key.modifiers == KeyModifiers::NONE
+                    && self.context == TaskContext::Personal =>
             {
                 let sel = *selected;
                 if let Some(task) = tasks.get(sel).cloned() {
                     self.cycle_status(&task.id);
+                }
+            }
+            // g — claim selected backlog task (backlog context only)
+            KeyCode::Char('g') if key.modifiers == KeyModifiers::NONE
+                && self.context == TaskContext::Backlog =>
+            {
+                let sel = *selected;
+                if let Some(task) = tasks.get(sel).cloned() {
+                    let msg = self.repo.as_ref().map(|r| {
+                        match r.claim_backlog_task(&task.id) {
+                            Ok(t) => format!("Claimed — now #{} in your personal slices.", t.id),
+                            Err(e) => e.to_string(),
+                        }
+                    });
+                    self.context = TaskContext::Personal;
+                    self.enter_task_list(msg, None);
                 }
             }
             // b — toggle personal ↔ backlog context
@@ -429,9 +446,8 @@ impl App {
             }
             return;
         }
-        if is_key(&key, &km.status_cycle) {
+        if is_key(&key, &km.status_cycle) && self.context == TaskContext::Personal {
             self.cycle_status(&task_id);
-            // Reload the task after cycling
             if let Some(repo) = &self.repo {
                 if let Ok((tasks, _)) = repo.list_tasks() {
                     if let Some(updated) = tasks.into_iter().find(|t| t.id == task_id) {
@@ -635,7 +651,14 @@ impl App {
     fn enter_task_list(&mut self, message: Option<String>, preserve_id: Option<&str>) {
         let (tasks, warnings) = self.repo.as_ref().map(|r| match self.context {
             TaskContext::Personal => r.list_tasks().unwrap_or_default(),
-            TaskContext::Backlog => r.list_backlog_tasks().unwrap_or_default(),
+            TaskContext::Backlog => {
+                let (all, w) = r.list_backlog_tasks().unwrap_or_default();
+                // Backlog has no done lifecycle — filter out any stale done tasks
+                let active = all.into_iter()
+                    .filter(|t| t.status != TaskStatus::Done)
+                    .collect();
+                (active, w)
+            }
         }).unwrap_or_default();
         let msg = merge_messages(message, warn_summary(&warnings));
         let sorted = sort_for_display(tasks);
