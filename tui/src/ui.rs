@@ -40,11 +40,12 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_task_list(f, app.context, tasks, *selected, message.as_deref(), app.pull_error.as_deref(), repo_name, username)
         }
         Screen::Detail { task, message } => draw_detail(f, task, message.as_deref()),
-        Screen::Create { title, task_type, assignee, description, field } => {
-            draw_create(f, title, task_type, assignee, description, field)
+        Screen::Create { task_type, assignee, field } => {
+            draw_create(f, task_type, assignee, field)
         }
         Screen::AssignTask { users, selected, filter, .. } => draw_assign_task(f, users, *selected, filter),
         Screen::PickAssignee { users, selected, filter, .. } => draw_pick_assignee(f, users, *selected, filter),
+
         Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context),
         Screen::PushPrompt => draw_push_prompt(f),
@@ -372,10 +373,8 @@ fn draw_detail(f: &mut Frame, task: &Task, _message: Option<&str>) {
 
 fn draw_create(
     f: &mut Frame,
-    title: &str,
     task_type: &TaskType,
     assignee: &str,
-    description: &str,
     field: &CreateField,
 ) {
     let area = f.area();
@@ -386,26 +385,20 @@ fn draw_create(
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // TITLE: label
-            Constraint::Length(1), // title input
-            Constraint::Length(1), // blank
             Constraint::Length(1), // TYPE: label
             Constraint::Length(1), // type selector
             Constraint::Length(1), // blank
             Constraint::Length(1), // ASSIGN TO: label
             Constraint::Length(1), // assignee display
             Constraint::Length(1), // blank
-            Constraint::Length(1), // description hint
-            Constraint::Fill(1),   // description preview
+            Constraint::Length(1), // CREATE TASK row
+            Constraint::Fill(1),   // breathing room
             Constraint::Length(1), // nav bar
             Constraint::Length(1), // ctrl bar
         ])
         .split(inner);
 
-    draw_field_label(f, rows[0], "TITLE:", *field == CreateField::Title);
-    draw_field_input(f, rows[1], title, *field == CreateField::Title, false);
-
-    draw_field_label(f, rows[3], "TYPE:", *field == CreateField::Type);
+    draw_field_label(f, rows[0], "TYPE:", *field == CreateField::Type);
     let type_style = if *field == CreateField::Type {
         Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
     } else {
@@ -413,11 +406,11 @@ fn draw_create(
     };
     f.render_widget(
         Paragraph::new(format!("[ {} ]  Space to cycle", type_label(task_type))).style(type_style),
-        rows[4],
+        rows[1],
     );
 
     let assign_active = *field == CreateField::Assignee;
-    draw_field_label(f, rows[6], "ASSIGN TO:", assign_active);
+    draw_field_label(f, rows[3], "ASSIGN TO:", assign_active);
     let assign_text = if assign_active {
         format!("{assignee}  ← Enter to pick")
     } else {
@@ -428,19 +421,18 @@ fn draw_create(
     } else {
         Style::new().add_modifier(Modifier::DIM)
     };
-    f.render_widget(Paragraph::new(assign_text).style(assign_style), rows[7]);
+    f.render_widget(Paragraph::new(assign_text).style(assign_style), rows[4]);
 
-    let desc_active = *field == CreateField::Description;
-    let desc_label = if desc_active {
-        "DESCRIPTION:  Enter: open in $EDITOR"
+    let confirm_active = *field == CreateField::Confirm;
+    let confirm_label = if confirm_active {
+        "↵ CREATE TASK  Enter: open editor — write '# Title' on the first line"
     } else {
-        "DESCRIPTION:  (Tab to reach, Enter to edit)"
+        "↵ CREATE TASK  (Tab to reach, Enter to open editor)"
     };
-    draw_field_label(f, rows[9], desc_label, desc_active);
-    draw_description_preview(f, rows[10], description, desc_active);
+    draw_field_label(f, rows[6], confirm_label, confirm_active);
 
-    f.render_widget(Paragraph::new(nav_bar()), rows[11]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[12]);
+    f.render_widget(Paragraph::new(nav_bar()), rows[8]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
 }
 
 // ── team view ─────────────────────────────────────────────────────────────────
