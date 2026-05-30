@@ -792,10 +792,6 @@ fn open_in_editor(content: &str) -> Option<String> {
             let nano_result = Command::new("nano").arg(&tmp_path).status();
             let nano_missing = matches!(&nano_result, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
             if nano_missing {
-                println!("gitcake: $EDITOR/$VISUAL not set and nano not found; opening vi");
-                println!("  Save and quit: Esc  :wq  Enter");
-                println!("  Discard:       Esc  :q!  Enter");
-                println!("  Set $EDITOR in your shell profile to use a preferred editor.");
                 let _ = Command::new("vi").arg(&tmp_path).status();
             }
         }
