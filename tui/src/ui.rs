@@ -152,7 +152,8 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
     let mut block = Block::default()
         .title(app_title)
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded);
+        .border_type(BorderType::Rounded)
+        .padding(Padding::new(1, 1, 1, 1));
     if let Some(msg) = message {
         block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
     }
@@ -289,7 +290,7 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 
     // Ctrl shortcuts — reversed (white bg, black text)
     f.render_widget(
-        Paragraph::new("  ^R: Task Sync   ^D: Delete Task   ^Q: Quit Git-task  ")
+        Paragraph::new("^R: Task Sync   ^D: Delete Task   ^Q: Quit Git-task")
             .style(Style::new().add_modifier(Modifier::REVERSED)),
         rows[2],
     );
