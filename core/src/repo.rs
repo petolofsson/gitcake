@@ -111,14 +111,14 @@ impl TaskRepo {
 
     // ── task mutations ────────────────────────────────────────────────────────
 
-    /// Creates a new task file with the next sequential ID. Status is `open`.
+    /// Creates a new task file with a unique 8-char hex ID. Status is `open`.
     pub fn create_task(
         &self,
         title: String,
         task_type: TaskType,
         description: Option<String>,
     ) -> Result<Task, AppError> {
-        let id = task_file::next_id(&self.user_folder(), &self.completed_folder())?;
+        let id = hex_id(&self.user_folder());
         let task = Task {
             id: id.clone(),
             task_type,
@@ -249,7 +249,7 @@ impl TaskRepo {
     ) -> Result<Task, AppError> {
         let folder = self.backlog_folder();
         fs::create_dir_all(&folder)?;
-        let id = backlog_id(&folder);
+        let id = hex_id(&folder);
         let task = Task {
             id: id.clone(),
             task_type,
@@ -305,21 +305,19 @@ impl TaskRepo {
     }
 
     /// Moves a backlog task into the current user's personal folder.
-    /// Assigns the next sequential personal ID, sets status to `open`,
-    /// sets assignee to the current user, and removes the backlog file.
+    /// The hex ID is preserved — the task keeps its identity when claimed.
+    /// Sets status to `open` and assignee to the current user.
     pub fn claim_backlog_task(&self, id: &str) -> Result<Task, AppError> {
         let backlog_path = self.backlog_task_path(id);
         if !backlog_path.exists() {
             return Err(AppError::TaskNotFound(id.to_string()));
         }
         let mut task = task_file::read_task(&backlog_path, false)?;
-        let new_id = task_file::next_id(&self.user_folder(), &self.completed_folder())?;
-        task.id = new_id.clone();
         task.status = TaskStatus::Open;
         task.done = None;
         task.assignee = Some(self.info.username.clone());
-        task_file::write_task(&self.task_path(&new_id), &task)?;
-        self.git.stage(&format!("{}/{new_id}.md", self.info.username))?;
+        task_file::write_task(&self.task_path(id), &task)?;
+        self.git.stage(&format!("{}/{id}.md", self.info.username))?;
         self.git.remove_tracked(&format!("backlog/{id}.md"))?;
         Ok(task)
     }
@@ -467,9 +465,9 @@ impl TaskRepo {
     }
 }
 
-/// Generates a unique 6-char hex ID for a backlog task.
-/// Loops until it finds one not already taken in `folder`.
-fn backlog_id(folder: &Path) -> String {
+/// Generates a unique 8-char hex ID for a task in `folder`.
+/// Loops until it finds one not already taken.
+fn hex_id(folder: &Path) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let base = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -478,7 +476,7 @@ fn backlog_id(folder: &Path) -> String {
     let pid = std::process::id() as u128;
     let mut n = base ^ (pid * 6_364_136_223_846_793_005);
     loop {
-        let id = format!("{:06x}", n & 0xFF_FFFF);
+        let id = format!("{:08x}", n & 0xFFFF_FFFF);
         if !folder.join(format!("{id}.md")).exists() {
             return id;
         }
@@ -593,7 +591,7 @@ mod tests {
         let (dir, repo) = make_repo("Alice Smith");
         repo.create_task("Good task".into(), TaskType::Task, None).unwrap();
         fs::write(
-            Path::new(&repo.info.path).join("alice-smith/002.md"),
+            Path::new(&repo.info.path).join("alice-smith/00000000.md"),
             "not valid frontmatter",
         )
         .unwrap();
@@ -601,7 +599,7 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].title, "Good task");
         assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0], "002.md");
+        assert_eq!(warnings[0], "00000000.md");
         drop(dir);
     }
 
@@ -614,24 +612,26 @@ mod tests {
             .create_task("Fix login".into(), TaskType::Bug, None)
             .unwrap();
 
-        assert_eq!(task.id, "001");
+        assert_eq!(task.id.len(), 8);
+        assert!(task.id.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(task.title, "Fix login");
         assert_eq!(task.task_type, TaskType::Bug);
         assert_eq!(task.status, TaskStatus::Open);
         assert!(task.done.is_none());
         assert!(Path::new(&repo.info.path)
-            .join("alice-smith/001.md")
+            .join(format!("alice-smith/{}.md", task.id))
             .exists());
         drop(dir);
     }
 
     #[test]
-    fn create_task_increments_id() {
+    fn create_task_produces_unique_ids() {
         let (dir, repo) = make_repo("Alice Smith");
         let t1 = repo.create_task("First".into(), TaskType::Task, None).unwrap();
         let t2 = repo.create_task("Second".into(), TaskType::Task, None).unwrap();
-        assert_eq!(t1.id, "001");
-        assert_eq!(t2.id, "002");
+        assert_eq!(t1.id.len(), 8);
+        assert_eq!(t2.id.len(), 8);
+        assert_ne!(t1.id, t2.id);
         drop(dir);
     }
 
@@ -650,10 +650,8 @@ mod tests {
     #[test]
     fn update_task_title() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Old title".into(), TaskType::Task, None).unwrap();
-        let updated = repo
-            .update_task("001", Some("New title".into()), None)
-            .unwrap();
+        let task = repo.create_task("Old title".into(), TaskType::Task, None).unwrap();
+        let updated = repo.update_task(&task.id, Some("New title".into()), None).unwrap();
         assert_eq!(updated.title, "New title");
         drop(dir);
     }
@@ -661,10 +659,8 @@ mod tests {
     #[test]
     fn update_task_description() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        let updated = repo
-            .update_task("001", None, Some("Added description".into()))
-            .unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let updated = repo.update_task(&task.id, None, Some("Added description".into())).unwrap();
         assert_eq!(updated.description.as_deref(), Some("Added description"));
         drop(dir);
     }
@@ -673,7 +669,7 @@ mod tests {
     fn update_task_not_found_returns_error() {
         let (dir, repo) = make_repo("Alice Smith");
         assert!(matches!(
-            repo.update_task("999", Some("title".into()), None),
+            repo.update_task("nonexistent", Some("title".into()), None),
             Err(AppError::TaskNotFound(_))
         ));
         drop(dir);
@@ -684,8 +680,8 @@ mod tests {
     #[test]
     fn set_task_in_progress_changes_status() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        let task = repo.set_task_in_progress("001").unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let task = repo.set_task_in_progress(&task.id).unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
         drop(dir);
     }
@@ -693,9 +689,9 @@ mod tests {
     #[test]
     fn set_task_in_progress_is_noop_if_already_in_progress() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        repo.set_task_in_progress("001").unwrap();
-        let task = repo.set_task_in_progress("001").unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        repo.set_task_in_progress(&task.id).unwrap();
+        let task = repo.set_task_in_progress(&task.id).unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
         drop(dir);
     }
@@ -703,12 +699,13 @@ mod tests {
     #[test]
     fn set_task_in_progress_cycles_back_from_done() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        repo.set_task_in_progress("001").unwrap();
-        repo.mark_task_done("001").unwrap();
-        let task = repo.set_task_in_progress("001").unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let id = &task.id.clone();
+        repo.set_task_in_progress(id).unwrap();
+        repo.mark_task_done(id).unwrap();
+        let task = repo.set_task_in_progress(id).unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
-        let task = repo.mark_task_done("001").unwrap();
+        let task = repo.mark_task_done(id).unwrap();
         assert_eq!(task.status, TaskStatus::Done);
         drop(dir);
     }
@@ -716,20 +713,19 @@ mod tests {
     #[test]
     fn set_task_in_progress_moves_back_from_completed_after_sync() {
         let (work_dir, bare_dir, repo) = make_repo_with_remote("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        repo.mark_task_done("001").unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let id = task.id.clone();
+        repo.mark_task_done(&id).unwrap();
         repo.push().unwrap();
 
-        // Task is now in completed/ — active path no longer exists
-        assert!(!Path::new(&repo.info.path).join("alice-smith/001.md").exists());
-        assert!(Path::new(&repo.info.path).join("completed/alice-smith/001.md").exists());
+        assert!(!Path::new(&repo.info.path).join(format!("alice-smith/{id}.md")).exists());
+        assert!(Path::new(&repo.info.path).join(format!("completed/alice-smith/{id}.md")).exists());
 
-        // Cycling back should move it to the active folder
-        let task = repo.set_task_in_progress("001").unwrap();
+        let task = repo.set_task_in_progress(&id).unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
         assert!(task.done.is_none());
-        assert!(Path::new(&repo.info.path).join("alice-smith/001.md").exists());
-        assert!(!Path::new(&repo.info.path).join("completed/alice-smith/001.md").exists());
+        assert!(Path::new(&repo.info.path).join(format!("alice-smith/{id}.md")).exists());
+        assert!(!Path::new(&repo.info.path).join(format!("completed/alice-smith/{id}.md")).exists());
 
         drop(work_dir);
         drop(bare_dir);
@@ -740,8 +736,8 @@ mod tests {
     #[test]
     fn mark_task_done_sets_status_and_timestamp() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        let task = repo.mark_task_done("001").unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let task = repo.mark_task_done(&task.id).unwrap();
         assert_eq!(task.status, TaskStatus::Done);
         assert!(task.done.is_some());
         drop(dir);
@@ -750,12 +746,11 @@ mod tests {
     #[test]
     fn done_task_still_in_user_folder_before_sync() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        repo.mark_task_done("001").unwrap();
-        assert!(Path::new(&repo.info.path).join("alice-smith/001.md").exists());
-        assert!(!Path::new(&repo.info.path)
-            .join("completed/alice-smith/001.md")
-            .exists());
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let id = task.id.clone();
+        repo.mark_task_done(&id).unwrap();
+        assert!(Path::new(&repo.info.path).join(format!("alice-smith/{id}.md")).exists());
+        assert!(!Path::new(&repo.info.path).join(format!("completed/alice-smith/{id}.md")).exists());
         drop(dir);
     }
 
@@ -774,14 +769,13 @@ mod tests {
     #[test]
     fn push_moves_done_task_to_completed_and_commits() {
         let (work_dir, bare_dir, repo) = make_repo_with_remote("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        repo.mark_task_done("001").unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let id = task.id.clone();
+        repo.mark_task_done(&id).unwrap();
         repo.push().unwrap();
 
-        let completed = Path::new(&repo.info.path).join("completed/alice-smith/001.md");
-        let active = Path::new(&repo.info.path).join("alice-smith/001.md");
-        assert!(completed.exists(), "task should be in completed/");
-        assert!(!active.exists(), "task should not be in active folder");
+        assert!(Path::new(&repo.info.path).join(format!("completed/alice-smith/{id}.md")).exists(), "task should be in completed/");
+        assert!(!Path::new(&repo.info.path).join(format!("alice-smith/{id}.md")).exists(), "task should not be in active folder");
         drop(work_dir);
         drop(bare_dir);
     }
@@ -789,10 +783,10 @@ mod tests {
     #[test]
     fn push_leaves_open_tasks_in_place() {
         let (work_dir, bare_dir, repo) = make_repo_with_remote("Alice Smith");
-        repo.create_task("Open task".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task("Open task".into(), TaskType::Task, None).unwrap();
+        let id = task.id.clone();
         repo.push().unwrap();
-
-        assert!(Path::new(&repo.info.path).join("alice-smith/001.md").exists());
+        assert!(Path::new(&repo.info.path).join(format!("alice-smith/{id}.md")).exists());
         drop(work_dir);
         drop(bare_dir);
     }
@@ -802,13 +796,11 @@ mod tests {
     #[test]
     fn sync_pull_then_push() {
         let (work_dir, bare_dir, repo) = make_repo_with_remote("Alice Smith");
-        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
-        repo.mark_task_done("001").unwrap();
+        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let id = task.id.clone();
+        repo.mark_task_done(&id).unwrap();
         repo.sync().unwrap();
-
-        assert!(Path::new(&repo.info.path)
-            .join("completed/alice-smith/001.md")
-            .exists());
+        assert!(Path::new(&repo.info.path).join(format!("completed/alice-smith/{id}.md")).exists());
         drop(work_dir);
         drop(bare_dir);
     }
@@ -821,21 +813,21 @@ mod tests {
         let backlog = repo.create_backlog_task("Team item".into(), TaskType::Task, None).unwrap();
         let claimed = repo.claim_backlog_task(&backlog.id).unwrap();
 
-        assert_eq!(claimed.id, "001");
+        assert_eq!(claimed.id, backlog.id, "hex ID is preserved across claim");
         assert_eq!(claimed.assignee.as_deref(), Some("alice-smith"));
         assert_eq!(claimed.status, TaskStatus::Open);
-        assert!(Path::new(&repo.info.path).join("alice-smith/001.md").exists());
+        assert!(Path::new(&repo.info.path).join(format!("alice-smith/{}.md", backlog.id)).exists());
         assert!(!Path::new(&repo.info.path).join(format!("backlog/{}.md", backlog.id)).exists());
         drop(dir);
     }
 
     #[test]
-    fn claim_backlog_task_assigns_next_sequential_id() {
+    fn claim_backlog_task_preserves_id_regardless_of_personal_tasks() {
         let (dir, repo) = make_repo("Alice Smith");
         repo.create_task("Existing".into(), TaskType::Task, None).unwrap();
         let backlog = repo.create_backlog_task("Team item".into(), TaskType::Task, None).unwrap();
         let claimed = repo.claim_backlog_task(&backlog.id).unwrap();
-        assert_eq!(claimed.id, "002");
+        assert_eq!(claimed.id, backlog.id);
         drop(dir);
     }
 

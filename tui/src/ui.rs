@@ -39,7 +39,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                 .unwrap_or(("", ""));
             draw_task_list(f, app.context, tasks, *selected, message.as_deref(), app.pull_error.as_deref(), repo_name, username)
         }
-        Screen::Detail { task, message } => draw_detail(f, task, message.as_deref()),
+        Screen::Detail { task, message } => draw_detail(f, app.context, task, message.as_deref()),
         Screen::Create { task_type, assignee, field } => {
             draw_create(f, task_type, assignee, field)
         }
@@ -246,12 +246,12 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 
             let tl = format!("{:<8}", type_label(&task.task_type));
 
-            let id_str = format!("{:>3}  ", task.id);
+            let id_str = format!("{}  ", task.id);
             let type_str = format!("{tl}  ");
 
-            // cursor(2) + id(5) + type(10) = 17 fixed cells; assignee is ASCII-only
+            // cursor(2) + id(10) + type(10) = 22 fixed cells; assignee is ASCII-only
             let assignee_cols = task.assignee.as_deref().map(|a| 4 + a.len()).unwrap_or(0);
-            let title_budget = inner_width.saturating_sub(17 + assignee_cols);
+            let title_budget = inner_width.saturating_sub(22 + assignee_cols);
             let title_str = truncate_title(&task.title, title_budget);
 
             let base = if task.status == TaskStatus::Done || task.is_completed {
@@ -323,7 +323,7 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, task: &Task, _message: Option<&str>) {
+fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
     let area = f.area();
     let title = format!("Task {}", task.id);
     let block = padded_block(&title);
@@ -337,6 +337,7 @@ fn draw_detail(f: &mut Frame, task: &Task, _message: Option<&str>) {
             Constraint::Length(1), // type · status
             Constraint::Length(1), // created
             Constraint::Length(1), // done
+            Constraint::Length(1), // file
             Constraint::Fill(1),   // description
             Constraint::Length(1), // nav bar
             Constraint::Length(1), // ctrl bar
@@ -365,14 +366,31 @@ fn draw_detail(f: &mut Frame, task: &Task, _message: Option<&str>) {
         );
     }
 
-    let desc = task.description.as_deref().unwrap_or("No description.");
+    let file_path = match context {
+        TaskContext::Backlog => format!("backlog/{}.md", task.id),
+        TaskContext::Personal => {
+            let user = task.assignee.as_deref().unwrap_or("?");
+            if task.is_completed {
+                format!("completed/{}/{}.md", user, task.id)
+            } else {
+                format!("{}/{}.md", user, task.id)
+            }
+        }
+    };
     f.render_widget(
-        Paragraph::new(desc).wrap(ratatui::widgets::Wrap { trim: false }),
+        Paragraph::new(format!("file:    {file_path}"))
+            .style(Style::new().add_modifier(Modifier::DIM)),
         rows[4],
     );
 
-    f.render_widget(Paragraph::new(nav_bar()), rows[5]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[6]);
+    let desc = task.description.as_deref().unwrap_or("No description.");
+    f.render_widget(
+        Paragraph::new(desc).wrap(ratatui::widgets::Wrap { trim: false }),
+        rows[5],
+    );
+
+    f.render_widget(Paragraph::new(nav_bar()), rows[6]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[7]);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
@@ -488,11 +506,11 @@ fn draw_team_view(f: &mut Frame, tasks: &[(String, Task)], selected: usize) {
                 Style::new().add_modifier(Modifier::DIM)
             };
             let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
-            let title_str = truncate_title(&task.title, inner_width.saturating_sub(17));
+            let title_str = truncate_title(&task.title, inner_width.saturating_sub(22));
 
             items.push(ListItem::new(Line::from(vec![
                 Span::styled(cursor.to_string(), cursor_style),
-                Span::styled(format!("{:>3}  ", task.id), row_style.add_modifier(Modifier::DIM)),
+                Span::styled(format!("{}  ", task.id), row_style.add_modifier(Modifier::DIM)),
                 Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_style.add_modifier(Modifier::DIM)),
                 Span::styled(title_str, row_style),
             ])));

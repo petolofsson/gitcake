@@ -67,17 +67,6 @@ pub fn scan_folder(folder: &Path) -> Result<(Vec<Task>, Vec<String>), AppError> 
     Ok((tasks, warnings))
 }
 
-/// Returns the next sequential ID (e.g. `"004"`) by scanning both folders for
-/// the highest existing numeric ID and incrementing by one.
-pub fn next_id(user_folder: &Path, completed_folder: &Path) -> Result<String, AppError> {
-    let (tasks, _) = scan_tasks(user_folder, completed_folder)?;
-    let max = tasks
-        .iter()
-        .filter_map(|t| t.id.parse::<u32>().ok())
-        .max()
-        .unwrap_or(0);
-    Ok(format!("{:03}", max + 1))
-}
 
 // ── parsing ───────────────────────────────────────────────────────────────────
 
@@ -389,45 +378,4 @@ mod tests {
         assert_eq!(warnings[0], "002.md");
     }
 
-    // ── next_id ───────────────────────────────────────────────────────────────
-
-    #[test]
-    fn next_id_returns_001_for_empty_folders() {
-        let dir = TempDir::new().unwrap();
-        let id = next_id(
-            &dir.path().join("alice"),
-            &dir.path().join("completed/alice"),
-        )
-        .unwrap();
-        assert_eq!(id, "001");
-    }
-
-    #[test]
-    fn next_id_increments_past_active_tasks() {
-        let dir = TempDir::new().unwrap();
-        let active = dir.path().join("alice");
-        fs::create_dir_all(&active).unwrap();
-
-        let task = parse_task_content(minimal_task_content(), false).unwrap(); // id "001"
-        write_task(&active.join("001.md"), &task).unwrap();
-
-        let id = next_id(&active, &dir.path().join("completed/alice")).unwrap();
-        assert_eq!(id, "002");
-    }
-
-    #[test]
-    fn next_id_scans_completed_folder_too() {
-        let dir = TempDir::new().unwrap();
-        let active = dir.path().join("alice");
-        let completed = dir.path().join("completed").join("alice");
-        fs::create_dir_all(&completed).unwrap();
-
-        // Only completed has tasks — active is empty
-        let content = "---\nid: \"005\"\ntype: task\ntitle: Done task\nstatus: done\ncreated: 2026-05-28T10:00:00\ndone: 2026-05-28T11:00:00\n---\n";
-        let task = parse_task_content(content, true).unwrap();
-        write_task(&completed.join("005.md"), &task).unwrap();
-
-        let id = next_id(&active, &completed).unwrap();
-        assert_eq!(id, "006");
-    }
 }
