@@ -799,11 +799,9 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
     Line::from(spans)
 }
 
-fn ctrl_bar<'a>(context: TaskContext) -> Line<'a> {
+fn ctrl_bar<'a>(_context: TaskContext) -> Line<'a> {
     let mut items: Vec<(&str, &str)> = Vec::new();
-    if context == TaskContext::Personal {
-        items.push(("^A", "assign"));
-    }
+    items.push(("^A", "assign"));
     items.extend_from_slice(&[("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^Q", "quit")]);
     let mut spans = vec![Span::raw(" ")];
     for (key, label) in &items {

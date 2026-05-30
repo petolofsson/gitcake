@@ -391,7 +391,7 @@ impl App {
                     self.cycle_status(&task.id);
                 }
             }
-            // f — claim selected backlog task (backlog context only)
+            // f — claim backlog task for yourself (fast path)
             KeyCode::Char('f') if key.modifiers == KeyModifiers::NONE
                 && self.context == TaskContext::Backlog =>
             {
@@ -424,19 +424,14 @@ impl App {
                     .unwrap_or_default();
                 self.screen = Screen::TeamView { tasks, selected: 0 };
             }
-            // Ctrl+A — assign to another person (personal context only)
-            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL)
-                && self.context == TaskContext::Personal =>
+            // Ctrl+A — assign task (both contexts; includes yourself)
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
                 let real_idx = visible.get(*selected).copied();
                 if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
-                    let me = self.repo.as_ref().map(|r| r.info.username.as_str()).unwrap_or("");
                     let users = self.repo.as_ref()
                         .and_then(|r| r.list_users().ok())
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|u| u != me)
-                        .collect();
+                        .unwrap_or_default();
                     self.screen = Screen::AssignTask {
                         task_id: task.id.clone(),
                         users,
@@ -808,17 +803,21 @@ impl App {
             }
             KeyCode::Enter => {
                 let f = filter.to_lowercase();
-                let assignee = users.iter()
+                let owner = users.iter()
                     .filter(|u| u.to_lowercase().starts_with(&f))
                     .nth(*selected)
                     .cloned();
                 let id = task_id.clone();
-                let result = self.repo.as_ref().map(|r| r.assign_task(&id, assignee));
+                let result = self.repo.as_ref().map(|r| r.assign_task(&id, owner.clone()));
                 let msg = match result {
                     Some(Ok(_)) => Some("Assigned.".into()),
                     Some(Err(e)) => Some(e.to_string()),
                     None => None,
                 };
+                // If assigning from backlog, switch to personal view so task is visible
+                if self.context == TaskContext::Backlog && owner.is_some() {
+                    self.context = TaskContext::Personal;
+                }
                 self.enter_task_list(msg, Some(&id));
             }
             KeyCode::Esc => {
