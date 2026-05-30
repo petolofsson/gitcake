@@ -348,7 +348,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 
     let nb = if context == TaskContext::Backlog { backlog_nav_bar() } else { nav_bar() };
     f.render_widget(Paragraph::new(nb), rows[1]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[2]);
+    f.render_widget(Paragraph::new(ctrl_bar(context)), rows[2]);
 }
 
 // ── detail ────────────────────────────────────────────────────────────────────
@@ -414,7 +414,7 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     );
 
     f.render_widget(Paragraph::new(nav_bar()), rows[8]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
+    f.render_widget(Paragraph::new(ctrl_bar(TaskContext::Personal)), rows[9]);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
@@ -480,7 +480,7 @@ fn draw_create(
     draw_field_label(f, rows[6], confirm_label, confirm_active);
 
     f.render_widget(Paragraph::new(nav_bar()), rows[8]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
+    f.render_widget(Paragraph::new(ctrl_bar(TaskContext::Personal)), rows[9]);
 }
 
 // ── team view ─────────────────────────────────────────────────────────────────
@@ -797,14 +797,12 @@ fn backlog_nav_bar<'a>() -> Line<'a> {
     Line::from(spans)
 }
 
-fn ctrl_bar<'a>() -> Line<'a> {
-    let items = [
-        ("^A", "assign"),
-        ("^R", "push"),
-        ("^D", "delete"),
-        ("^O", "repo"),
-        ("^Q", "quit"),
-    ];
+fn ctrl_bar<'a>(context: TaskContext) -> Line<'a> {
+    let mut items: Vec<(&str, &str)> = Vec::new();
+    if context == TaskContext::Personal {
+        items.push(("^A", "assign"));
+    }
+    items.extend_from_slice(&[("^R", "push"), ("^D", "delete"), ("^O", "repo"), ("^Q", "quit")]);
     let mut spans = vec![Span::raw(" ")];
     for (key, label) in &items {
         spans.push(Span::styled(

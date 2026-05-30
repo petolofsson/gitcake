@@ -380,13 +380,19 @@ impl App {
                     .unwrap_or_default();
                 self.screen = Screen::TeamView { tasks, selected: 0 };
             }
-            // Ctrl+A — assign selected task
-            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Ctrl+A — assign to another person (personal context only)
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL)
+                && self.context == TaskContext::Personal =>
+            {
                 let sel = *selected;
                 if let Some(task) = tasks.get(sel).cloned() {
+                    let me = self.repo.as_ref().map(|r| r.info.username.as_str()).unwrap_or("");
                     let users = self.repo.as_ref()
                         .and_then(|r| r.list_users().ok())
-                        .unwrap_or_default();
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|u| u != me)
+                        .collect();
                     self.screen = Screen::AssignTask {
                         task_id: task.id.clone(),
                         users,
@@ -766,10 +772,7 @@ impl App {
                     .nth(*selected)
                     .cloned();
                 let id = task_id.clone();
-                let result = self.repo.as_ref().map(|r| match self.context {
-                    TaskContext::Personal => r.assign_task(&id, assignee),
-                    TaskContext::Backlog => r.assign_backlog_task(&id, assignee),
-                });
+                let result = self.repo.as_ref().map(|r| r.assign_task(&id, assignee));
                 let msg = match result {
                     Some(Ok(_)) => Some("Assigned.".into()),
                     Some(Err(e)) => Some(e.to_string()),
