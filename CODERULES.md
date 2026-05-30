@@ -2,7 +2,7 @@
 
 Adapted from [The Power of 10: Rules for Developing Safety-Critical Code](https://en.wikipedia.org/wiki/The_Power_of_10:_Rules_for_Developing_Safety-Critical_Code) by Gerard Holzmann (NASA/JPL, 2006).
 
-The original rules were written for flight software — where a bug means a dead spacecraft. git-task is not flight software, but it runs against a practitioner's own data, daily, without a safety net. Complexity here means data loss, corrupted repos, and a tool no one trusts. These rules apply the same discipline: keep the code small enough to reason about, correct enough to trust.
+The original rules were written for flight software — where a bug means a dead spacecraft. gitcake is not flight software, but it runs against a practitioner's own data, daily, without a safety net. Complexity here means data loss, corrupted repos, and a tool no one trusts. These rules apply the same discipline: keep the code small enough to reason about, correct enough to trust.
 
 ---
 
@@ -40,7 +40,7 @@ All code compiles with zero warnings under `cargo build`. No `#[allow(dead_code)
 
 ## Rule 9 — core/ has no UI dependencies
 
-`git-task-core` must never import `ratatui`, `crossterm`, or any frontend crate. The core library is the open API: any developer should be able to build a frontend — CLI, GUI, web — by depending on `core/` alone. Every behavioral rule (status transitions, ID assignment, sync logic, error types) belongs in `core/`, not in `tui/` or `src-tauri/`.
+`gitcake-core` must never import `ratatui`, `crossterm`, or any frontend crate. The core library is the open API: any developer should be able to build a frontend — CLI, GUI, MCP server, web — by depending on `core/` alone. Every behavioral rule (status transitions, ID assignment, sync logic, error types) belongs in `core/`, not in `tui/`, `cli/`, or `src-tauri/`.
 
 ## Rule 10 — Sync is always explicit
 

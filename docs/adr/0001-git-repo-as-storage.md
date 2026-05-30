@@ -1,8 +1,8 @@
-# Git repository as task storage backend
+# Git repository as slice storage backend
 
-Tasks are stored as markdown files with YAML frontmatter in a dedicated git repository, not in a local database. Each developer owns a folder named after their git username. The remote is the team's shared view — pulling is how you see teammates' work.
+Slices are stored as markdown files with YAML frontmatter in a dedicated git repository, not in a local database. Each developer owns a folder named after their git username. The remote is the team's shared view — pulling is how you see teammates' work.
 
-This was chosen over a local database (SQLite, etc.) because the storage is inherently portable, human-readable, and requires no migration tooling. The git history is a free audit trail. The team-visibility model falls out naturally from normal git push/pull without any server infrastructure.
+This was chosen over a local database (SQLite, etc.) because the storage is inherently portable, human-readable, and requires no migration tooling. The git history is a free audit trail. The team-visibility model falls out naturally from normal git push/pull without any server infrastructure. Plain markdown files also make future AI integration straightforward — any agent can read and write slices without an API.
 
 ## Considered Options
 
