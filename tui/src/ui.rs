@@ -231,8 +231,8 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Fill(1),
-            Constraint::Length(1), // filter bar (always present, empty when not filtering)
             Constraint::Length(1), // nav shortcuts
+            Constraint::Length(1), // filter bar (always present, empty when not filtering)
             Constraint::Length(1), // ctrl shortcuts
         ])
         .split(inner);
@@ -351,10 +351,9 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
             Span::styled("Use '/' to filter", Style::new().add_modifier(Modifier::DIM)),
         ]))
     };
-    f.render_widget(filter_widget, rows[1]);
-
     let nb = if context == TaskContext::Backlog { backlog_nav_bar() } else { nav_bar() };
-    f.render_widget(Paragraph::new(nb), rows[2]);
+    f.render_widget(Paragraph::new(nb), rows[1]);
+    f.render_widget(filter_widget, rows[2]);
     f.render_widget(Paragraph::new(ctrl_bar(context)), rows[3]);
 }
 
@@ -370,7 +369,7 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .padding(Padding::new(3, 1, 1, 1));
+        .padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -408,28 +407,35 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     // rows[0] blank
     f.render_widget(
         Paragraph::new(Line::from(vec![
+            Span::raw("  "),
             Span::styled(format!("{}:  ", type_label(&task.task_type)), dim),
             Span::styled(status_label(&task.status), status_style),
         ])),
         rows[1],
     );
     f.render_widget(
-        Paragraph::new(format!("file:     {file_path}")).style(dim),
+        Paragraph::new(format!("  file:     {file_path}")).style(dim),
         rows[2],
     );
     f.render_widget(
-        Paragraph::new(format!("created:  {}", task.created.format("%Y-%m-%d %H:%M"))).style(dim),
+        Paragraph::new(format!("  created:  {}", task.created.format("%Y-%m-%d %H:%M"))).style(dim),
         rows[3],
     );
     // rows[4] blank
     f.render_widget(
-        Paragraph::new(format!("title:    {}", task.title)).style(Style::new().add_modifier(Modifier::BOLD)),
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("title:    {}", task.title), Style::new().add_modifier(Modifier::BOLD)),
+        ])),
         rows[5],
     );
     // rows[6] blank
     let desc = task.description.as_deref().unwrap_or_default();
+    let desc_lines: Vec<Line> = desc.lines()
+        .map(|l| Line::from(vec![Span::raw("  "), Span::raw(l.to_string())]))
+        .collect();
     f.render_widget(
-        Paragraph::new(desc).wrap(ratatui::widgets::Wrap { trim: false }),
+        Paragraph::new(desc_lines).wrap(ratatui::widgets::Wrap { trim: false }),
         rows[7],
     );
 
