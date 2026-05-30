@@ -188,6 +188,15 @@ Each developer owns their own folder. Editing another developer's files is a wor
 
 ---
 
+## Development guidelines
+
+- **No AI attribution in commits.** Commit messages must not mention AI, Claude, or contain `Co-Authored-By` lines. Commits should look like normal developer commits.
+- **One module at a time.** Build, test, commit before moving to the next module.
+- **Tests live alongside the module.** Each Rust module gets its tests in the same file. No separate test files.
+- **`core/` has no UI dependencies.** Never import ratatui, Tauri, or any frontend crate into `git-task-core`.
+
+---
+
 ## Out of scope for v1
 
 - GUI (Tauri/Svelte) frontend
