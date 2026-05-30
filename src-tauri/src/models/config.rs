@@ -25,17 +25,8 @@ impl Default for Preferences {
 }
 
 /// Persisted across sessions in the Tauri app data directory.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub repo_path: Option<String>,
     pub preferences: Preferences,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            repo_path: None,
-            preferences: Preferences::default(),
-        }
-    }
 }

@@ -37,7 +37,15 @@ pub fn draw(f: &mut Frame, app: &App) {
             let (repo_name, username) = app.repo.as_ref()
                 .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
                 .unwrap_or(("", ""));
-            draw_task_list(f, app.context, tasks, *selected, message.as_deref(), app.pull_error.as_deref(), repo_name, username)
+            draw_task_list(f, TaskListParams {
+                context: app.context,
+                tasks,
+                selected: *selected,
+                message: message.as_deref(),
+                pull_error: app.pull_error.as_deref(),
+                repo_name,
+                username,
+            })
         }
         Screen::Detail { task, message } => draw_detail(f, app.context, task, message.as_deref()),
         Screen::Create { task_type, assignee, field } => {
@@ -154,7 +162,18 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
 
 // ── task list ─────────────────────────────────────────────────────────────────
 
-fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>, pull_error: Option<&str>, repo_name: &str, username: &str) {
+struct TaskListParams<'a> {
+    context: TaskContext,
+    tasks: &'a [Task],
+    selected: usize,
+    message: Option<&'a str>,
+    pull_error: Option<&'a str>,
+    repo_name: &'a str,
+    username: &'a str,
+}
+
+fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
+    let TaskListParams { context, tasks, selected, message, pull_error, repo_name, username } = p;
     let area = f.area();
     // Usable column width after borders + padding (computed before the block
     // consumes `area`, then captured by the add_section closure below).

@@ -1,18 +1,13 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum TaskType {
+    #[default]
     Task,
     Bug,
     Incident,
-}
-
-impl Default for TaskType {
-    fn default() -> Self {
-        TaskType::Task
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
