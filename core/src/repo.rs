@@ -334,7 +334,22 @@ impl TaskRepo {
     pub fn assign_task(&self, id: &str, assignee: Option<String>) -> Result<Task, AppError> {
         let (path, is_completed) = self.find_task(id)?;
         let mut task = task_file::read_task(&path, is_completed)?;
-        task.assignee = assignee;
+        task.assignee = assignee.clone();
+
+        // Move active (non-completed) tasks to the new owner's folder so they
+        // appear in the assignee's personal list after the next pull.
+        if let Some(ref new_owner) = assignee {
+            if new_owner != &self.info.username && !is_completed {
+                let new_path = Path::new(&self.info.path)
+                    .join(new_owner)
+                    .join(format!("{id}.md"));
+                task_file::write_task(&new_path, &task)?;
+                self.git.stage(&format!("{new_owner}/{id}.md"))?;
+                self.git.remove_tracked(&format!("{}/{id}.md", self.info.username))?;
+                return Ok(task);
+            }
+        }
+
         task_file::write_task(&path, &task)?;
         Ok(task)
     }
@@ -832,6 +847,36 @@ mod tests {
     }
 
     // ── assign_backlog_task validation ────────────────────────────────────────
+
+    #[test]
+    fn assign_task_moves_file_to_assignee_folder() {
+        let (dir, repo) = make_repo("Alice Smith");
+        let p = dir.path();
+
+        // Create a second user folder so the move has a destination
+        fs::create_dir_all(p.join("bob-jones")).unwrap();
+
+        let task = repo.create_task("Hand off".into(), TaskType::Task, None).unwrap();
+        let id = task.id.clone();
+
+        let updated = repo.assign_task(&id, Some("bob-jones".into())).unwrap();
+
+        assert_eq!(updated.assignee.as_deref(), Some("bob-jones"));
+        assert!(p.join(format!("bob-jones/{id}.md")).exists(), "task should be in bob's folder");
+        assert!(!p.join(format!("alice-smith/{id}.md")).exists(), "task should be gone from alice's folder");
+        drop(dir);
+    }
+
+    #[test]
+    fn assign_task_to_self_stays_in_place() {
+        let (dir, repo) = make_repo("Alice Smith");
+        let task = repo.create_task("My task".into(), TaskType::Task, None).unwrap();
+        let id = task.id.clone();
+        let updated = repo.assign_task(&id, Some("alice-smith".into())).unwrap();
+        assert_eq!(updated.assignee.as_deref(), Some("alice-smith"));
+        assert!(dir.path().join(format!("alice-smith/{id}.md")).exists());
+        drop(dir);
+    }
 
     #[test]
     fn assign_backlog_task_rejects_unknown_user() {

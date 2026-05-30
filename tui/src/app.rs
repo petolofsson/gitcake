@@ -364,7 +364,7 @@ impl App {
                         }
                     });
                     self.context = TaskContext::Personal;
-                    self.enter_task_list(msg, None);
+                    self.enter_task_list(msg, Some(&task.id));
                 }
             }
             // b — toggle personal ↔ backlog context
