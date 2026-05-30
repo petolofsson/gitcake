@@ -324,6 +324,14 @@ impl TaskRepo {
     pub fn assign_backlog_task(&self, id: &str, assignee: Option<String>) -> Result<Task, AppError> {
         let path = self.backlog_task_path(id);
         if !path.exists() { return Err(AppError::TaskNotFound(id.to_string())); }
+        if let Some(ref name) = assignee {
+            let users = self.list_users()?;
+            if !users.contains(name) {
+                return Err(AppError::InvalidRepo(format!(
+                    "'{name}' is not a known user in this repo"
+                )));
+            }
+        }
         let mut task = task_file::read_task(&path, false)?;
         task.assignee = assignee;
         task_file::write_task(&path, &task)?;
@@ -783,5 +791,32 @@ mod tests {
             .exists());
         drop(work_dir);
         drop(bare_dir);
+    }
+
+    // ── assign_backlog_task validation ────────────────────────────────────────
+
+    #[test]
+    fn assign_backlog_task_rejects_unknown_user() {
+        let (dir, repo) = make_repo("Alice Smith");
+        let task = repo.create_backlog_task("Backlog item".into(), TaskType::Task, None).unwrap();
+        let result = repo.assign_backlog_task(&task.id, Some("nobody".into()));
+        assert!(matches!(result, Err(AppError::InvalidRepo(_))));
+        drop(dir);
+    }
+
+    #[test]
+    fn assign_backlog_task_accepts_known_user() {
+        let (dir, repo) = make_repo("Alice Smith");
+        let task = repo.create_backlog_task("Backlog item".into(), TaskType::Task, None).unwrap();
+        assert!(repo.assign_backlog_task(&task.id, Some("alice-smith".into())).is_ok());
+        drop(dir);
+    }
+
+    #[test]
+    fn assign_backlog_task_accepts_no_assignee() {
+        let (dir, repo) = make_repo("Alice Smith");
+        let task = repo.create_backlog_task("Backlog item".into(), TaskType::Task, None).unwrap();
+        assert!(repo.assign_backlog_task(&task.id, None).is_ok());
+        drop(dir);
     }
 }
