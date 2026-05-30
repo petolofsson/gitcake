@@ -1,158 +1,39 @@
-# git-task — Known Issues & Improvements
-
-Captured during 100-user stress analysis. Ordered by impact.
+# gitcake — Known Issues & Improvements
 
 ---
 
-## Critical — breaks core usage
+## Resolved — Critical
+- **Editor trap**: nano default, vi silent fallback, `$VISUAL`/`$EDITOR` respected first.
+- **Silent auth failures**: pull errors stored in `App.pull_error`, classified (auth/network/other), shown on bottom border in yellow until Esc.
+- **Bad task file kills list**: `collect_tasks()` skips unreadable files, returns filenames as warnings. Header shows "N slice(s) could not be read".
+- **Terminal close bypasses push**: lock file at `~/.config/gitcake/{repo-key}.lock` (contains PID). Stale lock warns on next open: "Last session ended without pushing".
+- **Git conflict**: `classify_push_error()` detects rejected/non-fast-forward pushes, shows pull-then-`^R`-retry message.
 
-- [x] **Editor trap on first use**
-  Default editor changed to `nano`; falls back to `vi` silently if `nano` is absent.
-  `$EDITOR`/`$VISUAL` respected first; hint shown only when falling back to `nano`.
+## Resolved — High
+- **Cursor resets on every action**: `enter_task_list(preserve_id)` restores position by task ID after sort.
+- **Non-ASCII usernames**: `get_username()` validates `[a-z0-9-]`, returns `UsernameInvalid` with instructions.
+- **Long titles overflow**: `truncate_title()` uses `unicode-width`; budget = `inner_width − 22 − assignee_cols`.
+- **No mid-session pull**: `Ctrl+P` pulls and reloads, cursor preserved, same error classifier as startup.
+- **Small terminal garbles UI**: `draw()` checks `width < 60 || height < 20`, shows centred "Terminal too small" message.
 
-- [x] **Silent auth failures at startup**
-  Pull errors now stored in `App.pull_error` (separate from ephemeral message).
-  Classified as auth / network / other with actionable text. Visible on bottom border
-  in yellow until Esc. Same classifier applied to Ctrl+P mid-session pull.
+## Resolved — Medium
+- **Wrong DONE label**: `done_local` (not synced) vs `done_synced` (`is_completed`). Section headers include counts.
+- **No team view**: `T` opens read-only view grouped by user folder (active tasks only).
+- **No in-app repo change**: `Ctrl+O` opens setup screen with current path pre-filled; Esc returns.
+- **Backlog assignee not validated**: `assign_backlog_task()` checks against known user folders.
+- **No scroll memory from detail**: fixed by cursor-preservation — `handle_detail` back passes task ID.
+- **No repo/user in header**: title shows `gitcake · {repo} · {username}` (or `· BACKLOG`).
+- **No task count per group**: section headers show counts, e.g. `● IN PROGRESS (2)`.
 
-- [x] **One bad task file kills the entire list**
-  `collect_tasks()` skips unreadable files and collects their filenames as warnings.
-  `scan_tasks()` / `scan_folder()` return `(Vec<Task>, Vec<String>)`. Warning shown
-  in header: "N slice(s) could not be read: filename".
+## Resolved — Low
+- **No retry hint**: `classify_push_error()` appends `· ^R to retry` to all sync failures.
+- **Backlog done lifecycle**: policy — no done lifecycle for backlog. `G` claims a slice into the personal folder, preserving its hex ID, sets status open, removes from backlog.
+- **`launched_editor` dead code**: removed.
+- **`render_help` used by 2 screens**: setup/init-repo now use `action_bar()`, `render_help` deleted.
+- **Concurrent instances stale state**: documented as known limitation; lock file warns on next open.
+- **Setup screen showed Q instead of ^Q**: label corrected to `^Q`.
 
-- [x] **Terminal close bypasses push prompt**
-  Lock file written to `~/.config/git-task/{repo-key}.lock` on open (contains PID).
-  Removed on clean exit. Stale lock (PID absent from `/proc`) shows warning at next
-  startup: "Last session ended without pushing — consider ^R to sync".
-
-- [x] **Git conflict has no in-app resolution path**
-  `classify_push_error()` detects rejected/non-fast-forward pushes and shows:
-  "Push rejected: remote has new commits — run `git pull` in the repo, then ^R to retry".
-
----
-
-## High — degrades experience at scale
-
-- [x] **Cursor resets to position 0 after every action**
-  `enter_task_list()` accepts `preserve_id: Option<&str>`. All key actions that know
-  the selected task ID (cycle, edit, assign, delete-cancel, detail-back) pass it through.
-  Position is restored by searching the re-sorted list for the matching ID.
-
-- [x] **Non-ASCII usernames break folder names**
-  `get_username()` validates that the derived folder name contains only
-  `[a-z0-9-]`. Returns `AppError::UsernameInvalid(name)` with instructions to
-  set a simpler `git config user.name`.
-
-- [x] **Long task titles overflow the row layout**
-  `truncate_title()` in `ui.rs` uses `unicode-width` to measure display cells.
-  Per-row budget = `inner_width − 17 (fixed prefix) − assignee_cols`.
-  Truncated titles append `…` at the correct visual boundary.
-
-- [x] **No manual pull mid-session**
-  `Ctrl+P` pulls and reloads the task list, preserving cursor position.
-  Shown in ctrl bar. Uses same error classifier as startup pull.
-
-- [x] **Small terminal windows garble the UI**
-  `draw()` checks `area.width < 60 || area.height < 20` before any rendering.
-  Shows "Terminal too small (WxH) — resize to at least 60×20" centred on screen.
-
----
-
-## Medium — noticeable friction
-
-- [x] **"DONE (local)" label is wrong for synced tasks**
-  Done group split: `done_local` (status=Done, is_completed=false) shows "DONE (local)";
-  `done_synced` (is_completed=true) shows "DONE". Section headers include counts.
-
-- [x] **No way to view other team members' tasks**
-  `T` key opens a read-only team view grouped by user folder. Shows all active
-  (open + in-progress) tasks from every user. WS to navigate, A/Esc to return.
-  `list_team_tasks()` added to `TaskRepo` in core.
-
-- [x] **No way to change repo path without editing config manually**
-  `Ctrl+O` from the task list opens the setup screen with the current path pre-filled.
-  `Screen::Setup` gained `can_cancel: bool`; Esc returns to task list when true.
-
-- [x] **Backlog assignee not validated**
-  `assign_backlog_task()` now calls `list_users()` and returns `AppError::InvalidRepo`
-  if the assignee has no user folder. The TUI picker already restricts to known users.
-
-- [x] **No scroll position memory when returning from detail view**
-  Fixed by the cursor-preservation work: `handle_detail` back passes `Some(&task_id)`
-  to `enter_task_list()`.
-
-- [x] **Repo name and current user not shown in header**
-  Task list title now reads: `git-task · {repo_name} · {username}` (or `· BACKLOG`).
-
-- [x] **No task count per group**
-  Section headers show counts: `● IN PROGRESS (2)`, `○ OPEN (4)`, etc.
-
----
-
-## Low — polish
-
-- [x] **No retry button after failed push/sync**
-  `classify_push_error()` now appends `· ^R to retry` to all non-conflict sync failures.
-  Conflict/rejection errors already included resolution steps and a retry hint.
-
-- [x] **Backlog done tasks never move to completed/**
-  Policy decision: backlog tasks have no done lifecycle. A backlog task is either open (in the pool)
-  or claimed. Pressing G on a backlog task moves it into the current user's personal folder with the
-  next sequential ID, sets status open, assigns it to the user, and removes it from backlog/.
-  Status cycling (F) is disabled in backlog context. Any stale done backlog tasks are filtered from
-  the list view.
-
-- [x] **`launched_editor` flag is unused in create form**
-  Removed — the create form was redesigned; `launched_editor` no longer exists.
-
-- [x] **`render_help` only used by two screens**
-  Setup and init-repo now use `action_bar()` — same chip-style bar as every other screen.
-  `render_help()` deleted.
-
-- [x] **Concurrent gt instances see stale state**
-  The session lock file already warns on next startup if another instance is open.
-  Documented as a known limitation; no file-watcher planned for v1.
-
----
-
-## Planned features
-
-### CLI subcommands
-Add a non-interactive CLI mode to the `cake` binary so any tool (AI or script) can drive it from the shell.
-
-```bash
-cake list [--json] [--status open|in-progress|done] [--backlog]
-cake create "title" [--type task|bug|incident] [--assign username]
-cake done <id>
-cake start <id>
-cake delete <id>
-cake assign <id> --to <username>
-cake sync
-```
-
-All commands output plain text by default; `--json` outputs machine-readable JSON.
-Implementation: thin CLI layer on top of `git-task-core` — the library already has all the logic.
-No business logic in the CLI layer. Same rule as the TUI: just call core.
-
-### MCP server (Claude / AI integration)
-A Model Context Protocol server wrapping `git-task-core` as a set of typed AI tools.
-Enables Claude Code, Cursor, and any MCP-compatible AI to read and write slices natively.
-
-Tools to expose:
-- `list_tasks` — returns current tasks with status, assignee, description
-- `create_task` — creates a new slice with title, type, optional description
-- `update_task_status` — mark open / in-progress / done
-- `assign_task` — assign to a user
-- `list_users` — who is in this repo
-- `sync` — commit and push
-
-Implementation: new crate `gitcake-mcp` in the workspace, depends on `git-task-core`.
-The MCP server is the first-class AI integration. CLI subcommands are the universal fallback.
-
-### Rename: git-task → gitcake
-- App name: `gitcake`
-- Binary: `cake`
-- Tasks referred to as "slices" in UI
-- Config directory: `~/.config/gitcake/`
-- Crate names: `gitcake-core`, `gitcake-tui`, `gitcake-mcp`
-- Repo marker file: `gitcake.toml` (replaces `git-task.toml`)
+## Resolved — Features
+- **Rename: git-task → gitcake**: binary `gt` → `gitcake`, config dir `~/.config/git-task/` → `~/.config/gitcake/`, repo marker `git-task.toml` → `gitcake.toml`, crate names updated.
+- **CLI subcommands**: `gitcake list/create/start/done/delete/assign/sync` — thin layer on `gitcake-core`, `--json` flag on `list`, no args launches TUI.
+- **MCP server**: `gitcake-mcp` crate — 7 tools (`list_slices`, `create_slice`, `start_slice`, `done_slice`, `assign_slice`, `list_users`, `sync`) over stdio transport.
