@@ -124,8 +124,10 @@ impl App {
         // Auto-pull on startup; failures are non-fatal
         let (pull_msg, pull_error) = classify_pull_result(repo.as_ref().unwrap().pull());
 
-        let tasks = sort_for_display(repo.as_ref().unwrap().list_tasks().unwrap_or_default());
-        let screen = Screen::TaskList { tasks, selected: 0, message: pull_msg };
+        let (raw_tasks, task_warnings) = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
+        let startup_msg = merge_messages(pull_msg, warn_summary(&task_warnings));
+        let tasks = sort_for_display(raw_tasks);
+        let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg };
 
         Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error }
     }
@@ -380,7 +382,7 @@ impl App {
             self.cycle_status(&task_id);
             // Reload the task after cycling
             if let Some(repo) = &self.repo {
-                if let Ok(tasks) = repo.list_tasks() {
+                if let Ok((tasks, _)) = repo.list_tasks() {
                     if let Some(updated) = tasks.into_iter().find(|t| t.id == task_id) {
                         self.screen = Screen::Detail { task: updated, message: None };
                     }
@@ -564,18 +566,19 @@ impl App {
     }
 
     fn enter_task_list(&mut self, message: Option<String>) {
-        let tasks = self.repo.as_ref().map(|r| match self.context {
+        let (tasks, warnings) = self.repo.as_ref().map(|r| match self.context {
             TaskContext::Personal => r.list_tasks().unwrap_or_default(),
             TaskContext::Backlog => r.list_backlog_tasks().unwrap_or_default(),
         }).unwrap_or_default();
-        self.screen = Screen::TaskList { tasks: sort_for_display(tasks), selected: 0, message };
+        let msg = merge_messages(message, warn_summary(&warnings));
+        self.screen = Screen::TaskList { tasks: sort_for_display(tasks), selected: 0, message: msg };
     }
 
     fn cycle_status(&mut self, task_id: &str) {
         let Some(repo) = &self.repo else { return };
         let ctx = self.context;
 
-        let tasks = match ctx {
+        let (tasks, _) = match ctx {
             TaskContext::Personal => repo.list_tasks().unwrap_or_default(),
             TaskContext::Backlog => repo.list_backlog_tasks().unwrap_or_default(),
         };
@@ -709,6 +712,26 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
 
 pub fn is_ctrl_q(event: &KeyEvent) -> bool {
     event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('q')
+}
+
+/// Formats a list of unreadable filenames into a single warning string.
+/// Returns `None` when the list is empty.
+fn warn_summary(warnings: &[String]) -> Option<String> {
+    match warnings.len() {
+        0 => None,
+        1 => Some(format!("1 slice could not be read: {}", warnings[0])),
+        n => Some(format!("{n} slices could not be read")),
+    }
+}
+
+/// Combines an optional primary message with an optional warning.
+/// Both present → joined with " · "; otherwise whichever is `Some`.
+fn merge_messages(primary: Option<String>, secondary: Option<String>) -> Option<String> {
+    match (primary, secondary) {
+        (Some(a), Some(b)) => Some(format!("{a} · {b}")),
+        (a, None) => a,
+        (None, b) => b,
+    }
 }
 
 /// Interprets a pull result into an ephemeral message and a persistent error.

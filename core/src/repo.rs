@@ -87,7 +87,8 @@ impl TaskRepo {
     // ── task queries ──────────────────────────────────────────────────────────
 
     /// Returns all tasks for the current user (active + completed).
-    pub fn list_tasks(&self) -> Result<Vec<Task>, AppError> {
+    /// Unreadable files are skipped; their filenames appear in the second return value.
+    pub fn list_tasks(&self) -> Result<(Vec<Task>, Vec<String>), AppError> {
         task_file::scan_tasks(&self.user_folder(), &self.completed_folder())
     }
 
@@ -219,7 +220,7 @@ impl TaskRepo {
 
     // ── backlog ───────────────────────────────────────────────────────────────
 
-    pub fn list_backlog_tasks(&self) -> Result<Vec<Task>, AppError> {
+    pub fn list_backlog_tasks(&self) -> Result<(Vec<Task>, Vec<String>), AppError> {
         task_file::scan_folder(&self.backlog_folder())
     }
 
@@ -400,7 +401,7 @@ impl TaskRepo {
     /// Moves all done (non-completed) tasks to `completed/{username}/` via
     /// `git mv`. Stages the source file first so git tracks the rename.
     fn move_done_tasks_to_completed(&self) -> Result<(), AppError> {
-        let tasks =
+        let (tasks, _) =
             task_file::scan_tasks(&self.user_folder(), &self.completed_folder())?;
         for task in tasks
             .iter()
@@ -536,7 +537,26 @@ mod tests {
     #[test]
     fn list_tasks_empty_on_fresh_repo() {
         let (dir, repo) = make_repo("Alice Smith");
-        assert!(repo.list_tasks().unwrap().is_empty());
+        let (tasks, warnings) = repo.list_tasks().unwrap();
+        assert!(tasks.is_empty());
+        assert!(warnings.is_empty());
+        drop(dir);
+    }
+
+    #[test]
+    fn list_tasks_skips_malformed_file_and_warns() {
+        let (dir, repo) = make_repo("Alice Smith");
+        repo.create_task("Good task".into(), TaskType::Task, None).unwrap();
+        fs::write(
+            Path::new(&repo.info.path).join("alice-smith/002.md"),
+            "not valid frontmatter",
+        )
+        .unwrap();
+        let (tasks, warnings) = repo.list_tasks().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Good task");
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0], "002.md");
         drop(dir);
     }
 

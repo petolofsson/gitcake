@@ -48,25 +48,30 @@ pub fn write_task(path: &Path, task: &Task) -> Result<(), AppError> {
 }
 
 /// Returns all tasks for a user by scanning both their active folder and their
-/// completed folder. Missing folders are silently skipped.
-pub fn scan_tasks(user_folder: &Path, completed_folder: &Path) -> Result<Vec<Task>, AppError> {
+/// completed folder. Missing folders are silently skipped. Unreadable files are
+/// also skipped; their filenames are collected in the second return value.
+pub fn scan_tasks(user_folder: &Path, completed_folder: &Path) -> Result<(Vec<Task>, Vec<String>), AppError> {
     let mut tasks = Vec::new();
-    collect_tasks(user_folder, false, &mut tasks)?;
-    collect_tasks(completed_folder, true, &mut tasks)?;
-    Ok(tasks)
+    let mut warnings = Vec::new();
+    collect_tasks(user_folder, false, &mut tasks, &mut warnings)?;
+    collect_tasks(completed_folder, true, &mut tasks, &mut warnings)?;
+    Ok((tasks, warnings))
 }
 
 /// Scans a single folder for task files. Used for backlog (no completed/ pair).
-pub fn scan_folder(folder: &Path) -> Result<Vec<Task>, AppError> {
+/// Unreadable files are skipped; their filenames are collected in the second return value.
+pub fn scan_folder(folder: &Path) -> Result<(Vec<Task>, Vec<String>), AppError> {
     let mut tasks = Vec::new();
-    collect_tasks(folder, false, &mut tasks)?;
-    Ok(tasks)
+    let mut warnings = Vec::new();
+    collect_tasks(folder, false, &mut tasks, &mut warnings)?;
+    Ok((tasks, warnings))
 }
 
 /// Returns the next sequential ID (e.g. `"004"`) by scanning both folders for
 /// the highest existing numeric ID and incrementing by one.
 pub fn next_id(user_folder: &Path, completed_folder: &Path) -> Result<String, AppError> {
-    let max = scan_tasks(user_folder, completed_folder)?
+    let (tasks, _) = scan_tasks(user_folder, completed_folder)?;
+    let max = tasks
         .iter()
         .filter_map(|t| t.id.parse::<u32>().ok())
         .max()
@@ -161,7 +166,7 @@ fn yaml_str(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn collect_tasks(folder: &Path, is_completed: bool, out: &mut Vec<Task>) -> Result<(), AppError> {
+fn collect_tasks(folder: &Path, is_completed: bool, out: &mut Vec<Task>, warnings: &mut Vec<String>) -> Result<(), AppError> {
     if !folder.exists() {
         return Ok(());
     }
@@ -176,7 +181,10 @@ fn collect_tasks(folder: &Path, is_completed: bool, out: &mut Vec<Task>) -> Resu
         .collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
-        out.push(read_task(&entry.path(), is_completed)?);
+        match read_task(&entry.path(), is_completed) {
+            Ok(task) => out.push(task),
+            Err(_) => warnings.push(entry.file_name().to_string_lossy().into_owned()),
+        }
     }
     Ok(())
 }
@@ -317,12 +325,13 @@ mod tests {
     #[test]
     fn scan_returns_empty_for_missing_folders() {
         let dir = TempDir::new().unwrap();
-        let tasks = scan_tasks(
+        let (tasks, warnings) = scan_tasks(
             &dir.path().join("alice"),
             &dir.path().join("completed/alice"),
         )
         .unwrap();
         assert!(tasks.is_empty());
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -340,8 +349,9 @@ mod tests {
         let task_b = parse_task_content(content2, true).unwrap();
         write_task(&completed.join("002.md"), &task_b).unwrap();
 
-        let tasks = scan_tasks(&active, &completed).unwrap();
+        let (tasks, warnings) = scan_tasks(&active, &completed).unwrap();
         assert_eq!(tasks.len(), 2);
+        assert!(warnings.is_empty());
         assert!(!tasks.iter().find(|t| t.id == "001").unwrap().is_completed);
         assert!(tasks.iter().find(|t| t.id == "002").unwrap().is_completed);
     }
@@ -354,8 +364,29 @@ mod tests {
         fs::write(active.join("notes.txt"), "not a task").unwrap();
         fs::write(active.join(".gitkeep"), "").unwrap();
 
-        let tasks = scan_tasks(&active, &dir.path().join("completed/alice")).unwrap();
+        let (tasks, warnings) = scan_tasks(&active, &dir.path().join("completed/alice")).unwrap();
         assert!(tasks.is_empty());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn scan_skips_malformed_file_and_reports_warning() {
+        let dir = TempDir::new().unwrap();
+        let active = dir.path().join("alice");
+        fs::create_dir_all(&active).unwrap();
+
+        // valid task
+        let task = parse_task_content(minimal_task_content(), false).unwrap();
+        write_task(&active.join("001.md"), &task).unwrap();
+
+        // malformed task — missing frontmatter
+        fs::write(active.join("002.md"), "not valid yaml frontmatter").unwrap();
+
+        let (tasks, warnings) = scan_tasks(&active, &dir.path().join("completed/alice")).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "001");
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0], "002.md");
     }
 
     // ── next_id ───────────────────────────────────────────────────────────────
