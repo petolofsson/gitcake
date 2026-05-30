@@ -155,7 +155,11 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(1), // regular shortcuts
+            Constraint::Length(1), // ctrl shortcuts (reversed)
+        ])
         .split(inner);
 
     // Build grouped list items
@@ -271,17 +275,22 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
 
-    let msg_text = message.unwrap_or("");
-    let help = "w/s:move  c:new  e:edit  f:cycle  a:assign  Ctrl+D:delete  b:backlog  Ctrl+R:sync  Ctrl+Q:quit".to_string();
-    let bottom_text = if msg_text.is_empty() {
-        help
-    } else {
-        format!("{msg_text}  ·  {help}")
+    // Regular shortcuts — with optional status message prefix
+    let nav_help = "w/s: move  c: new  e: edit  f: cycle  a: assign  b: backlog";
+    let nav_text = match message {
+        Some(msg) => format!("{msg}  ·  {nav_help}"),
+        None => nav_help.to_string(),
     };
     f.render_widget(
-        Paragraph::new(bottom_text)
-            .style(Style::new().add_modifier(Modifier::DIM)),
+        Paragraph::new(nav_text).style(Style::new().add_modifier(Modifier::DIM)),
         rows[1],
+    );
+
+    // Ctrl shortcuts — reversed (white bg, black text)
+    f.render_widget(
+        Paragraph::new("  ^R: Task Sync   ^D: Delete Task   ^Q: Quit Git-task  ")
+            .style(Style::new().add_modifier(Modifier::REVERSED)),
+        rows[2],
     );
 }
 
