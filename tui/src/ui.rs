@@ -708,54 +708,43 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
 // ── delete confirm ────────────────────────────────────────────────────────────
 
 fn draw_delete_confirm(f: &mut Frame, task_title: &str, context: TaskContext) {
-    let (title, question, subtext, action) = match context {
+    let (title, question, subtext) = match context {
         TaskContext::Personal => (
             "Move to Backlog",
-            "Move this slice to the shared backlog?",
+            format!("Move \"{}\" to the shared backlog?", task_title),
             "Assignee will be cleared.",
-            "y: move   Enter/n/Esc: cancel",
         ),
         TaskContext::Backlog => (
             "Delete",
-            "Permanently delete this slice?",
-            "This cannot be undone.",
-            "y: delete  Enter/n/Esc: cancel",
+            format!("Are you sure you want to delete \"{}\"?", task_title),
+            "This action cannot be undone.",
         ),
     };
 
-    let inner = render_popup(f, title, 56, 9);
+    let inner = render_popup(f, title, 60, 8);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // question
-            Constraint::Length(1), // spacer
-            Constraint::Length(1), // task title
+            Constraint::Min(1),    // question (may wrap)
             Constraint::Length(1), // spacer
             Constraint::Length(1), // subtext
-            Constraint::Fill(1),
-            Constraint::Length(1), // action hint
+            Constraint::Length(1), // spacer
+            Constraint::Length(1), // [y/N]
         ])
         .split(inner);
 
-    f.render_widget(Paragraph::new(question), rows[0]);
-
-    let title_style = if context == TaskContext::Backlog {
-        Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        Style::new().add_modifier(Modifier::BOLD)
-    };
     f.render_widget(
-        Paragraph::new(format!("\"{}\"", task_title)).style(title_style),
-        rows[2],
+        Paragraph::new(question).wrap(ratatui::widgets::Wrap { trim: true }),
+        rows[0],
     );
     f.render_widget(
         Paragraph::new(subtext).style(Style::new().add_modifier(Modifier::DIM)),
-        rows[4],
+        rows[2],
     );
     f.render_widget(
-        Paragraph::new(action).style(Style::new().add_modifier(Modifier::DIM)),
-        rows[6],
+        Paragraph::new("[y/N]"),
+        rows[4],
     );
 }
 
