@@ -6,16 +6,28 @@ on:
       - 'v*'
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            archive: gitcake-linux-x86_64.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: gitcake-macos-aarch64.tar.gz
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: ${{ matrix.target }}
 
       - name: Install musl tools
+        if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y musl-tools
 
       - uses: Swatinem/rust-cache@v2
@@ -23,15 +35,30 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: -D warnings
-        run: cargo build --release --target x86_64-unknown-linux-musl -p gitcake-tui -p gitcake-mcp
+        run: cargo build --release --target ${{ matrix.target }} -p gitcake-tui -p gitcake-mcp
 
       - name: Package
         run: |
-          cd target/x86_64-unknown-linux-musl/release
+          cd target/${{ matrix.target }}/release
           strip gitcake gitcake-mcp
-          tar czf gitcake-linux-x86_64.tar.gz gitcake gitcake-mcp
+          tar czf ${{ matrix.archive }} gitcake gitcake-mcp
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: target/${{ matrix.target }}/release/${{ matrix.archive }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/x86_64-unknown-linux-musl/release/gitcake-linux-x86_64.tar.gz
+          files: |
+            gitcake-linux-x86_64.tar.gz/gitcake-linux-x86_64.tar.gz
+            gitcake-macos-aarch64.tar.gz/gitcake-macos-aarch64.tar.gz
