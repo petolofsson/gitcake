@@ -13,7 +13,7 @@ A classification label on a task. One of `task`, `bug`, or `incident`. Purely vi
 _Avoid_: category, kind, label
 
 **Status**:
-The lifecycle state of a task: `open` (created, not yet started), `in-progress` (developer has activated it at least once), or `done` (marked complete).
+The lifecycle state of a task: `open` (created, not yet activated), `in-progress` (developer has explicitly activated it at least once), or `done` (marked complete).
 _Avoid_: state, phase, stage
 
 **Task Repo**:
@@ -21,17 +21,21 @@ The dedicated git repository used as the source of truth for all tasks. Separate
 _Avoid_: database, store, backend, project
 
 **User Folder**:
-The directory within the task repo named after a developer (`git config user.name`, lowercased, spaces → hyphens). Contains that developer's open and in-progress tasks.
+The directory within the task repo named after a developer (`git config user.name`, lowercased, spaces → hyphens). Contains that developer's `open` and `in-progress` tasks.
 _Avoid_: user directory, personal folder, workspace
 
 **Completed Folder**:
-The `completed/{username}/` directory where done tasks are moved on sync. Serves as a team-visible archive of finished work.
+The `completed/{username}/` directory where done tasks are moved on sync via `git mv`. Serves as a team-visible archive of finished work.
 _Avoid_: archive, done folder, history
 
 **Sync**:
-The manual operation a developer triggers explicitly: pull latest → commit local changes in the user folder → push. Never automatic.
+The manual operation a developer triggers explicitly: move done tasks to `completed/` → commit changes in the user folder → pull → push. Never automatic.
 _Avoid_: save, upload, backup, publish, autosave
 
-**Widget**:
-The always-on-top floating panel that is the primary interface. Shows all tasks with `in-progress` tasks highlighted and others dimmed.
-_Avoid_: window, panel, overlay, HUD
+**Core Library**:
+The `git-task-core` Rust crate. Contains all business logic — task file parsing, git operations, repo scanning — with no dependency on any specific frontend. The open API that both the TUI and GUI depend on.
+_Avoid_: backend, server, engine
+
+**TUI**:
+The ratatui terminal UI (`gt` binary). The v1 primary interface, designed to run in a terminal split pane alongside other tools. Shows tasks grouped by status with keyboard navigation.
+_Avoid_: widget, app, dashboard
