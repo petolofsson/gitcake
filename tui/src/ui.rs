@@ -362,7 +362,14 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 
 fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
     let area = f.area();
-    let block = outer_block(&format!("Task {}", task.id))
+    let block = Block::default()
+        .title(Line::from(vec![
+            Span::raw(" Task "),
+            Span::styled(task.id.clone(), Style::new().add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
+        ]))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .padding(Padding::new(3, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -393,9 +400,17 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     };
 
     let dim = Style::new().add_modifier(Modifier::DIM);
+    let status_style = match task.status {
+        TaskStatus::InProgress => Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+        TaskStatus::Done => Style::new().add_modifier(Modifier::DIM),
+        TaskStatus::Open => Style::new().add_modifier(Modifier::BOLD),
+    };
     // rows[0] blank
     f.render_widget(
-        Paragraph::new(format!("{}:  {}", type_label(&task.task_type), status_label(&task.status))).style(dim),
+        Paragraph::new(Line::from(vec![
+            Span::styled(format!("{}:  ", type_label(&task.task_type)), dim),
+            Span::styled(status_label(&task.status), status_style),
+        ])),
         rows[1],
     );
     f.render_widget(
@@ -718,17 +733,9 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
 // ── delete confirm ────────────────────────────────────────────────────────────
 
 fn draw_delete_confirm(f: &mut Frame, task_title: &str, context: TaskContext) {
-    let (title, question, subtext) = match context {
-        TaskContext::Personal => (
-            "Move to Backlog",
-            format!("Move \"{}\" to the shared backlog?", task_title),
-            "Assignee will be cleared.",
-        ),
-        TaskContext::Backlog => (
-            "Delete",
-            format!("Are you sure you want to delete \"{}\"?", task_title),
-            "This action cannot be undone.",
-        ),
+    let (title, subtext) = match context {
+        TaskContext::Personal => ("Move to Backlog", "Assignee will be cleared."),
+        TaskContext::Backlog => ("Delete", "This action cannot be undone."),
     };
 
     let inner = render_popup(f, title, 60, 8);
@@ -744,8 +751,20 @@ fn draw_delete_confirm(f: &mut Frame, task_title: &str, context: TaskContext) {
         ])
         .split(inner);
 
+    let question_line = match context {
+        TaskContext::Personal => Line::from(vec![
+            Span::raw("Move \""),
+            Span::styled(task_title, Style::new().add_modifier(Modifier::BOLD)),
+            Span::raw("\" to the shared backlog?"),
+        ]),
+        TaskContext::Backlog => Line::from(vec![
+            Span::raw("Are you sure you want to delete \""),
+            Span::styled(task_title, Style::new().add_modifier(Modifier::BOLD)),
+            Span::raw("\"?"),
+        ]),
+    };
     f.render_widget(
-        Paragraph::new(question).wrap(ratatui::widgets::Wrap { trim: true }),
+        Paragraph::new(question_line).wrap(ratatui::widgets::Wrap { trim: true }),
         rows[0],
     );
     f.render_widget(
