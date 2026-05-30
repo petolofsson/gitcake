@@ -458,6 +458,21 @@ impl App {
 
     fn handle_detail(&mut self, key: KeyEvent) {
         let km = self.config.keys.clone();
+
+        if is_ctrl_q(&key) { self.try_quit(); return; }
+        if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
+        if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            let task_id = if let Screen::Detail { task, .. } = &self.screen { task.id.clone() } else { return };
+            let pull_result = self.repo.as_ref().map(|r| r.pull());
+            let (pull_msg, pull_err) = match pull_result {
+                Some(result) => classify_pull_result(result),
+                None => (None, Some("No repo connected.".to_string())),
+            };
+            self.pull_error = pull_err;
+            self.enter_task_list(pull_msg, Some(&task_id));
+            return;
+        }
+
         let Screen::Detail { task, .. } = &self.screen else {
             return;
         };
