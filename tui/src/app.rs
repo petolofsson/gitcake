@@ -296,8 +296,8 @@ impl App {
                 };
                 self.enter_task_list(None);
             }
-            // a — assign selected task
-            KeyCode::Char('a') => {
+            // Ctrl+A — assign selected task
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 let sel = *selected;
                 if let Some(task) = tasks.get(sel).cloned() {
                     let users = self.repo.as_ref()
