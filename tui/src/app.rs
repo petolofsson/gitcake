@@ -12,6 +12,14 @@ use git_task_core::{
 
 use crate::config::Config;
 
+// ── context ───────────────────────────────────────────────────────────────────
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum TaskContext {
+    Personal,
+    Backlog,
+}
+
 // ── screens ───────────────────────────────────────────────────────────────────
 
 pub enum Screen {
@@ -45,6 +53,15 @@ pub enum Screen {
         description: String,
         field: EditField,
     },
+    AssignTask {
+        task_id: String,
+        users: Vec<String>,
+        selected: usize,
+    },
+    DeleteConfirm {
+        task_id: String,
+        task_title: String,
+    },
     SyncConfirm,
     PushPrompt,
 }
@@ -68,6 +85,7 @@ pub struct App {
     pub screen: Screen,
     pub repo: Option<TaskRepo>,
     pub config: Config,
+    pub context: TaskContext,
     pub should_quit: bool,
     pub needs_clear: bool,
     pub exit_message: Option<String>,
@@ -80,6 +98,7 @@ impl App {
                 screen: Screen::Setup { input: String::new(), error: None },
                 repo: None,
                 config,
+                context: TaskContext::Personal,
                 should_quit: false,
                 needs_clear: false,
                 exit_message: None,
@@ -96,6 +115,7 @@ impl App {
                 },
                 repo: None,
                 config,
+                context: TaskContext::Personal,
                 should_quit: false,
                 needs_clear: false,
                 exit_message: None,
@@ -112,7 +132,7 @@ impl App {
         let tasks = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
         let screen = Screen::TaskList { tasks, selected: 0, message: pull_msg };
 
-        Self { screen, repo, config, should_quit: false, needs_clear: false, exit_message: None }
+        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None }
     }
 
     pub fn handle_event(&mut self, event: Event) {
@@ -124,6 +144,8 @@ impl App {
             Screen::Detail { .. } => self.handle_detail(key),
             Screen::Create { .. } => self.handle_create(key),
             Screen::Edit { .. } => self.handle_edit(key),
+            Screen::AssignTask { .. } => self.handle_assign_task(key),
+            Screen::DeleteConfirm { .. } => self.handle_delete_confirm(key),
             Screen::SyncConfirm => self.handle_sync_confirm(key),
             Screen::PushPrompt => self.handle_push_prompt(key),
         }
@@ -262,6 +284,38 @@ impl App {
                     self.cycle_status(&task.id);
                 }
             }
+            // b — toggle personal ↔ backlog context
+            KeyCode::Char('b') => {
+                self.context = match self.context {
+                    TaskContext::Personal => TaskContext::Backlog,
+                    TaskContext::Backlog => TaskContext::Personal,
+                };
+                self.enter_task_list(None);
+            }
+            // a — assign selected task
+            KeyCode::Char('a') => {
+                let sel = *selected;
+                if let Some(task) = tasks.get(sel).cloned() {
+                    let users = self.repo.as_ref()
+                        .and_then(|r| r.list_users().ok())
+                        .unwrap_or_default();
+                    self.screen = Screen::AssignTask {
+                        task_id: task.id.clone(),
+                        users,
+                        selected: 0,
+                    };
+                }
+            }
+            // Ctrl+D — delete selected task
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                let sel = *selected;
+                if let Some(task) = tasks.get(sel).cloned() {
+                    self.screen = Screen::DeleteConfirm {
+                        task_id: task.id.clone(),
+                        task_title: task.title.clone(),
+                    };
+                }
+            }
             _ => {}
         }
     }
@@ -323,7 +377,11 @@ impl App {
             let desc = description.trim().to_string();
             let desc = if desc.is_empty() { None } else { Some(desc) };
             if let Some(repo) = &self.repo {
-                match repo.create_task(title, task_type, desc) {
+                let result = match self.context {
+                    TaskContext::Personal => repo.create_task(title, task_type, desc),
+                    TaskContext::Backlog => repo.create_backlog_task(title, task_type, desc),
+                };
+                match result {
                     Ok(_) => self.enter_task_list(Some("Task created.".into())),
                     Err(e) => self.enter_task_list(Some(e.to_string())),
                 }
@@ -386,7 +444,11 @@ impl App {
             let new_title = Some(title.trim().to_string()).filter(|s| !s.is_empty());
             let new_desc = Some(description.trim().to_string()).filter(|s| !s.is_empty());
             if let Some(repo) = &self.repo {
-                match repo.update_task(&id, new_title, new_desc) {
+                let result = match self.context {
+                    TaskContext::Personal => repo.update_task(&id, new_title, new_desc),
+                    TaskContext::Backlog => repo.update_backlog_task(&id, new_title, new_desc),
+                };
+                match result {
                     Ok(_) => self.enter_task_list(Some("Task updated.".into())),
                     Err(e) => self.enter_task_list(Some(e.to_string())),
                 }
@@ -429,10 +491,11 @@ impl App {
         match key.code {
             // y confirms — N is the default so Enter cancels
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let result = self
-                    .repo
-                    .as_ref()
-                    .map(|r| r.push())
+                let result = self.repo.as_ref()
+                    .map(|r| match self.context {
+                        TaskContext::Personal => r.push(),
+                        TaskContext::Backlog => r.push_backlog(),
+                    })
                     .unwrap_or(Err(git_task_core::error::AppError::NoRepo));
                 let msg = match result {
                     Ok(_) => "Successfully pushed.".into(),
@@ -521,23 +584,30 @@ impl App {
     }
 
     fn enter_task_list(&mut self, message: Option<String>) {
-        let tasks = self
-            .repo
-            .as_ref()
-            .and_then(|r| r.list_tasks().ok())
-            .unwrap_or_default();
+        let tasks = self.repo.as_ref().map(|r| match self.context {
+            TaskContext::Personal => r.list_tasks().unwrap_or_default(),
+            TaskContext::Backlog => r.list_backlog_tasks().unwrap_or_default(),
+        }).unwrap_or_default();
         self.screen = Screen::TaskList { tasks, selected: 0, message };
     }
 
     fn cycle_status(&mut self, task_id: &str) {
         let Some(repo) = &self.repo else { return };
-        let tasks = repo.list_tasks().unwrap_or_default();
+        let ctx = self.context;
+
+        let tasks = match ctx {
+            TaskContext::Personal => repo.list_tasks().unwrap_or_default(),
+            TaskContext::Backlog => repo.list_backlog_tasks().unwrap_or_default(),
+        };
         let Some(task) = tasks.iter().find(|t| t.id == task_id) else { return };
 
-        let result = match task.status {
-            TaskStatus::Open => repo.set_task_in_progress(task_id),
-            TaskStatus::InProgress => repo.mark_task_done(task_id),
-            TaskStatus::Done => repo.set_task_in_progress(task_id),
+        let result = match (ctx, &task.status) {
+            (TaskContext::Personal, TaskStatus::Open) => repo.set_task_in_progress(task_id),
+            (TaskContext::Personal, TaskStatus::InProgress) => repo.mark_task_done(task_id),
+            (TaskContext::Personal, TaskStatus::Done) => repo.set_task_in_progress(task_id),
+            (TaskContext::Backlog, TaskStatus::Open) => repo.set_backlog_task_in_progress(task_id),
+            (TaskContext::Backlog, TaskStatus::InProgress) => repo.mark_backlog_task_done(task_id),
+            (TaskContext::Backlog, TaskStatus::Done) => repo.set_backlog_task_in_progress(task_id),
         };
 
         let msg = match result {
@@ -551,6 +621,59 @@ impl App {
 
         if let Screen::TaskList { .. } = &self.screen {
             self.enter_task_list(msg);
+        }
+    }
+
+    fn handle_assign_task(&mut self, key: KeyEvent) {
+        let Screen::AssignTask { task_id, users, selected } = &mut self.screen else { return };
+
+        match key.code {
+            KeyCode::Char('w') | KeyCode::Up => {
+                if *selected > 0 { *selected -= 1; }
+            }
+            KeyCode::Char('s') | KeyCode::Down => {
+                if !users.is_empty() && *selected < users.len() - 1 { *selected += 1; }
+            }
+            KeyCode::Enter => {
+                let assignee = users.get(*selected).cloned();
+                let id = task_id.clone();
+                let result = self.repo.as_ref().map(|r| match self.context {
+                    TaskContext::Personal => r.assign_task(&id, assignee),
+                    TaskContext::Backlog => r.assign_backlog_task(&id, assignee),
+                });
+                let msg = match result {
+                    Some(Ok(_)) => Some("Assigned.".into()),
+                    Some(Err(e)) => Some(e.to_string()),
+                    None => None,
+                };
+                self.enter_task_list(msg);
+            }
+            KeyCode::Esc | KeyCode::Char('q') => self.enter_task_list(None),
+            _ => {}
+        }
+    }
+
+    fn handle_delete_confirm(&mut self, key: KeyEvent) {
+        let Screen::DeleteConfirm { task_id, .. } = &self.screen else { return };
+        let id = task_id.clone();
+
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                let result = self.repo.as_ref().map(|r| match self.context {
+                    TaskContext::Personal => r.delete_task(&id),
+                    TaskContext::Backlog => r.delete_backlog_task(&id),
+                });
+                let msg = match result {
+                    Some(Ok(())) => Some("Task deleted.".into()),
+                    Some(Err(e)) => Some(e.to_string()),
+                    None => None,
+                };
+                self.enter_task_list(msg);
+            }
+            KeyCode::Enter | KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.enter_task_list(None);
+            }
+            _ => {}
         }
     }
 

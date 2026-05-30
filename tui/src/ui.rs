@@ -8,13 +8,14 @@ use ratatui::{
 
 use git_task_core::models::task::{Task, TaskStatus, TaskType};
 
-use crate::app::{App, CreateField, EditField, Screen};
+use crate::app::{App, CreateField, EditField, Screen, TaskContext};
 
 pub fn draw(f: &mut Frame, app: &App) {
     match &app.screen {
         Screen::Setup { input, error } => draw_setup(f, input, error.as_deref()),
+        Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
         Screen::TaskList { tasks, selected, message } => {
-            draw_task_list(f, tasks, *selected, message.as_deref())
+            draw_task_list(f, app.context, tasks, *selected, message.as_deref())
         }
         Screen::Detail { task, message } => draw_detail(f, task, message.as_deref()),
         Screen::Create { title, task_type, description, field } => {
@@ -23,8 +24,9 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Edit { title, description, field, .. } => {
             draw_edit(f, title, description, field)
         }
-        Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
-        Screen::SyncConfirm => draw_sync_confirm(f),
+        Screen::AssignTask { users, selected, .. } => draw_assign_task(f, users, *selected),
+        Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title),
+        Screen::SyncConfirm => draw_sync_confirm(f, app.context),
         Screen::PushPrompt => draw_push_prompt(f),
     }
 }
@@ -140,10 +142,14 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
 
 // ── task list ─────────────────────────────────────────────────────────────────
 
-fn draw_task_list(f: &mut Frame, tasks: &[Task], selected: usize, message: Option<&str>) {
+fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>) {
     let area = f.area();
 
-    let block = outer_block("git-task");
+    let title = match context {
+        TaskContext::Personal => "git-task",
+        TaskContext::Backlog => "git-task · BACKLOG",
+    };
+    let block = outer_block(title);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -225,11 +231,16 @@ fn draw_task_list(f: &mut Frame, tasks: &[Task], selected: usize, message: Optio
                 base
             };
 
+            let assignee_str = task.assignee.as_deref()
+                .map(|a| format!("  → {a}"))
+                .unwrap_or_default();
+
             let line = Line::from(vec![
                 Span::styled(cursor.to_string(), cursor_style),
                 Span::styled(id_str, row_style.add_modifier(Modifier::DIM)),
                 Span::styled(type_str, row_style.add_modifier(Modifier::DIM)),
                 Span::styled(title_str, row_style),
+                Span::styled(assignee_str, row_style.add_modifier(Modifier::DIM)),
             ]);
 
             items.push(ListItem::new(line));
@@ -261,7 +272,7 @@ fn draw_task_list(f: &mut Frame, tasks: &[Task], selected: usize, message: Optio
     }
 
     let msg_text = message.unwrap_or("");
-    let help = "w/s:move  d:detail  c:new  e:edit  f:cycle  Ctrl+R:sync  Ctrl+Q:quit".to_string();
+    let help = "w/s:move  c:new  e:edit  f:cycle  a:assign  Ctrl+D:delete  b:backlog  Ctrl+R:sync  Ctrl+Q:quit".to_string();
     let bottom_text = if msg_text.is_empty() {
         help
     } else {
@@ -443,7 +454,7 @@ fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
 
 // ── sync confirm ──────────────────────────────────────────────────────────────
 
-fn draw_sync_confirm(f: &mut Frame) {
+fn draw_sync_confirm(f: &mut Frame, context: TaskContext) {
     let area = f.area();
     let popup = centered_rect(54, 7, area);
     f.render_widget(Clear, popup);
@@ -466,9 +477,12 @@ fn draw_sync_confirm(f: &mut Frame) {
         ])
         .split(inner);
 
+    let what = match context {
+        TaskContext::Personal => "This will commit and push your tasks.",
+        TaskContext::Backlog => "This will commit and push the shared backlog.",
+    };
     f.render_widget(
-        Paragraph::new("This will commit and push your tasks.")
-            .style(Style::new().add_modifier(Modifier::DIM)),
+        Paragraph::new(what).style(Style::new().add_modifier(Modifier::DIM)),
         rows[0],
     );
     f.render_widget(
@@ -514,6 +528,100 @@ fn draw_push_prompt(f: &mut Frame) {
 }
 
 // ── error ─────────────────────────────────────────────────────────────────────
+
+// ── assign task ───────────────────────────────────────────────────────────────
+
+fn draw_assign_task(f: &mut Frame, users: &[String], selected: usize) {
+    let area = f.area();
+    let popup = centered_rect(50, (users.len() as u16 + 6).min(area.height), area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" Assign to ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .padding(Padding::new(1, 1, 1, 1));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    if users.is_empty() {
+        f.render_widget(
+            Paragraph::new("No other users found in this repo.")
+                .style(Style::new().add_modifier(Modifier::DIM)),
+            inner,
+        );
+        return;
+    }
+
+    let items: Vec<ListItem> = users
+        .iter()
+        .enumerate()
+        .map(|(i, u)| {
+            let (prefix, style) = if i == selected {
+                ("▶ ", Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan))
+            } else {
+                ("  ", Style::new())
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(u.clone(), style),
+            ]))
+        })
+        .collect();
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Fill(1), Constraint::Length(1)])
+        .split(inner);
+
+    f.render_widget(List::new(items), rows[0]);
+    f.render_widget(
+        Paragraph::new("Enter: assign  Esc/q: cancel")
+            .style(Style::new().add_modifier(Modifier::DIM)),
+        rows[1],
+    );
+}
+
+// ── delete confirm ────────────────────────────────────────────────────────────
+
+fn draw_delete_confirm(f: &mut Frame, task_title: &str) {
+    let area = f.area();
+    let popup = centered_rect(56, 7, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" Delete task ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .padding(Padding::new(1, 1, 1, 1));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    f.render_widget(
+        Paragraph::new(format!("Delete \"{}\"?", task_title)),
+        rows[0],
+    );
+    f.render_widget(
+        Paragraph::new("This cannot be undone.")
+            .style(Style::new().add_modifier(Modifier::DIM)),
+        rows[1],
+    );
+    f.render_widget(
+        Paragraph::new("y: delete  Enter/n/Esc: cancel")
+            .style(Style::new().add_modifier(Modifier::DIM)),
+        rows[3],
+    );
+}
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 

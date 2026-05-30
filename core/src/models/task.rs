@@ -33,6 +33,7 @@ pub struct Task {
     pub created: NaiveDateTime,
     pub done: Option<NaiveDateTime>,
     pub description: Option<String>,
+    pub assignee: Option<String>,
     /// true when the file lives in completed/{username}/
     pub is_completed: bool,
 }

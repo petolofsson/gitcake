@@ -109,6 +109,7 @@ impl TaskRepo {
             created: Local::now().naive_local(),
             done: None,
             description,
+            assignee: None,
             is_completed: false,
         };
         task_file::write_task(&self.task_path(&id), &task)?;
@@ -216,6 +217,130 @@ impl TaskRepo {
         self.push()
     }
 
+    // ── backlog ───────────────────────────────────────────────────────────────
+
+    pub fn list_backlog_tasks(&self) -> Result<Vec<Task>, AppError> {
+        task_file::scan_folder(&self.backlog_folder())
+    }
+
+    pub fn create_backlog_task(
+        &self,
+        title: String,
+        task_type: TaskType,
+        description: Option<String>,
+    ) -> Result<Task, AppError> {
+        let folder = self.backlog_folder();
+        fs::create_dir_all(&folder)?;
+        let id = backlog_id(&folder);
+        let task = Task {
+            id: id.clone(),
+            task_type,
+            title,
+            status: TaskStatus::Open,
+            created: Local::now().naive_local(),
+            done: None,
+            description,
+            assignee: None,
+            is_completed: false,
+        };
+        task_file::write_task(&self.backlog_task_path(&id), &task)?;
+        Ok(task)
+    }
+
+    pub fn update_backlog_task(
+        &self,
+        id: &str,
+        title: Option<String>,
+        description: Option<String>,
+    ) -> Result<Task, AppError> {
+        let path = self.backlog_task_path(id);
+        if !path.exists() {
+            return Err(AppError::TaskNotFound(id.to_string()));
+        }
+        let mut task = task_file::read_task(&path, false)?;
+        if let Some(t) = title { task.title = t; }
+        if description.is_some() { task.description = description; }
+        task_file::write_task(&path, &task)?;
+        Ok(task)
+    }
+
+    pub fn set_backlog_task_in_progress(&self, id: &str) -> Result<Task, AppError> {
+        let path = self.backlog_task_path(id);
+        if !path.exists() { return Err(AppError::TaskNotFound(id.to_string())); }
+        let mut task = task_file::read_task(&path, false)?;
+        if task.status != TaskStatus::InProgress {
+            task.status = TaskStatus::InProgress;
+            task.done = None;
+            task_file::write_task(&path, &task)?;
+        }
+        Ok(task)
+    }
+
+    pub fn mark_backlog_task_done(&self, id: &str) -> Result<Task, AppError> {
+        let path = self.backlog_task_path(id);
+        if !path.exists() { return Err(AppError::TaskNotFound(id.to_string())); }
+        let mut task = task_file::read_task(&path, false)?;
+        task.status = TaskStatus::Done;
+        task.done = Some(Local::now().naive_local());
+        task_file::write_task(&path, &task)?;
+        Ok(task)
+    }
+
+    pub fn push_backlog(&self) -> Result<String, AppError> {
+        let msg = format!("git-task: {} (backlog)", self.info.username);
+        self.git.stage("backlog")?;
+        self.git.commit_staged(&msg)?;
+        self.git.push()
+    }
+
+    // ── assign ────────────────────────────────────────────────────────────────
+
+    pub fn assign_task(&self, id: &str, assignee: Option<String>) -> Result<Task, AppError> {
+        let (path, is_completed) = self.find_task(id)?;
+        let mut task = task_file::read_task(&path, is_completed)?;
+        task.assignee = assignee;
+        task_file::write_task(&path, &task)?;
+        Ok(task)
+    }
+
+    pub fn assign_backlog_task(&self, id: &str, assignee: Option<String>) -> Result<Task, AppError> {
+        let path = self.backlog_task_path(id);
+        if !path.exists() { return Err(AppError::TaskNotFound(id.to_string())); }
+        let mut task = task_file::read_task(&path, false)?;
+        task.assignee = assignee;
+        task_file::write_task(&path, &task)?;
+        Ok(task)
+    }
+
+    // ── delete ────────────────────────────────────────────────────────────────
+
+    pub fn delete_task(&self, id: &str) -> Result<(), AppError> {
+        let path = self.task_path(id);
+        if !path.exists() { return Err(AppError::TaskNotFound(id.to_string())); }
+        self.git.remove_tracked(&format!("{}/{id}.md", self.info.username))
+    }
+
+    pub fn delete_backlog_task(&self, id: &str) -> Result<(), AppError> {
+        let path = self.backlog_task_path(id);
+        if !path.exists() { return Err(AppError::TaskNotFound(id.to_string())); }
+        self.git.remove_tracked(&format!("backlog/{id}.md"))
+    }
+
+    // ── users ─────────────────────────────────────────────────────────────────
+
+    /// Returns all user folder names found at the repo root (excluding system dirs).
+    pub fn list_users(&self) -> Result<Vec<String>, AppError> {
+        let root = Path::new(&self.info.path);
+        let mut users: Vec<String> = fs::read_dir(root)?
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| !n.starts_with('.') && n != "backlog" && n != "completed")
+            .collect();
+        users.sort();
+        Ok(users)
+    }
+
     // ── private helpers ───────────────────────────────────────────────────────
 
     fn user_folder(&self) -> PathBuf {
@@ -234,6 +359,14 @@ impl TaskRepo {
 
     fn completed_task_path(&self, id: &str) -> PathBuf {
         self.completed_folder().join(format!("{id}.md"))
+    }
+
+    fn backlog_folder(&self) -> PathBuf {
+        Path::new(&self.info.path).join("backlog")
+    }
+
+    fn backlog_task_path(&self, id: &str) -> PathBuf {
+        self.backlog_folder().join(format!("{id}.md"))
     }
 
     /// Finds a task file by ID, checking active folder first then completed.
@@ -270,6 +403,25 @@ impl TaskRepo {
             self.git.move_file(&from, &to)?;
         }
         Ok(())
+    }
+}
+
+/// Generates a unique 6-char hex ID for a backlog task.
+/// Loops until it finds one not already taken in `folder`.
+fn backlog_id(folder: &Path) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let base = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id() as u128;
+    let mut n = base ^ (pid * 6_364_136_223_846_793_005);
+    loop {
+        let id = format!("{:06x}", n & 0xFF_FFFF);
+        if !folder.join(format!("{id}.md")).exists() {
+            return id;
+        }
+        n = n.wrapping_add(1);
     }
 }
 

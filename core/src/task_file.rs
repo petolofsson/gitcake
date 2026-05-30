@@ -24,6 +24,8 @@ struct Frontmatter {
     created: String,
     #[serde(default)]
     done: Option<String>,
+    #[serde(default)]
+    assignee: Option<String>,
 }
 
 // ── public API ────────────────────────────────────────────────────────────────
@@ -51,6 +53,13 @@ pub fn scan_tasks(user_folder: &Path, completed_folder: &Path) -> Result<Vec<Tas
     let mut tasks = Vec::new();
     collect_tasks(user_folder, false, &mut tasks)?;
     collect_tasks(completed_folder, true, &mut tasks)?;
+    Ok(tasks)
+}
+
+/// Scans a single folder for task files. Used for backlog (no completed/ pair).
+pub fn scan_folder(folder: &Path) -> Result<Vec<Task>, AppError> {
+    let mut tasks = Vec::new();
+    collect_tasks(folder, false, &mut tasks)?;
     Ok(tasks)
 }
 
@@ -93,6 +102,7 @@ fn parse_task_content(content: &str, is_completed: bool) -> Result<Task, AppErro
             .map(parse_dt)
             .transpose()?,
         description,
+        assignee: fm.assignee,
         is_completed,
     })
 }
@@ -120,14 +130,21 @@ fn serialize_task(task: &Task) -> String {
         .map(|d| d.format(DATETIME_FMT).to_string())
         .unwrap_or_default();
 
+    let assignee_line = task
+        .assignee
+        .as_deref()
+        .map(|a| format!("assignee: {}\n", yaml_str(a)))
+        .unwrap_or_default();
+
     let mut out = format!(
-        "---\nid: {}\ntype: {}\ntitle: {}\nstatus: {}\ncreated: {}\ndone: {}\n---\n",
+        "---\nid: {}\ntype: {}\ntitle: {}\nstatus: {}\ncreated: {}\ndone: {}\n{}---\n",
         yaml_str(&task.id),
         type_str,
         yaml_str(&task.title),
         status_str,
         task.created.format(DATETIME_FMT),
         done_str,
+        assignee_line,
     );
 
     if let Some(desc) = &task.description {

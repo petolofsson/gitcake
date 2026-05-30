@@ -93,6 +93,18 @@ impl GitRepo {
         }
     }
 
+    /// Removes a file from git tracking and the filesystem.
+    /// Uses `git rm --force` for tracked files; falls back to plain `fs::remove_file`
+    /// for untracked (new, never committed) files.
+    pub fn remove_tracked(&self, path: &str) -> Result<(), AppError> {
+        match self.run_git(&["rm", "--force", path]) {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                std::fs::remove_file(self.path.join(path)).map_err(AppError::from)
+            }
+        }
+    }
+
     /// Runs `git push` and returns stdout.
     pub fn push(&self) -> Result<String, AppError> {
         self.run_git(&["push"])
