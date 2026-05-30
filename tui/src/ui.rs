@@ -279,15 +279,8 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
 
-    f.render_widget(
-        Paragraph::new(nav_bar()).style(Style::new().bg(Color::DarkGray)),
-        rows[1],
-    );
-
-    f.render_widget(
-        Paragraph::new(ctrl_bar()).style(Style::new().bg(Color::DarkGray)),
-        rows[2],
-    );
+    f.render_widget(Paragraph::new(nav_bar()), rows[1]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[2]);
 }
 
 // ── detail ────────────────────────────────────────────────────────────────────
