@@ -225,7 +225,7 @@ impl App {
             return;
         }
 
-        let Screen::TaskList { tasks, selected, .. } = &mut self.screen else {
+        let Screen::TaskList { tasks, selected, message } = &mut self.screen else {
             return;
         };
 
@@ -235,21 +235,25 @@ impl App {
             KeyCode::Char(c) if c == km.up.chars().next().unwrap_or('w') && km.up.len() == 1 => {
                 if task_count > 0 {
                     *selected = selected.checked_sub(1).unwrap_or(task_count - 1);
+                    *message = None;
                 }
             }
             KeyCode::Char(c) if c == km.down.chars().next().unwrap_or('s') && km.down.len() == 1 => {
                 if task_count > 0 {
                     *selected = (*selected + 1) % task_count;
+                    *message = None;
                 }
             }
             KeyCode::Up => {
                 if task_count > 0 {
                     *selected = selected.checked_sub(1).unwrap_or(task_count - 1);
+                    *message = None;
                 }
             }
             KeyCode::Down => {
                 if task_count > 0 {
                     *selected = (*selected + 1) % task_count;
+                    *message = None;
                 }
             }
             KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 => {
