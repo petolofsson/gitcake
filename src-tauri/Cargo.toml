@@ -1,19 +1,19 @@
 [package]
-name = "git-task-gui"
+name = "gitcake-gui"
 version = "0.1.0"
-description = "Tauri GUI for git-task"
+description = "Tauri GUI for gitcake"
 authors = []
 edition = "2021"
 
 [lib]
-name = "git_task_gui_lib"
+name = "gitcake_gui_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-git-task-core = { path = "../core" }
+gitcake-core = { path = "../core" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"

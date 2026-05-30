@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    git_task_gui_lib::run()
+    gitcake_gui_lib::run()
 }

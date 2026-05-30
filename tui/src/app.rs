@@ -5,7 +5,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use git_task_core::{
+use gitcake_core::{
     models::task::{Task, TaskStatus, TaskType},
     repo::TaskRepo,
 };
@@ -68,7 +68,7 @@ pub enum Screen {
     SyncConfirm,
     PushPrompt,
     TeamView {
-        tasks: Vec<(String, git_task_core::models::task::Task)>,
+        tasks: Vec<(String, gitcake_core::models::task::Task)>,
         selected: usize,
     },
 }
@@ -559,7 +559,7 @@ impl App {
                         TaskContext::Personal => r.push(),
                         TaskContext::Backlog => r.push_backlog(),
                     })
-                    .unwrap_or(Err(git_task_core::error::AppError::NoRepo));
+                    .unwrap_or(Err(gitcake_core::error::AppError::NoRepo));
                 let msg = match result {
                     Ok(_) => "Successfully pushed.".into(),
                     Err(e) => classify_push_error(&e.to_string()),
@@ -601,8 +601,8 @@ impl App {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    // Check 1: has git-task.toml → open.
-    // Check 2: has other files, no git-task.toml → assume code repo, reject.
+    // Check 1: has gitcake.toml → open.
+    // Check 2: has other files, no gitcake.toml → assume code repo, reject.
     // Check 3: only README/.gitignore/empty → offer to initialize.
     fn evaluate_path(&mut self, path: String, can_cancel: bool) {
         let path = expand_tilde(&path);
@@ -617,7 +617,7 @@ impl App {
             return;
         }
 
-        if p.join("git-task.toml").exists() {
+        if p.join("gitcake.toml").exists() {
             match TaskRepo::open(&path) {
                 Ok(repo) => {
                     self.config.repo_path = Some(path);
@@ -642,7 +642,7 @@ impl App {
         } else {
             self.screen = Screen::Setup {
                 input: path,
-                error: Some("This looks like a code repo. Point to a dedicated git-task repo.".into()),
+                error: Some("This looks like a code repo. Point to a dedicated gitcake repo.".into()),
                 can_cancel,
             };
         }
@@ -884,7 +884,7 @@ fn stale_lock_warning(path: &Path) -> Option<String> {
         return None;
     }
     if process_running(pid) {
-        Some("Another git-task session is already open for this repo".to_string())
+        Some("Another gitcake session is already open for this repo".to_string())
     } else {
         Some("Last session ended without pushing — consider ^R to sync".to_string())
     }
@@ -897,7 +897,7 @@ fn lock_file_path(repo_path: &str) -> Option<PathBuf> {
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
         .collect();
-    dirs::config_dir().map(|d| d.join("git-task").join(format!("{key}.lock")))
+    dirs::config_dir().map(|d| d.join("gitcake").join(format!("{key}.lock")))
 }
 
 /// Checks whether a process with the given PID is currently running.
@@ -942,7 +942,7 @@ fn classify_push_error(err: &str) -> String {
 
 /// Interprets a pull result into an ephemeral message and a persistent error.
 /// Auth and network failures are classified so the user gets actionable text.
-fn classify_pull_result(result: Result<String, git_task_core::error::AppError>) -> (Option<String>, Option<String>) {
+fn classify_pull_result(result: Result<String, gitcake_core::error::AppError>) -> (Option<String>, Option<String>) {
     match result {
         Ok(out) if out.trim().is_empty() || out.contains("Already up to date") => (None, None),
         Ok(_) => (Some("Pulled latest changes.".to_string()), None),
@@ -1038,7 +1038,7 @@ fn parse_editor_content(content: &str) -> Option<(String, Option<String>)> {
 fn open_in_editor(content: &str) -> Option<String> {
     use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 
-    let tmp_path = env::temp_dir().join(format!("gt-desc-{}.md", std::process::id()));
+    let tmp_path = env::temp_dir().join(format!("cake-desc-{}.md", std::process::id()));
     fs::write(&tmp_path, content).ok()?;
 
     let _ = disable_raw_mode();

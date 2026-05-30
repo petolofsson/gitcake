@@ -152,7 +152,7 @@ mod tests {
         git(p, &["config", "user.name", username]);
         git(p, &["config", "user.email", "test@example.com"]);
         // initial commit so HEAD exists
-        fs::write(p.join("git-task.toml"), "name = \"test\"\n").unwrap();
+        fs::write(p.join("gitcake.toml"), "name = \"test\"\n").unwrap();
         git(p, &["add", "."]);
         git(p, &["commit", "-m", "init"]);
 

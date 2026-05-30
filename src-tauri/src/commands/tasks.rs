@@ -1,4 +1,4 @@
-use git_task_core::{
+use gitcake_core::{
     error::AppError,
     models::task::{Task, TaskType},
 };

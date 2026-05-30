@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use git_task_core::models::config::RepoInfo;
+use gitcake_core::models::config::RepoInfo;
 
 use crate::models::config::AppConfig;
 

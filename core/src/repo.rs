@@ -19,11 +19,11 @@ pub struct TaskRepo {
 }
 
 impl TaskRepo {
-    /// Opens and validates a git-task repo at `path`.
+    /// Opens and validates a gitcake repo at `path`.
     ///
     /// Requires:
     /// - A git repository (`.git` present)
-    /// - `git-task.toml` at the root
+    /// - `gitcake.toml` at the root
     /// - `git config user.name` configured
     ///
     /// Creates `{username}/` if it does not yet exist.
@@ -35,16 +35,16 @@ impl TaskRepo {
             return Err(AppError::InvalidRepo("not a git repository".into()));
         }
 
-        let toml_path = path.join("git-task.toml");
+        let toml_path = path.join("gitcake.toml");
         if !toml_path.exists() {
             return Err(AppError::InvalidRepo(
-                "git-task.toml not found — is this a git-task repo?".into(),
+                "gitcake.toml not found — is this a gitcake repo?".into(),
             ));
         }
 
         let toml_str = fs::read_to_string(&toml_path)?;
         let config: RepoConfig = toml::from_str(&toml_str)
-            .map_err(|e| AppError::Parse(format!("git-task.toml: {e}")))?;
+            .map_err(|e| AppError::Parse(format!("gitcake.toml: {e}")))?;
 
         let username = git.get_username()?;
 
@@ -62,9 +62,9 @@ impl TaskRepo {
         Ok(Self { git, info })
     }
 
-    /// Initializes a plain git repo as a git-task repo.
+    /// Initializes a plain git repo as a gitcake repo.
     ///
-    /// Creates `git-task.toml`, stages it, commits, then opens the repo.
+    /// Creates `gitcake.toml`, stages it, commits, then opens the repo.
     /// The repo must already exist and have `git config user.name` set.
     /// Does NOT require a remote — that is validated on first sync.
     pub fn init(path: impl Into<PathBuf>, name: &str) -> Result<Self, AppError> {
@@ -76,10 +76,10 @@ impl TaskRepo {
         }
 
         let toml_content = format!("name = \"{name}\"\n");
-        fs::write(path.join("git-task.toml"), toml_content)?;
+        fs::write(path.join("gitcake.toml"), toml_content)?;
 
-        git.stage("git-task.toml")?;
-        git.commit_staged("init git-task")?;
+        git.stage("gitcake.toml")?;
+        git.commit_staged("init gitcake")?;
 
         Self::open(path)
     }
@@ -217,7 +217,7 @@ impl TaskRepo {
     /// creates a single commit, and pushes. No pull.
     pub fn push(&self) -> Result<String, AppError> {
         self.move_done_tasks_to_completed()?;
-        let msg = format!("git-task: {}", self.info.username);
+        let msg = format!("gitcake: {}", self.info.username);
         self.git.stage(&self.info.username)?;
         // Only stage completed/ if it exists — avoids git error on first push
         // when no tasks have been completed yet.
@@ -323,7 +323,7 @@ impl TaskRepo {
     }
 
     pub fn push_backlog(&self) -> Result<String, AppError> {
-        let msg = format!("git-task: {} (backlog)", self.info.username);
+        let msg = format!("gitcake: {} (backlog)", self.info.username);
         self.git.stage("backlog")?;
         self.git.commit_staged(&msg)?;
         self.git.push()
@@ -506,7 +506,7 @@ mod tests {
         git(p, &["init"]);
         git(p, &["config", "user.name", username]);
         git(p, &["config", "user.email", "test@example.com"]);
-        fs::write(p.join("git-task.toml"), "name = \"test\"\n").unwrap();
+        fs::write(p.join("gitcake.toml"), "name = \"test\"\n").unwrap();
         git(p, &["add", "."]);
         git(p, &["commit", "-m", "init"]);
         let repo = TaskRepo::open(p).unwrap();
@@ -552,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn open_fails_without_git_task_toml() {
+    fn open_fails_without_gitcake_toml() {
         let dir = TempDir::new().unwrap();
         git(dir.path(), &["init"]);
         git(dir.path(), &["config", "user.name", "Alice"]);
@@ -568,7 +568,7 @@ mod tests {
         let p = dir.path();
         git(p, &["init"]);
         git(p, &["config", "--local", "user.name", ""]);
-        fs::write(p.join("git-task.toml"), "name = \"test\"\n").unwrap();
+        fs::write(p.join("gitcake.toml"), "name = \"test\"\n").unwrap();
         assert!(matches!(
             TaskRepo::open(p),
             Err(AppError::UserNotConfigured)

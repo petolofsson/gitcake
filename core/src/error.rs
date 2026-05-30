@@ -8,7 +8,7 @@ pub enum AppError {
     UserNotConfigured,
     #[error("git user.name '{0}' contains non-ASCII characters that cannot be used as a folder name. Run: git config --global user.name 'Your-Name'")]
     UsernameInvalid(String),
-    #[error("Not a valid git-task repo: {0}")]
+    #[error("Not a valid gitcake repo: {0}")]
     InvalidRepo(String),
     #[error("Git error: {0}")]
     Git(String),

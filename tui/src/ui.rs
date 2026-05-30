@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use git_task_core::models::task::{Task, TaskStatus, TaskType};
+use gitcake_core::models::task::{Task, TaskStatus, TaskType};
 
 use crate::app::{App, CreateField, Screen, TaskContext};
 
@@ -57,7 +57,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool) {
     let area = f.area();
-    let block = padded_block("git-task");
+    let block = padded_block("gitcake");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -75,7 +75,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool)
         .split(inner);
 
     f.render_widget(
-        Paragraph::new("Enter the path to your git-task repo:")
+        Paragraph::new("Enter the path to your gitcake repo:")
             .alignment(Alignment::Center),
         rows[1],
     );
@@ -110,7 +110,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool)
 
 fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
     let area = f.area();
-    let block = padded_block("git-task — initialize repo");
+    let block = padded_block("gitcake — initialize repo");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -128,7 +128,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
         .split(inner);
 
     f.render_widget(
-        Paragraph::new("Empty git repo detected. Initialize as a git-task repo?")
+        Paragraph::new("Empty git repo detected. Initialize as a gitcake repo?")
             .alignment(Alignment::Center),
         rows[1],
     );
@@ -164,8 +164,8 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
     };
 
     let app_title = match context {
-        TaskContext::Personal => format!(" git-task · {repo_name} · {username} "),
-        TaskContext::Backlog => format!(" git-task · {repo_name} · {username} · BACKLOG "),
+        TaskContext::Personal => format!(" gitcake · {repo_name} · {username} "),
+        TaskContext::Backlog => format!(" gitcake · {repo_name} · {username} · BACKLOG "),
     };
     let mut block = Block::default()
         .title(app_title)
@@ -463,7 +463,7 @@ fn draw_create(
 
 fn draw_team_view(f: &mut Frame, tasks: &[(String, Task)], selected: usize) {
     let area = f.area();
-    let block = padded_block(" git-task · TEAM ");
+    let block = padded_block(" gitcake · TEAM ");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -584,7 +584,7 @@ fn draw_sync_confirm(f: &mut Frame, context: TaskContext) {
 
 fn draw_push_prompt(f: &mut Frame) {
     let area = f.area();
-    let block = padded_block("git-task");
+    let block = padded_block("gitcake");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -599,7 +599,7 @@ fn draw_push_prompt(f: &mut Frame) {
         .split(inner);
 
     f.render_widget(
-        Paragraph::new("You are closing git-task. Do you want to push all task states?")
+        Paragraph::new("You are closing gitcake. Do you want to push all task states?")
             .alignment(Alignment::Center),
         rows[1],
     );

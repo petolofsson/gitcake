@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Contents of git-task.toml at the task repo root.
+/// Contents of gitcake.toml at the task repo root.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoConfig {
     pub name: String,
@@ -9,7 +9,7 @@ pub struct RepoConfig {
 /// Runtime info about the connected repo, derived on connect.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoInfo {
-    /// From git-task.toml
+    /// From gitcake.toml
     pub name: String,
     /// Absolute path to the repo root
     pub path: String,

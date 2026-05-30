@@ -1,4 +1,4 @@
-use git_task_core::{error::AppError, models::config::RepoInfo};
+use gitcake_core::{error::AppError, models::config::RepoInfo};
 use tauri::{AppHandle, State};
 
 use crate::state::AppState;
@@ -10,7 +10,7 @@ pub async fn pick_repo(_app: AppHandle) -> Result<String, AppError> {
     Err(AppError::NotImplemented)
 }
 
-/// Validates `path` as a git-task repo, reads git-task.toml, reads
+/// Validates `path` as a gitcake repo, reads gitcake.toml, reads
 /// `git config user.name`, creates the user folder if absent, and
 /// stores the result in AppState. Fails if user.name is not configured.
 #[tauri::command]

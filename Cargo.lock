@@ -1409,7 +1409,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-task-core"
+name = "gitcake-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -1422,10 +1422,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-task-gui"
+name = "gitcake-gui"
 version = "0.1.0"
 dependencies = [
- "git-task-core",
+ "gitcake-core",
  "serde",
  "serde_json",
  "tauri",
@@ -1435,12 +1435,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-task-tui"
+name = "gitcake-tui"
 version = "0.1.0"
 dependencies = [
  "crossterm",
  "dirs 5.0.1",
- "git-task-core",
+ "gitcake-core",
  "ratatui",
  "serde",
  "toml 0.8.2",

@@ -1,8 +1,8 @@
 [package]
-name = "git-task-core"
+name = "gitcake-core"
 version = "0.1.0"
 edition = "2021"
-description = "Core library for git-task — task parsing, git operations, repo management"
+description = "Core library for gitcake — task parsing, git operations, repo management"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

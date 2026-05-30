@@ -1,4 +1,4 @@
-use git_task_core::error::AppError;
+use gitcake_core::error::AppError;
 use serde::Serialize;
 use tauri::State;
 

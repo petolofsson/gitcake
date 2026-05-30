@@ -1,4 +1,4 @@
-use git_task_core::error::AppError;
+use gitcake_core::error::AppError;
 use tauri::State;
 
 use crate::{models::config::Preferences, state::AppState};
