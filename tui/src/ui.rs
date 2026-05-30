@@ -1,3 +1,5 @@
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -126,6 +128,12 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
 
 fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>, pull_error: Option<&str>) {
     let area = f.area();
+    // Usable column width after borders + padding (computed before the block
+    // consumes `area`, then captured by the add_section closure below).
+    let inner_width = {
+        let b = padded_block(""); // same geometry as the real block
+        b.inner(area).width as usize
+    };
 
     let app_title = match context {
         TaskContext::Personal => " git-task ",
@@ -207,7 +215,11 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
 
             let id_str = format!("{:>3}  ", task.id);
             let type_str = format!("{tl}  ");
-            let title_str = task.title.clone();
+
+            // cursor(2) + id(5) + type(10) = 17 fixed cells; assignee is ASCII-only
+            let assignee_cols = task.assignee.as_deref().map(|a| 4 + a.len()).unwrap_or(0);
+            let title_budget = inner_width.saturating_sub(17 + assignee_cols);
+            let title_str = truncate_title(&task.title, title_budget);
 
             let base = if task.status == TaskStatus::Done || task.is_completed {
                 Style::new().add_modifier(Modifier::DIM)
@@ -742,4 +754,27 @@ fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     Rect { x, y, width, height }
+}
+
+/// Truncates `s` to at most `max_width` display cells, appending `…` if
+/// truncation occurred. Handles multi-cell characters (emoji, CJK) correctly.
+fn truncate_title(s: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(s) <= max_width {
+        return s.to_string();
+    }
+    let budget = max_width.saturating_sub(1); // reserve one cell for '…'
+    let mut used = 0usize;
+    let mut end = 0usize;
+    for ch in s.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(1);
+        if used + w > budget {
+            break;
+        }
+        used += w;
+        end += ch.len_utf8();
+    }
+    format!("{}…", &s[..end])
 }
