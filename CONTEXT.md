@@ -4,9 +4,9 @@ A personal work journal for developers, backed by a shared git repository. Each 
 
 ## Language
 
-**Developer**:
-The sole target user of git-task. A person who writes code, lives in the terminal, and already uses git daily. Management, product owners, and team leads are not the target — if developers love the tool, team visibility follows as a side effect.
-_Avoid_: user, team member, engineer (too broad)
+**Practitioner**:
+The target user of git-task. Anyone who uses git as part of their daily hands-on technical work — developers, DevOps engineers, SREs, data engineers, security engineers. Excludes people who work *in* tech companies but are not doing the technical work themselves (management, product owners, business analysts). If practitioners love the tool, team visibility follows as a side effect.
+_Avoid_: user, team member, employee
 
 **Task**:
 A discrete unit of work tracked by a developer. Has a type, title, status, and optional description.

@@ -8,9 +8,9 @@ Future: export to Jira, Azure DevOps, or similar tools. The git repo is the sour
 
 ## Vision
 
-**git-task should become as important to developers as git itself.**
+**git-task should become as important to technical practitioners as git itself.**
 
-The target group is developers — not management, not product owners, not team leads. If developers love it, adoption follows naturally. No top-down mandate required.
+The target group is anyone who uses git as part of their daily work — developers, DevOps engineers, SREs, data engineers, security engineers. Not management, not product owners, not people who are *in* tech but not *working hands-on with* it. If the people doing the technical work love it, adoption follows naturally. No top-down mandate required.
 
 This shapes every decision:
 
