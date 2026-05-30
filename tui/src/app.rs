@@ -266,8 +266,12 @@ impl App {
                 Some(result) => classify_pull_result(result),
                 None => (None, Some("No repo connected.".to_string())),
             };
+            // Manual pull always shows feedback — if the result was silently
+            // "already up to date" (pull_msg None, pull_err None), say so explicitly.
+            let no_error = pull_err.is_none();
             self.pull_error = pull_err;
-            self.enter_task_list(pull_msg, current_id.as_deref());
+            let msg = pull_msg.or_else(|| no_error.then(|| "Already up to date.".to_string()));
+            self.enter_task_list(msg, current_id.as_deref());
             return;
         }
 
