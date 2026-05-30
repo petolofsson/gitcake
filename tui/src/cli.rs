@@ -9,8 +9,16 @@ use crate::config::Config;
 #[derive(Parser)]
 #[command(name = "gitcake", about = "Terminal slice tracker backed by git")]
 pub struct Cli {
+    /// Open a specific repo by path (session only — does not change saved config)
+    #[arg(long, value_name = "PATH")]
+    pub repo: Option<String>,
+
+    /// Start fresh — show repo setup screen regardless of saved config
+    #[arg(long)]
+    pub new: bool,
+
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -79,14 +87,14 @@ impl From<CliType> for TaskType {
     }
 }
 
-pub fn run(cli: Cli) -> Result<(), String> {
+pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
     let config = Config::load();
-    let repo_path = config
-        .repo_path
+    let repo_path = repo_flag
+        .or(config.repo_path)
         .ok_or("No repo configured. Run gitcake without arguments to set one up.")?;
     let repo = TaskRepo::open(&repo_path).map_err(|e| e.to_string())?;
 
-    match cli.command {
+    match command {
         Command::List { json, status, backlog } => {
             let (tasks, _) = if backlog {
                 repo.list_backlog_tasks().map_err(|e| e.to_string())?

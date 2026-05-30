@@ -17,16 +17,22 @@ use app::App;
 use config::Config;
 
 fn main() -> io::Result<()> {
-    if std::env::args().len() > 1 {
-        let parsed = cli::Cli::parse();
-        if let Err(e) = cli::run(parsed) {
+    let parsed = cli::Cli::parse();
+
+    if let Some(command) = parsed.command {
+        if let Err(e) = cli::run(command, parsed.repo) {
             eprintln!("error: {e}");
             std::process::exit(1);
         }
         return Ok(());
     }
 
-    let config = Config::load();
+    let mut config = Config::load();
+    if parsed.new {
+        config.repo_path = None;
+    } else if let Some(path) = parsed.repo {
+        config.repo_path = Some(path);
+    }
     let mut app = App::new(config);
 
     enable_raw_mode()?;
