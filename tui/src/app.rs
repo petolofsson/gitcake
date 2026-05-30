@@ -776,17 +776,30 @@ fn parse_editor_content(content: &str) -> Option<(String, Option<String>)> {
 fn open_in_editor(content: &str) -> Option<String> {
     use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 
-    let editor = env::var("VISUAL")
-        .or_else(|_| env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".to_string());
-
     let tmp_path = env::temp_dir().join(format!("gt-desc-{}.md", std::process::id()));
     fs::write(&tmp_path, content).ok()?;
 
     let _ = disable_raw_mode();
     let _ = execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
 
-    let _ = Command::new(&editor).arg(&tmp_path).status();
+    match env::var("VISUAL").or_else(|_| env::var("EDITOR")) {
+        Ok(editor) => {
+            let _ = Command::new(&editor).arg(&tmp_path).status();
+        }
+        Err(_) => {
+            // No $EDITOR/$VISUAL. Prefer nano (it shows its own key hints at the bottom).
+            // Fall back to vi with explicit hints if nano is not on PATH.
+            let nano_result = Command::new("nano").arg(&tmp_path).status();
+            let nano_missing = matches!(&nano_result, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
+            if nano_missing {
+                println!("gitcake: $EDITOR/$VISUAL not set and nano not found; opening vi");
+                println!("  Save and quit: Esc  :wq  Enter");
+                println!("  Discard:       Esc  :q!  Enter");
+                println!("  Set $EDITOR in your shell profile to use a preferred editor.");
+                let _ = Command::new("vi").arg(&tmp_path).status();
+            }
+        }
+    }
 
     let _ = enable_raw_mode();
     let _ = execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture);
