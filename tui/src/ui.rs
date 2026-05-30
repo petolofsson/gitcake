@@ -34,7 +34,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Setup { input, error } => draw_setup(f, input, error.as_deref()),
         Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
         Screen::TaskList { tasks, selected, message } => {
-            draw_task_list(f, app.context, tasks, *selected, message.as_deref(), app.pull_error.as_deref())
+            let (repo_name, username) = app.repo.as_ref()
+                .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
+                .unwrap_or(("", ""));
+            draw_task_list(f, app.context, tasks, *selected, message.as_deref(), app.pull_error.as_deref(), repo_name, username)
         }
         Screen::Detail { task, message } => draw_detail(f, task, message.as_deref()),
         Screen::Create { title, task_type, assignee, description, field } => {
@@ -143,7 +146,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
 
 // ── task list ─────────────────────────────────────────────────────────────────
 
-fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>, pull_error: Option<&str>) {
+fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected: usize, message: Option<&str>, pull_error: Option<&str>, repo_name: &str, username: &str) {
     let area = f.area();
     // Usable column width after borders + padding (computed before the block
     // consumes `area`, then captured by the add_section closure below).
@@ -153,8 +156,8 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
     };
 
     let app_title = match context {
-        TaskContext::Personal => " git-task ",
-        TaskContext::Backlog => " git-task · BACKLOG ",
+        TaskContext::Personal => format!(" git-task · {repo_name} · {username} "),
+        TaskContext::Backlog => format!(" git-task · {repo_name} · {username} · BACKLOG "),
     };
     let mut block = Block::default()
         .title(app_title)
@@ -199,10 +202,15 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
         .enumerate()
         .filter(|(_, t)| t.status == TaskStatus::Open && !t.is_completed)
         .collect();
-    let done: Vec<(usize, &Task)> = tasks
+    let done_local: Vec<(usize, &Task)> = tasks
         .iter()
         .enumerate()
-        .filter(|(_, t)| t.status == TaskStatus::Done || t.is_completed)
+        .filter(|(_, t)| t.status == TaskStatus::Done && !t.is_completed)
+        .collect();
+    let done_synced: Vec<(usize, &Task)> = tasks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.is_completed)
         .collect();
 
     let add_section = |items: &mut Vec<ListItem>,
@@ -278,9 +286,11 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
         index_map.push(usize::MAX);
     };
 
-    add_section(&mut items, &mut index_map, "● IN PROGRESS", &in_progress, selected, Some(Color::Yellow));
-    add_section(&mut items, &mut index_map, "○ OPEN", &open, selected, None);
-    add_section(&mut items, &mut index_map, "✓ DONE (local)", &done, selected, None);
+    let hdr = |sym: &str, label: &str, n: usize| format!("{sym} {label} ({n})");
+    add_section(&mut items, &mut index_map, &hdr("●", "IN PROGRESS", in_progress.len()), &in_progress, selected, Some(Color::Yellow));
+    add_section(&mut items, &mut index_map, &hdr("○", "OPEN", open.len()), &open, selected, None);
+    add_section(&mut items, &mut index_map, &hdr("✓", "DONE (local)", done_local.len()), &done_local, selected, None);
+    add_section(&mut items, &mut index_map, &hdr("✓", "DONE", done_synced.len()), &done_synced, selected, None);
 
     if items.is_empty() {
         f.render_widget(
