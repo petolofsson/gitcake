@@ -70,6 +70,7 @@ pub struct App {
     pub config: Config,
     pub should_quit: bool,
     pub needs_clear: bool,
+    pub exit_message: Option<String>,
 }
 
 impl App {
@@ -81,6 +82,7 @@ impl App {
                 config,
                 should_quit: false,
                 needs_clear: false,
+                exit_message: None,
             };
         }
 
@@ -96,6 +98,7 @@ impl App {
                 config,
                 should_quit: false,
                 needs_clear: false,
+                exit_message: None,
             };
         }
 
@@ -109,7 +112,7 @@ impl App {
         let tasks = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
         let screen = Screen::TaskList { tasks, selected: 0, message: pull_msg };
 
-        Self { screen, repo, config, should_quit: false, needs_clear: false }
+        Self { screen, repo, config, should_quit: false, needs_clear: false, exit_message: None }
     }
 
     pub fn handle_event(&mut self, event: Event) {
@@ -432,9 +435,8 @@ impl App {
                     .map(|r| r.push())
                     .unwrap_or(Err(git_task_core::error::AppError::NoRepo));
                 let msg = match result {
-                    Ok(out) if out.trim().is_empty() => "Synced.".into(),
-                    Ok(out) => out,
-                    Err(e) => e.to_string(),
+                    Ok(_) => "Successfully pushed.".into(),
+                    Err(e) => format!("Sync failed: {e}"),
                 };
                 self.enter_task_list(Some(msg));
             }
@@ -451,9 +453,11 @@ impl App {
         match key.code {
             // y pushes then quits — N is the default so Enter just quits
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                if let Some(repo) = &self.repo {
-                    let _ = repo.push();
-                }
+                self.exit_message = Some(match self.repo.as_ref().map(|r| r.push()) {
+                    Some(Ok(_)) => "Successfully pushed.".into(),
+                    Some(Err(e)) => format!("Push failed: {e}"),
+                    None => "No repo connected.".into(),
+                });
                 self.should_quit = true;
             }
             // Enter or n quits without pushing

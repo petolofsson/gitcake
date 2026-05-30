@@ -34,6 +34,10 @@ fn main() -> io::Result<()> {
     )?;
     terminal.show_cursor()?;
 
+    if let Some(msg) = app.exit_message {
+        println!("{msg}");
+    }
+
     result
 }
 
