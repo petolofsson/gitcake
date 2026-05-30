@@ -47,7 +47,10 @@ pub fn draw(f: &mut Frame, app: &App) {
                 username,
             })
         }
-        Screen::Detail { task, message } => draw_detail(f, app.context, task, message.as_deref()),
+        Screen::Detail { task, message } => {
+            let username = app.repo.as_ref().map(|r| r.info.username.as_str());
+            draw_detail(f, app.context, task, message.as_deref(), username);
+        }
         Screen::Create { task_type, assignee, field } => {
             draw_create(f, task_type, assignee, field)
         }
@@ -342,7 +345,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
+fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>, username: Option<&str>) {
     let area = f.area();
     let title = format!("Task {}", task.id);
     let block = padded_block(&title);
@@ -388,7 +391,7 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     let file_path = match context {
         TaskContext::Backlog => format!("backlog/{}.md", task.id),
         TaskContext::Personal => {
-            let user = task.assignee.as_deref().unwrap_or("?");
+            let user = username.unwrap_or("?");
             if task.is_completed {
                 format!("completed/{}/{}.md", user, task.id)
             } else {
