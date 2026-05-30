@@ -136,18 +136,36 @@ impl TaskRepo {
     }
 
     /// Transitions a task to `in-progress`. No-op if already `in-progress`.
-    /// Works from both `open` and `done` (supports cycling back from done).
+    /// If the task has been synced to `completed/`, moves it back via `git mv`.
     pub fn set_task_in_progress(&self, id: &str) -> Result<Task, AppError> {
-        let path = self.task_path(id);
-        if !path.exists() {
-            return Err(AppError::TaskNotFound(id.to_string()));
+        let active = self.task_path(id);
+
+        if active.exists() {
+            let mut task = task_file::read_task(&active, false)?;
+            if task.status != TaskStatus::InProgress {
+                task.status = TaskStatus::InProgress;
+                task.done = None;
+                task_file::write_task(&active, &task)?;
+            }
+            return Ok(task);
         }
-        let mut task = task_file::read_task(&path, false)?;
-        if task.status != TaskStatus::InProgress {
+
+        let completed = self.completed_task_path(id);
+        if completed.exists() {
+            let from = Path::new("completed")
+                .join(&self.info.username)
+                .join(format!("{id}.md"));
+            let to = PathBuf::from(&self.info.username).join(format!("{id}.md"));
+            self.git.stage(&format!("completed/{}/{id}.md", self.info.username))?;
+            self.git.move_file(&from, &to)?;
+            let mut task = task_file::read_task(&active, false)?;
             task.status = TaskStatus::InProgress;
-            task_file::write_task(&path, &task)?;
+            task.done = None;
+            task_file::write_task(&active, &task)?;
+            return Ok(task);
         }
-        Ok(task)
+
+        Err(AppError::TaskNotFound(id.to_string()))
     }
 
     /// Sets a task's status to `done` and records the `done` timestamp.
@@ -461,6 +479,28 @@ mod tests {
         let task = repo.mark_task_done("001").unwrap();
         assert_eq!(task.status, TaskStatus::Done);
         drop(dir);
+    }
+
+    #[test]
+    fn set_task_in_progress_moves_back_from_completed_after_sync() {
+        let (work_dir, bare_dir, repo) = make_repo_with_remote("Alice Smith");
+        repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        repo.mark_task_done("001").unwrap();
+        repo.push().unwrap();
+
+        // Task is now in completed/ — active path no longer exists
+        assert!(!Path::new(&repo.info.path).join("alice-smith/001.md").exists());
+        assert!(Path::new(&repo.info.path).join("completed/alice-smith/001.md").exists());
+
+        // Cycling back should move it to the active folder
+        let task = repo.set_task_in_progress("001").unwrap();
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert!(task.done.is_none());
+        assert!(Path::new(&repo.info.path).join("alice-smith/001.md").exists());
+        assert!(!Path::new(&repo.info.path).join("completed/alice-smith/001.md").exists());
+
+        drop(work_dir);
+        drop(bare_dir);
     }
 
     // ── mark_task_done ────────────────────────────────────────────────────────
