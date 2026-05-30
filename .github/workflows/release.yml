@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -54,18 +55,19 @@ jobs:
 
   release:
     needs: build
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
+        with:
+          pattern: '*.tar.gz'
+          merge-multiple: true
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            gitcake-linux-x86_64.tar.gz/gitcake-linux-x86_64.tar.gz
-            gitcake-macos-aarch64.tar.gz/gitcake-macos-aarch64.tar.gz
-            gitcake-macos-x86_64.tar.gz/gitcake-macos-x86_64.tar.gz
+          files: '*.tar.gz'
 
   update-tap:
     needs: release
