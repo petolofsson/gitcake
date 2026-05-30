@@ -280,14 +280,12 @@ fn draw_task_list(f: &mut Frame, context: TaskContext, tasks: &[Task], selected:
     }
 
     f.render_widget(
-        Paragraph::new(nav_bar())
-            .style(Style::new().bg(Color::DarkGray)),
+        Paragraph::new(nav_bar()).style(Style::new().bg(Color::DarkGray)),
         rows[1],
     );
 
     f.render_widget(
-        Paragraph::new(ctrl_bar())
-            .style(Style::new().bg(Color::White).fg(Color::Black)),
+        Paragraph::new(ctrl_bar()).style(Style::new().bg(Color::DarkGray)),
         rows[2],
     );
 }
@@ -628,11 +626,11 @@ fn ctrl_bar<'a>() -> Line<'a> {
     for (key, label) in &items {
         spans.push(Span::styled(
             format!(" {key} "),
-            Style::new().fg(Color::White).bg(Color::Black),
+            Style::new().fg(Color::Black).bg(Color::White),
         ));
         spans.push(Span::styled(
             format!(" {label}  "),
-            Style::new().fg(Color::Black),
+            Style::new().fg(Color::White),
         ));
     }
     Line::from(spans)
