@@ -1,8 +1,8 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph},
     Frame,
 };
 
@@ -77,7 +77,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>) {
         f.render_widget(
             Paragraph::new(format!("✗ {err}"))
                 .alignment(Alignment::Center)
-                .style(dim_bold()),
+                .style(Style::new().fg(Color::Red)),
             rows[4],
         );
     }
@@ -181,14 +181,18 @@ fn draw_task_list(f: &mut Frame, tasks: &[Task], selected: usize, message: Optio
                        index_map: &mut Vec<usize>,
                        header: &str,
                        group: &[(usize, &Task)],
-                       current_selected: usize| {
+                       current_selected: usize,
+                       section_color: Option<Color>| {
         if group.is_empty() {
             return;
         }
-        // section header — not selectable, use a sentinel index
+        let header_style = match section_color {
+            Some(c) => Style::new().add_modifier(Modifier::BOLD).fg(c),
+            None => Style::new().add_modifier(Modifier::BOLD | Modifier::DIM),
+        };
         items.push(ListItem::new(Line::from(vec![Span::styled(
             format!(" {header}"),
-            Style::new().add_modifier(Modifier::BOLD | Modifier::DIM),
+            header_style,
         )])));
         index_map.push(usize::MAX);
 
@@ -209,22 +213,28 @@ fn draw_task_list(f: &mut Frame, tasks: &[Task], selected: usize, message: Optio
             let base = if task.status == TaskStatus::Done || task.is_completed {
                 Style::new().add_modifier(Modifier::DIM)
             } else if task.status == TaskStatus::InProgress {
-                Style::new().add_modifier(Modifier::BOLD)
+                Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow)
             } else {
                 Style::new()
             };
 
-            let sel_style = if is_sel {
+            let cursor_style = if is_sel {
+                Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
+            } else {
+                Style::new().add_modifier(Modifier::DIM)
+            };
+
+            let row_style = if is_sel {
                 base.add_modifier(Modifier::REVERSED)
             } else {
                 base
             };
 
             let line = Line::from(vec![
-                Span::styled(cursor.to_string(), sel_style),
-                Span::styled(id_str, sel_style.add_modifier(Modifier::DIM)),
-                Span::styled(type_str, sel_style.add_modifier(Modifier::DIM)),
-                Span::styled(title_str, sel_style),
+                Span::styled(cursor.to_string(), cursor_style),
+                Span::styled(id_str, row_style.add_modifier(Modifier::DIM)),
+                Span::styled(type_str, row_style.add_modifier(Modifier::DIM)),
+                Span::styled(title_str, row_style),
             ]);
 
             items.push(ListItem::new(line));
@@ -235,9 +245,9 @@ fn draw_task_list(f: &mut Frame, tasks: &[Task], selected: usize, message: Optio
         index_map.push(usize::MAX);
     };
 
-    add_section(&mut items, &mut index_map, "● IN PROGRESS", &in_progress, selected);
-    add_section(&mut items, &mut index_map, "○ OPEN", &open, selected);
-    add_section(&mut items, &mut index_map, "✓ DONE (local)", &done, selected);
+    add_section(&mut items, &mut index_map, "● IN PROGRESS", &in_progress, selected, Some(Color::Yellow));
+    add_section(&mut items, &mut index_map, "○ OPEN", &open, selected, None);
+    add_section(&mut items, &mut index_map, "✓ DONE (local)", &done, selected, None);
 
     if items.is_empty() {
         f.render_widget(
@@ -347,37 +357,53 @@ fn draw_create(
     field: &CreateField,
 ) {
     let area = f.area();
-    let block = outer_block("New task");
+    let block = padded_block("New task");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
+            Constraint::Length(1), // TITLE: label
+            Constraint::Length(1), // title input
+            Constraint::Length(1), // blank
+            Constraint::Length(1), // TYPE: label
+            Constraint::Length(1), // type selector
+            Constraint::Length(1), // blank
+            Constraint::Length(1), // DESCRIPTION: label
+            Constraint::Length(2), // description input
+            Constraint::Fill(1),   // spacer
+            Constraint::Length(1), // commands
         ])
         .split(inner);
 
-    draw_form_field(f, rows[1], "Title      ", title, *field == CreateField::Title);
+    draw_field_label(f, rows[0], "TITLE:", *field == CreateField::Title);
+    draw_field_input(f, rows[1], title, *field == CreateField::Title, false);
 
+    draw_field_label(f, rows[3], "TYPE:", *field == CreateField::Type);
     let type_str = match task_type {
         TaskType::Task => "task",
         TaskType::Bug => "bug",
         TaskType::Incident => "incident",
     };
-    let type_display = format!("[ {type_str} ]  Space to cycle");
-    draw_form_field(f, rows[2], "Type       ", &type_display, *field == CreateField::Type);
-    draw_form_field(f, rows[3], "Description", description, *field == CreateField::Description);
+    let active_type = *field == CreateField::Type;
+    let type_style = if active_type {
+        Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
+    };
+    f.render_widget(
+        Paragraph::new(format!("[ {type_str} ]  Space to cycle")).style(type_style),
+        rows[4],
+    );
+
+    draw_field_label(f, rows[6], "DESCRIPTION:", *field == CreateField::Description);
+    draw_field_input(f, rows[7], description, *field == CreateField::Description, true);
 
     f.render_widget(
-        Paragraph::new("Tab: next field  Enter: save  Esc: cancel")
+        Paragraph::new("Tab: next field  ·  Enter: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[4],
+        rows[9],
     );
 }
 
@@ -385,28 +411,33 @@ fn draw_create(
 
 fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
     let area = f.area();
-    let block = outer_block("Edit task");
+    let block = padded_block("Edit task");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
+            Constraint::Length(1), // TITLE: label
+            Constraint::Length(1), // title input
+            Constraint::Length(1), // blank
+            Constraint::Length(1), // DESCRIPTION: label
+            Constraint::Length(2), // description input
+            Constraint::Fill(1),   // spacer
+            Constraint::Length(1), // commands
         ])
         .split(inner);
 
-    draw_form_field(f, rows[1], "Title      ", title, *field == EditField::Title);
-    draw_form_field(f, rows[2], "Description", description, *field == EditField::Description);
+    draw_field_label(f, rows[0], "TITLE:", *field == EditField::Title);
+    draw_field_input(f, rows[1], title, *field == EditField::Title, false);
+
+    draw_field_label(f, rows[3], "DESCRIPTION:", *field == EditField::Description);
+    draw_field_input(f, rows[4], description, *field == EditField::Description, true);
 
     f.render_widget(
-        Paragraph::new("Tab: next field  Enter: save  Esc: cancel")
+        Paragraph::new("Tab: next field  ·  Enter: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[3],
+        rows[6],
     );
 }
 
@@ -465,8 +496,33 @@ fn outer_block(title: &str) -> Block<'static> {
         .border_type(BorderType::Rounded)
 }
 
-fn dim_bold() -> Style {
-    Style::new().add_modifier(Modifier::DIM | Modifier::BOLD)
+fn padded_block(title: &str) -> Block<'static> {
+    outer_block(title).padding(Padding::new(1, 1, 1, 1))
+}
+
+fn draw_field_label(f: &mut Frame, area: Rect, label: &str, active: bool) {
+    let style = if active {
+        Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
+    };
+    f.render_widget(Paragraph::new(label).style(style), area);
+}
+
+// wrap=true for multi-line areas (description)
+fn draw_field_input(f: &mut Frame, area: Rect, value: &str, active: bool, wrap: bool) {
+    let style = if active {
+        Style::new().add_modifier(Modifier::UNDERLINED)
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
+    };
+    let display = format!("{value}_");
+    let para = Paragraph::new(display).style(style);
+    if wrap {
+        f.render_widget(para.wrap(ratatui::widgets::Wrap { trim: false }), area);
+    } else {
+        f.render_widget(para, area);
+    }
 }
 
 fn draw_yes_no_prompt(f: &mut Frame, question: &str, help: &str) {
@@ -486,28 +542,6 @@ fn draw_yes_no_prompt(f: &mut Frame, question: &str, help: &str) {
     );
 
     render_help(f, area, help);
-}
-
-fn draw_form_field(f: &mut Frame, area: Rect, label: &str, value: &str, active: bool) {
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(13), Constraint::Fill(1)])
-        .split(area);
-
-    let label_style = if active {
-        Style::new().add_modifier(Modifier::BOLD)
-    } else {
-        Style::new().add_modifier(Modifier::DIM)
-    };
-    f.render_widget(Paragraph::new(label).style(label_style), cols[0]);
-
-    let value_style = if active {
-        Style::new().add_modifier(Modifier::UNDERLINED)
-    } else {
-        Style::new().add_modifier(Modifier::DIM)
-    };
-    let display = format!("{value}_");
-    f.render_widget(Paragraph::new(display).style(value_style), cols[1]);
 }
 
 fn render_help(f: &mut Frame, area: Rect, text: &str) {
