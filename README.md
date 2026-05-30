@@ -74,3 +74,13 @@ Add to `~/.claude/.mcp.json`:
 ```
 
 Tools: `list_slices`, `create_slice`, `start_slice`, `done_slice`, `assign_slice`, `list_users`, `sync`.
+
+## Platform notes
+
+**Linux** — fully supported.
+
+**macOS** — fully supported. Use the `gitcake-macos-aarch64` binary from the release page, or install via `cargo install`.
+
+**WSL** — use the Linux binary. Keep the gitcake repo under the WSL filesystem (`~/...`) rather than on the Windows drive (`/mnt/c/...`) to avoid slow git operations.
+
+**Windows (native)** — not supported in v1.
