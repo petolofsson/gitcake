@@ -103,3 +103,47 @@ Captured during 100-user stress analysis. Ordered by impact.
 - [ ] **Concurrent gt instances see stale state**
   Two `gt` windows open on the same repo — changes in one don't appear in the other until sync.
   Fix: document as known limitation; optionally add a file-watcher to detect external changes.
+
+---
+
+## Planned features
+
+### CLI subcommands
+Add a non-interactive CLI mode to the `cake` binary so any tool (AI or script) can drive it from the shell.
+
+```bash
+cake list [--json] [--status open|in-progress|done] [--backlog]
+cake create "title" [--type task|bug|incident] [--assign username]
+cake done <id>
+cake start <id>
+cake delete <id>
+cake assign <id> --to <username>
+cake sync
+```
+
+All commands output plain text by default; `--json` outputs machine-readable JSON.
+Implementation: thin CLI layer on top of `git-task-core` — the library already has all the logic.
+No business logic in the CLI layer. Same rule as the TUI: just call core.
+
+### MCP server (Claude / AI integration)
+A Model Context Protocol server wrapping `git-task-core` as a set of typed AI tools.
+Enables Claude Code, Cursor, and any MCP-compatible AI to read and write tasks natively.
+
+Tools to expose:
+- `list_tasks` — returns current tasks with status, assignee, description
+- `create_task` — creates a new slice with title, type, optional description
+- `update_task_status` — mark open / in-progress / done
+- `assign_task` — assign to a user
+- `list_users` — who is in this repo
+- `sync` — commit and push
+
+Implementation: new crate `gitcake-mcp` in the workspace, depends on `git-task-core`.
+The MCP server is the first-class AI integration. CLI subcommands are the universal fallback.
+
+### Rename: git-task → gitcake
+- App name: `gitcake`
+- Binary: `cake`
+- Tasks referred to as "slices" in UI
+- Config directory: `~/.config/gitcake/`
+- Crate names: `gitcake-core`, `gitcake-tui`, `gitcake-mcp`
+- Repo marker file: `gitcake.toml` (replaces `git-task.toml`)
