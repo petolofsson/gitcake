@@ -359,7 +359,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
+fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Option<&str>) {
     let area = f.area();
     let block = Block::default()
         .title(Line::from(vec![
