@@ -58,6 +58,17 @@ gitcake --new                  # fresh setup screen
 | `Ctrl+A` | Assign to any user (opens picker) |
 | `Ctrl+D` | Permanently delete |
 
+### Detail view
+
+| Key | Action |
+|---|---|
+| `A` / `Esc` / `Q` | Back to list |
+| `E` | Edit in `$EDITOR` |
+| `F` | Cycle status (personal context) |
+| `Shift+R` | Pull |
+| `Ctrl+R` | Push |
+| `Ctrl+Q` | Quit |
+
 The TUI pulls on open and prompts to push on quit if there are unsynced changes. Filter persists when navigating to detail and back — press Esc to clear.
 
 ## CLI

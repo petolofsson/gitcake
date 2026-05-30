@@ -126,6 +126,17 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `Ctrl+D` | Permanently delete slice |
 | `B` | Switch to personal view |
 
+### Detail view
+
+| Key | Action |
+|---|---|
+| `A` / `Esc` / `Q` | Back to list |
+| `E` | Edit in `$EDITOR` |
+| `F` | Cycle status (personal context) |
+| `Shift+R` | Pull |
+| `Ctrl+R` | Push |
+| `Ctrl+Q` | Quit |
+
 Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 
 Auto-pulls on open. Prompts to push on quit if uncommitted changes exist.
