@@ -24,7 +24,6 @@ pub enum Screen {
         name: String,
         error: Option<String>,
     },
-    PullPrompt,
     TaskList {
         tasks: Vec<Task>,
         selected: usize,
@@ -75,37 +74,42 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config) -> Self {
-        let screen = if config.repo_path.is_some() {
-            Screen::PullPrompt
-        } else {
-            Screen::Setup {
-                input: String::new(),
-                error: None,
-            }
-        };
-
-        let repo = config
-            .repo_path
-            .as_deref()
-            .and_then(|p| TaskRepo::open(p).ok());
-
-        // If config has a path but repo fails to open, show setup
-        let screen = if config.repo_path.is_some() && repo.is_none() {
-            Screen::Setup {
-                input: config.repo_path.clone().unwrap_or_default(),
-                error: Some("Could not open repo — check the path.".into()),
-            }
-        } else {
-            screen
-        };
-
-        Self {
-            screen,
-            repo,
-            config,
-            should_quit: false,
-            needs_clear: false,
+        if config.repo_path.is_none() {
+            return Self {
+                screen: Screen::Setup { input: String::new(), error: None },
+                repo: None,
+                config,
+                should_quit: false,
+                needs_clear: false,
+            };
         }
+
+        let repo = config.repo_path.as_deref().and_then(|p| TaskRepo::open(p).ok());
+
+        if repo.is_none() {
+            return Self {
+                screen: Screen::Setup {
+                    input: config.repo_path.clone().unwrap_or_default(),
+                    error: Some("Could not open repo — check the path.".into()),
+                },
+                repo: None,
+                config,
+                should_quit: false,
+                needs_clear: false,
+            };
+        }
+
+        // Auto-pull on startup; failures are non-fatal
+        let pull_msg = match repo.as_ref().unwrap().pull() {
+            Ok(out) if out.trim().is_empty() || out.contains("Already up to date") => None,
+            Ok(_) => Some("Pulled latest changes.".to_string()),
+            Err(e) => Some(format!("Pull failed ({})", e)),
+        };
+
+        let tasks = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
+        let screen = Screen::TaskList { tasks, selected: 0, message: pull_msg };
+
+        Self { screen, repo, config, should_quit: false, needs_clear: false }
     }
 
     pub fn handle_event(&mut self, event: Event) {
@@ -113,7 +117,6 @@ impl App {
         match &self.screen {
             Screen::Setup { .. } => self.handle_setup(key),
             Screen::InitRepo { .. } => self.handle_init_repo(key),
-            Screen::PullPrompt => self.handle_pull_prompt(key),
             Screen::TaskList { .. } => self.handle_task_list(key),
             Screen::Detail { .. } => self.handle_detail(key),
             Screen::Create { .. } => self.handle_create(key),
@@ -164,7 +167,7 @@ impl App {
                         self.config.repo_path = Some(path);
                         self.config.save();
                         self.repo = Some(repo);
-                        self.screen = Screen::PullPrompt;
+                        self.enter_task_list(Some("Repo initialized.".into()));
                     }
                     Err(e) => {
                         self.screen = Screen::InitRepo {
@@ -178,25 +181,6 @@ impl App {
             KeyCode::Esc => {
                 let path = path.clone();
                 self.screen = Screen::Setup { input: path, error: None };
-            }
-            _ => {}
-        }
-    }
-
-    // ── pull prompt ───────────────────────────────────────────────────────────
-
-    fn handle_pull_prompt(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let message = self
-                    .repo
-                    .as_ref()
-                    .and_then(|r| r.pull().ok())
-                    .unwrap_or_else(|| "Pull failed.".into());
-                self.enter_task_list(Some(message));
-            }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
-                self.enter_task_list(None);
             }
             _ => {}
         }
@@ -502,7 +486,12 @@ impl App {
                     self.config.repo_path = Some(path);
                     self.config.save();
                     self.repo = Some(repo);
-                    self.screen = Screen::PullPrompt;
+                    let pull_msg = match self.repo.as_ref().unwrap().pull() {
+                        Ok(out) if out.trim().is_empty() || out.contains("Already up to date") => None,
+                        Ok(_) => Some("Pulled latest changes.".to_string()),
+                        Err(e) => Some(format!("Pull failed ({e})")),
+                    };
+                    self.enter_task_list(pull_msg);
                 }
                 Err(e) => {
                     self.screen = Screen::Setup { input: path, error: Some(e.to_string()) };

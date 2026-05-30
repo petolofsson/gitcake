@@ -13,7 +13,6 @@ use crate::app::{App, CreateField, EditField, Screen};
 pub fn draw(f: &mut Frame, app: &App) {
     match &app.screen {
         Screen::Setup { input, error } => draw_setup(f, input, error.as_deref()),
-        Screen::PullPrompt => draw_pull_prompt(f),
         Screen::TaskList { tasks, selected, message } => {
             draw_task_list(f, tasks, *selected, message.as_deref())
         }
@@ -138,10 +137,6 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>) {
 }
 
 // ── pull prompt ───────────────────────────────────────────────────────────────
-
-fn draw_pull_prompt(f: &mut Frame) {
-    draw_yes_no_prompt(f, "Pull latest changes?", "y: yes  n/q: skip");
-}
 
 // ── task list ─────────────────────────────────────────────────────────────────
 
