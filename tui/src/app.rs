@@ -1,6 +1,10 @@
-use std::{fs, path::Path};
+use std::{env, fs, path::Path, process::Command};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::{
+    event::{Event, KeyCode, KeyEvent, KeyModifiers},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use git_task_core::{
     models::task::{Task, TaskStatus, TaskType},
     repo::TaskRepo,
@@ -347,21 +351,18 @@ impl App {
                     CreateField::Description => CreateField::Title,
                 };
             }
-            // Enter in title/type advances to next field
             KeyCode::Enter if *field == CreateField::Title => {
                 *field = CreateField::Type;
             }
             KeyCode::Enter if *field == CreateField::Type => {
                 *field = CreateField::Description;
             }
-            // Enter or Shift+Enter in description inserts a newline
+            // Enter on description opens $EDITOR
             KeyCode::Enter if *field == CreateField::Description => {
-                description.push('\n');
-            }
-            // Shift+Enter outside description: jump to description and insert newline
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                *field = CreateField::Description;
-                description.push('\n');
+                let current = description.clone();
+                if let Some(edited) = open_in_editor(&current) {
+                    *description = edited;
+                }
             }
             KeyCode::Char(' ') if *field == CreateField::Type => {
                 *task_type = match task_type {
@@ -370,16 +371,8 @@ impl App {
                     TaskType::Incident => TaskType::Task,
                 };
             }
-            KeyCode::Backspace => match field {
-                CreateField::Title => { title.pop(); }
-                CreateField::Description => { description.pop(); }
-                CreateField::Type => {}
-            },
-            KeyCode::Char(c) => match field {
-                CreateField::Title => title.push(c),
-                CreateField::Description => description.push(c),
-                CreateField::Type => {}
-            },
+            KeyCode::Backspace if *field == CreateField::Title => { title.pop(); }
+            KeyCode::Char(c) if *field == CreateField::Title => title.push(c),
             _ => {}
         }
     }
@@ -415,27 +408,18 @@ impl App {
                     EditField::Description => EditField::Title,
                 };
             }
-            // Shift+Enter from anywhere goes to description and inserts a newline
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                *field = EditField::Description;
-                description.push('\n');
-            }
-            // Enter in title advances to description
             KeyCode::Enter if *field == EditField::Title => {
                 *field = EditField::Description;
             }
-            // Enter in description inserts a newline
+            // Enter on description opens $EDITOR
             KeyCode::Enter if *field == EditField::Description => {
-                description.push('\n');
+                let current = description.clone();
+                if let Some(edited) = open_in_editor(&current) {
+                    *description = edited;
+                }
             }
-            KeyCode::Backspace => match field {
-                EditField::Title => { title.pop(); }
-                EditField::Description => { description.pop(); }
-            },
-            KeyCode::Char(c) => match field {
-                EditField::Title => title.push(c),
-                EditField::Description => description.push(c),
-            },
+            KeyCode::Backspace if *field == EditField::Title => { title.pop(); }
+            KeyCode::Char(c) if *field == EditField::Title => title.push(c),
             _ => {}
         }
     }
@@ -604,6 +588,29 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+// Suspends ratatui, opens content in $VISUAL/$EDITOR, resumes ratatui.
+// Returns the edited content, or None if the editor couldn't be launched.
+fn open_in_editor(content: &str) -> Option<String> {
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    let tmp_path = env::temp_dir().join(format!("gt-desc-{}.md", std::process::id()));
+    fs::write(&tmp_path, content).ok()?;
+
+    let _ = disable_raw_mode();
+    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+
+    let _ = Command::new(&editor).arg(&tmp_path).status();
+
+    let _ = enable_raw_mode();
+    let _ = execute!(std::io::stdout(), EnterAlternateScreen);
+
+    let result = fs::read_to_string(&tmp_path).ok();
+    let _ = fs::remove_file(&tmp_path);
+    result
 }
 
 // Returns true if the repo contains only README/gitignore-style files —

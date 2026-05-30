@@ -371,7 +371,8 @@ fn draw_create(
             Constraint::Length(1), // type selector
             Constraint::Length(1), // blank
             Constraint::Length(1), // DESCRIPTION: label
-            Constraint::Length(2), // description input
+            Constraint::Length(4), // description preview
+            Constraint::Length(1), // editor hint
             Constraint::Fill(1),   // spacer
             Constraint::Length(1), // commands
         ])
@@ -397,13 +398,15 @@ fn draw_create(
         rows[4],
     );
 
-    draw_field_label(f, rows[6], "DESCRIPTION: (markdown)", *field == CreateField::Description);
-    draw_field_input(f, rows[7], description, *field == CreateField::Description, true);
+    let desc_active = *field == CreateField::Description;
+    draw_field_label(f, rows[6], "DESCRIPTION: (markdown)", desc_active);
+    draw_description_preview(f, rows[7], description, desc_active);
+    draw_editor_hint(f, rows[8], desc_active);
 
     f.render_widget(
-        Paragraph::new("Tab/Enter: next field  ·  Shift+Enter: new line  ·  Ctrl+S: save  ·  Esc: cancel")
+        Paragraph::new("Tab/Enter: next field  ·  Ctrl+S: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[9],
+        rows[10],
     );
 }
 
@@ -422,7 +425,8 @@ fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
             Constraint::Length(1), // title input
             Constraint::Length(1), // blank
             Constraint::Length(1), // DESCRIPTION: label
-            Constraint::Length(2), // description input
+            Constraint::Length(4), // description preview
+            Constraint::Length(1), // editor hint
             Constraint::Fill(1),   // spacer
             Constraint::Length(1), // commands
         ])
@@ -431,13 +435,15 @@ fn draw_edit(f: &mut Frame, title: &str, description: &str, field: &EditField) {
     draw_field_label(f, rows[0], "TITLE:", *field == EditField::Title);
     draw_field_input(f, rows[1], title, *field == EditField::Title, false);
 
-    draw_field_label(f, rows[3], "DESCRIPTION: (markdown)", *field == EditField::Description);
-    draw_field_input(f, rows[4], description, *field == EditField::Description, true);
+    let desc_active = *field == EditField::Description;
+    draw_field_label(f, rows[3], "DESCRIPTION: (markdown)", desc_active);
+    draw_description_preview(f, rows[4], description, desc_active);
+    draw_editor_hint(f, rows[5], desc_active);
 
     f.render_widget(
-        Paragraph::new("Tab/Enter: next field  ·  Shift+Enter: new line  ·  Ctrl+S: save  ·  Esc: cancel")
+        Paragraph::new("Tab: switch field  ·  Ctrl+S: save  ·  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[6],
+        rows[7],
     );
 }
 
@@ -507,6 +513,40 @@ fn draw_field_label(f: &mut Frame, area: Rect, label: &str, active: bool) {
         Style::new().add_modifier(Modifier::DIM)
     };
     f.render_widget(Paragraph::new(label).style(style), area);
+}
+
+fn draw_description_preview(f: &mut Frame, area: Rect, content: &str, active: bool) {
+    let style = if active {
+        Style::new()
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
+    };
+    let text = if content.trim().is_empty() {
+        "(no description)".to_string()
+    } else {
+        content.to_string()
+    };
+    f.render_widget(
+        Paragraph::new(text)
+            .style(style)
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        area,
+    );
+}
+
+fn draw_editor_hint(f: &mut Frame, area: Rect, active: bool) {
+    let (text, style) = if active {
+        (
+            "Enter: open in $EDITOR",
+            Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+        )
+    } else {
+        (
+            "Enter: open in $EDITOR",
+            Style::new().add_modifier(Modifier::DIM),
+        )
+    };
+    f.render_widget(Paragraph::new(text).style(style), area);
 }
 
 // wrap=true for multi-line areas (description)
