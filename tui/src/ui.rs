@@ -13,6 +13,23 @@ use git_task_core::models::task::{Task, TaskStatus, TaskType};
 use crate::app::{App, CreateField, Screen, TaskContext};
 
 pub fn draw(f: &mut Frame, app: &App) {
+    let area = f.area();
+    if area.width < 60 || area.height < 20 {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Fill(1), Constraint::Length(1), Constraint::Fill(1)])
+            .split(area);
+        f.render_widget(
+            Paragraph::new(format!(
+                "Terminal too small ({}×{}) — resize to at least 60×20",
+                area.width, area.height
+            ))
+            .alignment(Alignment::Center)
+            .style(Style::new().add_modifier(Modifier::DIM)),
+            rows[1],
+        );
+        return;
+    }
     match &app.screen {
         Screen::Setup { input, error } => draw_setup(f, input, error.as_deref()),
         Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
