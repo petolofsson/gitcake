@@ -43,8 +43,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Create { title, task_type, assignee, description, field } => {
             draw_create(f, title, task_type, assignee, description, field)
         }
-        Screen::AssignTask { users, selected, .. } => draw_assign_task(f, users, *selected),
-        Screen::PickAssignee { users, selected, .. } => draw_pick_assignee(f, users, *selected),
+        Screen::AssignTask { users, selected, filter, .. } => draw_assign_task(f, users, *selected, filter),
+        Screen::PickAssignee { users, selected, filter, .. } => draw_pick_assignee(f, users, *selected, filter),
         Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context),
         Screen::PushPrompt => draw_push_prompt(f),
@@ -430,8 +430,14 @@ fn draw_create(
     };
     f.render_widget(Paragraph::new(assign_text).style(assign_style), rows[7]);
 
-    draw_editor_hint(f, rows[9], assign_active);
-    draw_description_preview(f, rows[10], description, false);
+    let desc_active = *field == CreateField::Description;
+    let desc_label = if desc_active {
+        "DESCRIPTION:  Enter: open in $EDITOR"
+    } else {
+        "DESCRIPTION:  (Tab to reach, Enter to edit)"
+    };
+    draw_field_label(f, rows[9], desc_label, desc_active);
+    draw_description_preview(f, rows[10], description, desc_active);
 
     f.render_widget(Paragraph::new(nav_bar()), rows[11]);
     f.render_widget(Paragraph::new(ctrl_bar()), rows[12]);
@@ -593,53 +599,74 @@ fn draw_push_prompt(f: &mut Frame) {
 
 // ── assign task ───────────────────────────────────────────────────────────────
 
-fn draw_pick_assignee(f: &mut Frame, users: &[String], selected: usize) {
-    draw_user_picker(f, " Pick assignee ", users, selected);
+fn draw_pick_assignee(f: &mut Frame, users: &[String], selected: usize, filter: &str) {
+    draw_user_picker(f, " Pick assignee ", users, selected, filter);
 }
 
-fn draw_assign_task(f: &mut Frame, users: &[String], selected: usize) {
-    draw_user_picker(f, " Assign to ", users, selected);
+fn draw_assign_task(f: &mut Frame, users: &[String], selected: usize, filter: &str) {
+    draw_user_picker(f, " Assign to ", users, selected, filter);
 }
 
-fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usize) {
-    let height = (users.len() as u16 + 6).min(f.area().height);
+fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usize, filter: &str) {
+    let filtered: Vec<&String> = if filter.is_empty() {
+        users.iter().collect()
+    } else {
+        users.iter().filter(|u| u.to_lowercase().starts_with(&filter.to_lowercase())).collect()
+    };
+
+    let height = (filtered.len() as u16 + 7).min(f.area().height);
     let inner = render_popup(f, title, 50, height);
-
-    if users.is_empty() {
-        f.render_widget(
-            Paragraph::new("No other users found in this repo.")
-                .style(Style::new().add_modifier(Modifier::DIM)),
-            inner,
-        );
-        return;
-    }
-
-    let items: Vec<ListItem> = users
-        .iter()
-        .enumerate()
-        .map(|(i, u)| {
-            let (prefix, style) = if i == selected {
-                ("▶ ", Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan))
-            } else {
-                ("  ", Style::new())
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(prefix, style),
-                Span::styled(u.clone(), style),
-            ]))
-        })
-        .collect();
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1), // filter input
+            Constraint::Length(1), // blank
+            Constraint::Fill(1),   // list
+            Constraint::Length(1), // hint
+        ])
         .split(inner);
 
-    f.render_widget(List::new(items), rows[0]);
+    // Filter input line
+    let filter_line = Line::from(vec![
+        Span::styled("/ ", Style::new().add_modifier(Modifier::DIM)),
+        Span::styled(filter, Style::new().add_modifier(Modifier::BOLD)),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+    ]);
+    f.render_widget(Paragraph::new(filter_line), rows[0]);
+
+    if filtered.is_empty() {
+        f.render_widget(
+            Paragraph::new("No matching users.")
+                .style(Style::new().add_modifier(Modifier::DIM)),
+            rows[2],
+        );
+    } else {
+        let items: Vec<ListItem> = filtered
+            .iter()
+            .enumerate()
+            .map(|(i, u)| {
+                let (prefix, style) = if i == selected {
+                    ("▶ ", Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan))
+                } else {
+                    ("  ", Style::new())
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled(u.to_string(), style),
+                ]))
+            })
+            .collect();
+
+        let mut state = ListState::default();
+        state.select(Some(selected));
+        f.render_stateful_widget(List::new(items), rows[2], &mut state);
+    }
+
     f.render_widget(
-        Paragraph::new("Enter: assign  Esc/q: cancel")
+        Paragraph::new("↑↓: navigate  Type to filter  Enter: select  Esc: cancel")
             .style(Style::new().add_modifier(Modifier::DIM)),
-        rows[1],
+        rows[3],
     );
 }
 

@@ -54,6 +54,7 @@ pub enum Screen {
         task_id: String,
         users: Vec<String>,
         selected: usize,
+        filter: String,
     },
     PickAssignee {
         title: String,
@@ -61,6 +62,7 @@ pub enum Screen {
         description: String,
         users: Vec<String>,
         selected: usize,
+        filter: String,
     },
     DeleteConfirm {
         task_id: String,
@@ -79,6 +81,7 @@ pub enum CreateField {
     Title,
     Type,
     Assignee,
+    Description,
 }
 
 // ── app ───────────────────────────────────────────────────────────────────────
@@ -375,6 +378,7 @@ impl App {
                         task_id: task.id.clone(),
                         users,
                         selected: 0,
+                        filter: String::new(),
                     };
                 }
             }
@@ -478,20 +482,18 @@ impl App {
             return;
         }
 
-        let launched_editor = false;
         match key.code {
             KeyCode::Esc => self.enter_task_list(None, None),
             KeyCode::Tab => {
                 *field = match field {
                     CreateField::Title => CreateField::Type,
                     CreateField::Type => CreateField::Assignee,
-                    CreateField::Assignee => CreateField::Title,
+                    CreateField::Assignee => CreateField::Description,
+                    CreateField::Description => CreateField::Title,
                 };
             }
             KeyCode::Enter if *field == CreateField::Title => { *field = CreateField::Type; }
             KeyCode::Enter if *field == CreateField::Type => { *field = CreateField::Assignee; }
-            // Enter on Assignee opens description editor
-            // Enter on Assignee opens user picker
             KeyCode::Enter if *field == CreateField::Assignee => {
                 let t = title.clone();
                 let tt = task_type.clone();
@@ -501,7 +503,25 @@ impl App {
                     .unwrap_or_default();
                 self.screen = Screen::PickAssignee {
                     title: t, task_type: tt, description: d,
-                    users, selected: 0,
+                    users, selected: 0, filter: String::new(),
+                };
+                return;
+            }
+            KeyCode::Enter if *field == CreateField::Description => {
+                let t = title.clone();
+                let tt = task_type.clone();
+                let asgn = assignee.clone();
+                let desc = description.clone();
+                let edited = open_in_editor(if desc.is_empty() { "" } else { &desc });
+                self.needs_clear = true;
+                self.screen = Screen::Create {
+                    title: t,
+                    task_type: tt,
+                    assignee: asgn,
+                    description: edited
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or(desc),
+                    field: CreateField::Description,
                 };
                 return;
             }
@@ -516,7 +536,6 @@ impl App {
             KeyCode::Char(c) if *field == CreateField::Title => title.push(c),
             _ => {}
         }
-        if launched_editor { self.needs_clear = true; }
     }
 
     // ── sync confirm ──────────────────────────────────────────────────────────
@@ -666,24 +685,39 @@ impl App {
     }
 
     fn handle_pick_assignee(&mut self, key: KeyEvent) {
-        let Screen::PickAssignee { title, task_type, description, users, selected } = &mut self.screen else { return };
+        let Screen::PickAssignee { title, task_type, description, users, selected, filter } = &mut self.screen else { return };
+
+        let filtered_len = users.iter().filter(|u| u.to_lowercase().starts_with(&filter.to_lowercase())).count();
 
         match key.code {
-            KeyCode::Char('w') | KeyCode::Up => {
+            KeyCode::Up => {
                 if *selected > 0 { *selected -= 1; }
             }
-            KeyCode::Char('s') | KeyCode::Down => {
-                if !users.is_empty() && *selected < users.len() - 1 { *selected += 1; }
+            KeyCode::Down => {
+                if filtered_len > 0 && *selected < filtered_len - 1 { *selected += 1; }
+            }
+            KeyCode::Backspace => {
+                filter.pop();
+                *selected = 0;
+            }
+            KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => {
+                filter.push(c);
+                *selected = 0;
             }
             KeyCode::Enter => {
-                let assignee = users.get(*selected).cloned().unwrap_or_default();
+                let f = filter.to_lowercase();
+                let assignee = users.iter()
+                    .filter(|u| u.to_lowercase().starts_with(&f))
+                    .nth(*selected)
+                    .cloned()
+                    .unwrap_or_default();
                 let t = title.clone(); let tt = task_type.clone(); let d = description.clone();
                 self.screen = Screen::Create {
                     title: t, task_type: tt, assignee, description: d,
                     field: CreateField::Assignee,
                 };
             }
-            KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Esc => {
                 let t = title.clone(); let tt = task_type.clone(); let d = description.clone();
                 let default = self.repo.as_ref().map(|r| r.info.username.clone()).unwrap_or_default();
                 self.screen = Screen::Create {
@@ -696,17 +730,31 @@ impl App {
     }
 
     fn handle_assign_task(&mut self, key: KeyEvent) {
-        let Screen::AssignTask { task_id, users, selected } = &mut self.screen else { return };
+        let Screen::AssignTask { task_id, users, selected, filter } = &mut self.screen else { return };
+
+        let filtered_len = users.iter().filter(|u| u.to_lowercase().starts_with(&filter.to_lowercase())).count();
 
         match key.code {
-            KeyCode::Char('w') | KeyCode::Up => {
+            KeyCode::Up => {
                 if *selected > 0 { *selected -= 1; }
             }
-            KeyCode::Char('s') | KeyCode::Down => {
-                if !users.is_empty() && *selected < users.len() - 1 { *selected += 1; }
+            KeyCode::Down => {
+                if filtered_len > 0 && *selected < filtered_len - 1 { *selected += 1; }
+            }
+            KeyCode::Backspace => {
+                filter.pop();
+                *selected = 0;
+            }
+            KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => {
+                filter.push(c);
+                *selected = 0;
             }
             KeyCode::Enter => {
-                let assignee = users.get(*selected).cloned();
+                let f = filter.to_lowercase();
+                let assignee = users.iter()
+                    .filter(|u| u.to_lowercase().starts_with(&f))
+                    .nth(*selected)
+                    .cloned();
                 let id = task_id.clone();
                 let result = self.repo.as_ref().map(|r| match self.context {
                     TaskContext::Personal => r.assign_task(&id, assignee),
@@ -719,7 +767,7 @@ impl App {
                 };
                 self.enter_task_list(msg, Some(&id));
             }
-            KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Esc => {
                 let id = task_id.clone();
                 self.enter_task_list(None, Some(&id));
             }
