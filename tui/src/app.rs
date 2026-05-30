@@ -129,7 +129,7 @@ impl App {
             Err(e) => Some(format!("Pull failed ({})", e)),
         };
 
-        let tasks = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
+        let tasks = sort_for_display(repo.as_ref().unwrap().list_tasks().unwrap_or_default());
         let screen = Screen::TaskList { tasks, selected: 0, message: pull_msg };
 
         Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None }
@@ -233,23 +233,23 @@ impl App {
 
         match key.code {
             KeyCode::Char(c) if c == km.up.chars().next().unwrap_or('w') && km.up.len() == 1 => {
-                if *selected > 0 {
-                    *selected -= 1;
+                if task_count > 0 {
+                    *selected = selected.checked_sub(1).unwrap_or(task_count - 1);
                 }
             }
             KeyCode::Char(c) if c == km.down.chars().next().unwrap_or('s') && km.down.len() == 1 => {
-                if task_count > 0 && *selected < task_count - 1 {
-                    *selected += 1;
+                if task_count > 0 {
+                    *selected = (*selected + 1) % task_count;
                 }
             }
             KeyCode::Up => {
-                if *selected > 0 {
-                    *selected -= 1;
+                if task_count > 0 {
+                    *selected = selected.checked_sub(1).unwrap_or(task_count - 1);
                 }
             }
             KeyCode::Down => {
-                if task_count > 0 && *selected < task_count - 1 {
-                    *selected += 1;
+                if task_count > 0 {
+                    *selected = (*selected + 1) % task_count;
                 }
             }
             KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 => {
@@ -588,7 +588,7 @@ impl App {
             TaskContext::Personal => r.list_tasks().unwrap_or_default(),
             TaskContext::Backlog => r.list_backlog_tasks().unwrap_or_default(),
         }).unwrap_or_default();
-        self.screen = Screen::TaskList { tasks, selected: 0, message };
+        self.screen = Screen::TaskList { tasks: sort_for_display(tasks), selected: 0, message };
     }
 
     fn cycle_status(&mut self, task_id: &str) {
@@ -699,6 +699,17 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
 
 pub fn is_ctrl_q(event: &KeyEvent) -> bool {
     event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('q')
+}
+
+/// Sorts tasks into display order: in-progress → open → done.
+/// This makes `selected` a direct index into visual position.
+fn sort_for_display(mut tasks: Vec<Task>) -> Vec<Task> {
+    tasks.sort_by_key(|t| match (&t.status, t.is_completed) {
+        (TaskStatus::InProgress, false) => 0,
+        (TaskStatus::Open, false) => 1,
+        _ => 2,
+    });
+    tasks
 }
 
 fn expand_tilde(path: &str) -> String {
