@@ -183,14 +183,36 @@ struct TaskListParams<'a> {
 fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let TaskListParams { context, tasks, selected, message, pull_error, lock_warning, filter, filter_active, repo_name, username } = p;
     let area = f.area();
-    let inner_width = {
-        let b = padded_block("");
-        b.inner(area).width as usize
-    };
+    let inner_width = { let b = padded_block(""); b.inner(area).width as usize };
+    let block = task_list_block(context, repo_name, username, message, filter, filter_active, pull_error, lock_warning);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+        .split(inner);
+    let (items, index_map, safe_selected) = build_task_items(tasks, filter, selected, inner_width);
+    if items.is_empty() {
+        let msg = if filter.is_empty() { "No tasks yet. Press c to create one." } else { "No tasks match the filter." };
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(Style::new().add_modifier(Modifier::DIM)), rows[0]);
+    } else {
+        let mut state = ListState::default();
+        state.select(index_map.iter().position(|&i| i == safe_selected));
+        f.render_stateful_widget(List::new(items), rows[0], &mut state);
+    }
+    f.render_widget(filter_line_widget(filter, filter_active), rows[1]);
+    f.render_widget(Paragraph::new(nav_bar(context)), rows[3]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[4]);
+}
 
+fn task_list_block<'a>(
+    context: TaskContext, repo_name: &'a str, username: &'a str,
+    message: Option<&'a str>, filter: &'a str, filter_active: bool,
+    pull_error: Option<&'a str>, lock_warning: Option<&'a str>,
+) -> Block<'a> {
     let app_title = match context {
         TaskContext::Personal => format!(" gitcake · {repo_name} · {username} "),
-        TaskContext::Backlog => format!(" gitcake · {repo_name} · {username} · BACKLOG "),
+        TaskContext::Backlog  => format!(" gitcake · {repo_name} · {username} · BACKLOG "),
     };
     let mut block = Block::default()
         .title(app_title)
@@ -201,157 +223,62 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
     }
     if !filter.is_empty() && !filter_active {
-        block = block.title_top(
-            Line::from(vec![
-                Span::styled(format!(" /{filter} "), Style::new().add_modifier(Modifier::DIM)),
-                Span::styled(" Esc: clear ", Style::new().add_modifier(Modifier::DIM)),
-            ])
-            .left_aligned(),
-        );
+        block = block.title_top(Line::from(vec![
+            Span::styled(format!(" /{filter} "), Style::new().add_modifier(Modifier::DIM)),
+            Span::styled(" Esc: clear ", Style::new().add_modifier(Modifier::DIM)),
+        ]).left_aligned());
     }
     if let Some(err) = pull_error {
-        block = block.title_bottom(
-            Line::from(vec![
-                Span::styled(format!(" ⚠ {err} "), Style::new().fg(Color::Yellow)),
-                Span::styled(" Esc: dismiss ", Style::new().add_modifier(Modifier::DIM)),
-            ])
-            .left_aligned(),
-        );
+        block = block.title_bottom(Line::from(vec![
+            Span::styled(format!(" ⚠ {err} "), Style::new().fg(Color::Yellow)),
+            Span::styled(" Esc: dismiss ", Style::new().add_modifier(Modifier::DIM)),
+        ]).left_aligned());
     }
     if let Some(warn) = lock_warning {
-        block = block.title_bottom(
-            Line::from(Span::styled(format!(" ⚠ {warn} "), Style::new().fg(Color::Yellow)))
-                .right_aligned(),
-        );
+        block = block.title_bottom(Line::from(Span::styled(format!(" ⚠ {warn} "), Style::new().fg(Color::Yellow))).right_aligned());
     }
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    block
+}
 
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(1), // filter bar (two lines above nav bar)
-            Constraint::Length(1), // blank spacer
-            Constraint::Length(1), // nav shortcuts
-            Constraint::Length(1), // ctrl shortcuts
-        ])
-        .split(inner);
-
-    // Apply filter — selected is an index into the visible list
-    use crate::app::apply_filter;
-    let visible: Vec<&Task> = apply_filter(tasks, filter);
-    let safe_selected = selected.min(visible.len().saturating_sub(1));
-
-    let in_progress: Vec<(usize, &Task)> = visible.iter().enumerate()
-        .filter(|(_, t)| t.status == TaskStatus::InProgress)
-        .map(|(i, t)| (i, *t))
-        .collect();
-    let open: Vec<(usize, &Task)> = visible.iter().enumerate()
-        .filter(|(_, t)| t.status == TaskStatus::Open)
-        .map(|(i, t)| (i, *t))
-        .collect();
-    let done: Vec<(usize, &Task)> = visible.iter().enumerate()
-        .filter(|(_, t)| t.status == TaskStatus::Done)
-        .map(|(i, t)| (i, *t))
-        .collect();
-
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut index_map: Vec<usize> = Vec::new(); // maps list-item pos → visible index
-
-    let add_section = |items: &mut Vec<ListItem>,
-                       index_map: &mut Vec<usize>,
-                       header: &str,
-                       group: &[(usize, &Task)],
-                       current_selected: usize,
-                       section_color: Option<Color>| {
-        if group.is_empty() { return; }
-        let header_style = match section_color {
-            Some(c) => Style::new().add_modifier(Modifier::BOLD).fg(c),
-            None => Style::new().add_modifier(Modifier::BOLD | Modifier::DIM),
-        };
-        items.push(ListItem::new(Line::from(vec![Span::styled(format!(" {header}"), header_style)])));
-        index_map.push(usize::MAX);
-
-        for (vis_idx, task) in group {
-            let is_sel = *vis_idx == current_selected;
-            let cursor = if is_sel { "▶ " } else { "  " };
-            let tl = format!("{:<8}", type_label(&task.task_type));
-            let id_str = format!("{}  ", task.id);
-            let type_str = format!("{tl}  ");
-            let title_budget = inner_width.saturating_sub(24);
-            let title_str = truncate_title(&task.title, title_budget);
-            let base = if task.status == TaskStatus::Done {
-                Style::new().add_modifier(Modifier::DIM)
-            } else if task.status == TaskStatus::InProgress {
-                Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow)
-            } else {
-                Style::new()
+fn build_task_items(tasks: &[Task], filter: &str, selected: usize, inner_width: usize) -> (Vec<ListItem<'static>>, Vec<usize>, usize) {
+    use crate::app::task_matches;
+    let f_lower = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
+    let visible = |t: &Task| f_lower.is_empty() || task_matches(t, &f_lower);
+    let (mut ip, mut op, mut dn) = (0usize, 0usize, 0usize);
+    for t in tasks.iter().filter(|t| visible(t)) {
+        match t.status { TaskStatus::InProgress => ip += 1, TaskStatus::Open => op += 1, TaskStatus::Done => dn += 1 }
+    }
+    let safe_selected = selected.min((ip + op + dn).saturating_sub(1));
+    let mut items: Vec<ListItem<'static>> = Vec::new();
+    let mut index_map: Vec<usize> = Vec::new();
+    let mut prev_status: Option<TaskStatus> = None;
+    for (vis_idx, task) in tasks.iter().filter(|t| visible(t)).enumerate() {
+        if prev_status.as_ref() != Some(&task.status) {
+            if prev_status.is_some() { items.push(ListItem::new(Line::from(""))); index_map.push(usize::MAX); }
+            let (sym, label, count, color) = match task.status {
+                TaskStatus::InProgress => ("●", "IN PROGRESS", ip, Some(Color::Yellow)),
+                TaskStatus::Open       => ("○", "OPEN",        op, None),
+                TaskStatus::Done       => ("✓", "DONE",        dn, None),
             };
-            let cursor_style = if is_sel {
-                Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
-            } else {
-                Style::new().add_modifier(Modifier::DIM)
-            };
-            let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
-            let (flag_char, flag_style) = if task.status != TaskStatus::Done {
-                if task.blocked {
-                    ("! ", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD))
-                } else {
-                    match task.priority {
-                        Priority::High => ("^ ", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Priority::Low => ("v ", Style::new().add_modifier(Modifier::DIM)),
-                        Priority::Normal => ("  ", Style::new()),
-                    }
-                }
-            } else {
-                ("  ", Style::new())
-            };
-            let line = Line::from(vec![
-                Span::styled(cursor.to_string(), cursor_style),
-                Span::styled(flag_char, if is_sel { flag_style.add_modifier(Modifier::REVERSED) } else { flag_style }),
-                Span::styled(id_str, row_style.add_modifier(Modifier::DIM)),
-                Span::styled(type_str, row_style.add_modifier(Modifier::DIM)),
-                Span::styled(title_str, row_style),
-            ]);
-            items.push(ListItem::new(line));
-            index_map.push(*vis_idx);
+            let hdr = color.map_or_else(|| Style::new().add_modifier(Modifier::BOLD | Modifier::DIM), |c| Style::new().add_modifier(Modifier::BOLD).fg(c));
+            items.push(ListItem::new(Line::from(Span::styled(format!(" {sym} {label} ({count})"), hdr))));
+            index_map.push(usize::MAX);
+            prev_status = Some(task.status.clone());
         }
-        items.push(ListItem::new(Line::from("")));
-        index_map.push(usize::MAX);
-    };
-
-    let hdr = |sym: &str, label: &str, n: usize| format!("{sym} {label} ({n})");
-    add_section(&mut items, &mut index_map, &hdr("●", "IN PROGRESS", in_progress.len()), &in_progress, safe_selected, Some(Color::Yellow));
-    add_section(&mut items, &mut index_map, &hdr("○", "OPEN", open.len()), &open, safe_selected, None);
-    add_section(&mut items, &mut index_map, &hdr("✓", "DONE", done.len()), &done, safe_selected, None);
-
-    if items.is_empty() {
-        let empty_msg = if filter.is_empty() {
-            "No tasks yet. Press c to create one."
-        } else {
-            "No tasks match the filter."
-        };
-        f.render_widget(
-            Paragraph::new(empty_msg)
-                .alignment(Alignment::Center)
-                .style(Style::new().add_modifier(Modifier::DIM)),
-            rows[0],
-        );
-    } else {
-        let list_pos = index_map.iter().position(|&i| i == safe_selected);
-        let mut state = ListState::default();
-        state.select(list_pos);
-        f.render_stateful_widget(List::new(items), rows[0], &mut state);
+        let (row, idx) = task_row(task, vis_idx, safe_selected, inner_width);
+        items.push(row);
+        index_map.push(idx);
     }
+    if prev_status.is_some() { items.push(ListItem::new(Line::from(""))); index_map.push(usize::MAX); }
+    (items, index_map, safe_selected)
+}
 
-    // Filter line — always present above the nav bar
-    // 2 leading spaces align '/' with the 'W' in WASD
-    let filter_widget = if filter_active {
+fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a> {
+    if filter_active {
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
             Span::styled("/ ", Style::new().add_modifier(Modifier::DIM)),
-            Span::styled(filter.to_string(), Style::new().add_modifier(Modifier::BOLD)),
+            Span::styled(filter, Style::new().add_modifier(Modifier::BOLD)),
             Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
         ]))
     } else if !filter.is_empty() {
@@ -365,12 +292,50 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
             Span::raw("  "),
             Span::styled("Use '/' to filter", Style::new().add_modifier(Modifier::DIM)),
         ]))
+    }
+}
+
+// ── task row helper ───────────────────────────────────────────────────────────
+
+fn task_row(task: &Task, vis_idx: usize, safe_selected: usize, inner_width: usize) -> (ListItem<'static>, usize) {
+    let is_sel = vis_idx == safe_selected;
+    let cursor = if is_sel { "▶ " } else { "  " };
+    let tl = format!("{:<8}", type_label(&task.task_type));
+    let id_str = format!("{}  ", task.id);
+    let type_str = format!("{tl}  ");
+    let title_str = truncate_title(&task.title, inner_width.saturating_sub(24));
+    let base = match task.status {
+        TaskStatus::Done       => Style::new().add_modifier(Modifier::DIM),
+        TaskStatus::InProgress => Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+        TaskStatus::Open       => Style::new(),
     };
-    let nb = nav_bar(context);
-    f.render_widget(filter_widget, rows[1]);
-    // rows[2] blank spacer
-    f.render_widget(Paragraph::new(nb), rows[3]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[4]);
+    let cursor_style = if is_sel {
+        Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
+    };
+    let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
+    let (flag_char, flag_style) = if task.status != TaskStatus::Done {
+        if task.blocked {
+            ("! ", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD))
+        } else {
+            match task.priority {
+                Priority::High   => ("^ ", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Priority::Low    => ("v ", Style::new().add_modifier(Modifier::DIM)),
+                Priority::Normal => ("  ", Style::new()),
+            }
+        }
+    } else {
+        ("  ", Style::new())
+    };
+    let line = Line::from(vec![
+        Span::styled(cursor.to_string(), cursor_style),
+        Span::styled(flag_char, if is_sel { flag_style.add_modifier(Modifier::REVERSED) } else { flag_style }),
+        Span::styled(id_str, row_style.add_modifier(Modifier::DIM)),
+        Span::styled(type_str, row_style.add_modifier(Modifier::DIM)),
+        Span::styled(title_str, row_style),
+    ]);
+    (ListItem::new(line), vis_idx)
 }
 
 // ── detail ────────────────────────────────────────────────────────────────────
@@ -378,123 +343,69 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField) {
     let area = f.area();
     let block = Block::default()
-        .title(Line::from(vec![
-            Span::raw(" Task "),
-            Span::styled(task.id.clone(), Style::new().add_modifier(Modifier::BOLD)),
-            Span::raw(" "),
-        ]))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .padding(Padding::new(1, 1, 1, 1));
+        .title(Line::from(vec![Span::raw(" Task "), Span::styled(task.id.clone(), Style::new().add_modifier(Modifier::BOLD)), Span::raw(" ")]))
+        .borders(Borders::ALL).border_type(BorderType::Rounded).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
+    let rows = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Fill(1),   Constraint::Length(1), Constraint::Length(1),
+    ]).split(inner);
+    render_detail_fields(f, &rows, task, selected);
+    render_detail_desc(f, rows[10], task);
+    f.render_widget(Paragraph::new(detail_nav_bar()), rows[11]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[12]);
+}
 
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // rows[0]  blank
-            Constraint::Length(1), // rows[1]  TYPE     (navigable)
-            Constraint::Length(1), // rows[2]  STATUS   (navigable)
-            Constraint::Length(1), // rows[3]  PRIORITY (navigable)
-            Constraint::Length(1), // rows[4]  BLOCKED  (navigable)
-            Constraint::Length(1), // rows[5]  FILE     (read-only)
-            Constraint::Length(1), // rows[6]  CREATED  (read-only)
-            Constraint::Length(1), // rows[7]  blank
-            Constraint::Length(1), // rows[8]  TITLE
-            Constraint::Length(1), // rows[9]  blank
-            Constraint::Fill(1),   // rows[10] description
-            Constraint::Length(1), // rows[11] nav bar
-            Constraint::Length(1), // rows[12] ctrl bar
-        ])
-        .split(inner);
-
-    let file_path = format!("{}/{}.md", type_label(&task.task_type).to_string() + "s", task.id);
-
-    let dim = Style::new().add_modifier(Modifier::DIM);
+fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField) {
+    let dim  = Style::new().add_modifier(Modifier::DIM);
     let bold = Style::new().add_modifier(Modifier::BOLD);
     let cyan = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-
     let render_field = |f: &mut Frame, row: Rect, field: DetailField, label: &str, value: &str, value_style: Style| {
         let is_sel = selected == field;
-        let cursor = if is_sel { "▶ " } else { "  " };
-        let cursor_style = if is_sel { cyan } else { Style::new().add_modifier(Modifier::DIM) };
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(cursor, cursor_style),
-                Span::styled(format!("{:<10}", label), bold),
-                Span::styled(value.to_string(), value_style),
-            ])),
-            row,
-        );
+        let cursor_style = if is_sel { cyan } else { dim };
+        f.render_widget(Paragraph::new(Line::from(vec![
+            Span::styled(if is_sel { "▶ " } else { "  " }, cursor_style),
+            Span::styled(format!("{:<10}", label), bold),
+            Span::styled(value.to_string(), value_style),
+        ])), row);
     };
-
     let status_style = match task.status {
         TaskStatus::InProgress => Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        TaskStatus::Done => dim,
-        TaskStatus::Open => bold,
+        TaskStatus::Done => dim, TaskStatus::Open => bold,
     };
     let priority_style = match task.priority {
         Priority::High => Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        Priority::Normal => Style::new(),
-        Priority::Low => dim,
+        Priority::Normal => Style::new(), Priority::Low => dim,
     };
-    let blocked_style = if task.blocked {
-        Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        dim
-    };
-
-    // rows[0] blank
+    let blocked_style = if task.blocked { Style::new().fg(Color::Red).add_modifier(Modifier::BOLD) } else { dim };
     render_field(f, rows[1], DetailField::Type,     "TYPE:",     type_label(&task.task_type), bold);
     render_field(f, rows[2], DetailField::Status,   "STATUS:",   status_label(&task.status),  status_style);
     render_field(f, rows[3], DetailField::Priority, "PRIORITY:", priority_label(&task.priority), priority_style);
     render_field(f, rows[4], DetailField::Blocked,  "BLOCKED:",  if task.blocked { "yes" } else { "no" }, blocked_style);
+    let file_path = format!("{}s/{}.md", type_label(&task.task_type), task.id);
+    let ro = |label: &str, value: String| Paragraph::new(Line::from(vec![
+        Span::raw("  "), Span::styled(format!("{:<10}", label), bold), Span::styled(value, dim),
+    ]));
+    f.render_widget(ro("FILE:",    file_path), rows[5]);
+    f.render_widget(ro("CREATED:", task.created.format("%Y-%m-%d %H:%M").to_string()), rows[6]);
+    f.render_widget(ro("TITLE:",   task.title.clone()), rows[8]);
+}
 
-    // Read-only rows — no cursor column, same label width
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format!("{:<10}", "FILE:"), bold),
-            Span::styled(file_path, dim),
-        ])),
-        rows[5],
-    );
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format!("{:<10}", "CREATED:"), bold),
-            Span::styled(task.created.format("%Y-%m-%d %H:%M").to_string(), dim),
-        ])),
-        rows[6],
-    );
-    // rows[7] blank
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format!("{:<10}", "TITLE:"), bold),
-            Span::styled(task.title.clone(), bold),
-        ])),
-        rows[8],
-    );
-    // rows[9] blank
-
-    // Show order/parent as inline annotations after description if set
-    let mut desc_text = task.description.as_deref().unwrap_or_default().to_string();
+fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task) {
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    let mut text = task.description.as_deref().unwrap_or_default().to_string();
     if task.order.is_some() || task.parent_id.is_some() {
-        if !desc_text.is_empty() { desc_text.push('\n'); }
-        if let Some(o) = task.order { desc_text.push_str(&format!("order: {o}  ")); }
-        if let Some(p) = &task.parent_id { desc_text.push_str(&format!("parent: {p}")); }
+        if !text.is_empty() { text.push('\n'); }
+        if let Some(o) = task.order      { text.push_str(&format!("order: {o}  ")); }
+        if let Some(p) = &task.parent_id { text.push_str(&format!("parent: {p}")); }
     }
-    let desc_lines: Vec<Line> = desc_text.lines()
+    let lines: Vec<Line> = text.lines()
         .map(|l| Line::from(vec![Span::raw("  "), Span::styled(l.to_string(), dim)]))
         .collect();
-    f.render_widget(
-        Paragraph::new(desc_lines).wrap(ratatui::widgets::Wrap { trim: false }),
-        rows[10],
-    );
-
-    f.render_widget(Paragraph::new(detail_nav_bar()), rows[11]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[12]);
+    f.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }), area);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
