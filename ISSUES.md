@@ -48,7 +48,13 @@
 - **O3 — Spurious Vec in `enter_task_list`**: cursor position search replaced with a direct iterator `position()` call; no Vec allocated for filter application.
 - **O4 — CODERULE 3 function length**: all functions in `tui/src/app.rs` and `tui/src/ui.rs` reduced to ≤50 non-blank lines by extracting: `handle_filter_input`, `handle_list_pull`, `do_task_list_edit`, `do_claim_backlog`, `handle_list_action_keys`, `do_detail_edit`, `do_detail_field_cycle`, `task_list_block`, `build_task_items`, `filter_line_widget`, `render_detail_fields`, `render_detail_desc`, `task_list_params`, `draw_create_type_field`, `draw_create_assign_field`, `user_picker_items`, `build_team_items`.
 
-## Resolved — Features
+## Resolved — Features (post-v0.1.0, session 2026-05-31)
+- **Bites and crumbs**: `!bite` / `!!bite` / `!crumb` / `!!crumb` syntax in description body. Parsed at load time into `Vec<Bite>` / `Vec<Crumb>` on Task. Personal view shows `X/Y` bite progress after title. Detail view renders `○`/`✓` for bites and `·` for crumbs.
+- **Cakes (epics)**: new `cakes/` folder, `Cake` / `NewCake` structs, `cake_file.rs` for I/O. Slices get optional `cake_id:` frontmatter field (patchable via `TaskPatch`). Repo: `create_cake`, `list_cakes`, `get_cake`; push stages `cakes/`. `cached_cakes` on `App` for title resolution in detail view.
+- **Planner view** (replaces team view): accessed with `P` key. Groups active slices by cake with open/total progress. STANDALONE section for unattached slices. Slice rows show owner + `→`/`·` status + type + title. `C` creates a new cake inline. `D` opens detail. `P` exits back to personal.
+- **Create slice — cake picker step**: Type → Assignee → Cake (optional) → Confirm. `PickCake` screen shared by create flow and detail view. First option is "none" to detach.
+- **Detail view — CAKE field**: fifth navigable field after BLOCKED. `F` opens `PickCake` picker, resolves title from `cached_cakes`. Supports attach/detach.
+- **Team → Planner UX polish**: WASD navbar label; filter hint spaced one row above navbar (matches personal view); `T`-only exit (A/Esc/Q no longer exit); `D` opens detail with back-to-planner routing; leading space removed from title block; open tasks show `·` dim, in-progress show `→` yellow.
 - **Team view improvements**: `T` exits back to personal view; `/` filter works (hides non-matching tasks and empty user sections); full two-row navbar (nav + ctrl); `Shift+R` pull and `Ctrl+R` push work from team view.
 - **Rename: git-task → gitcake**: binary `gt` → `gitcake`, config dir `~/.config/git-task/` → `~/.config/gitcake/`, repo marker `git-task.toml` → `gitcake.toml`, crate names updated.
 - **CLI subcommands**: `gitcake list/create/start/done/delete/assign/sync` — thin layer on `gitcake-core`, `--json` flag on `list`, no args launches TUI.
