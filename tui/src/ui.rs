@@ -34,21 +34,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Setup { input, error, can_cancel } => draw_setup(f, input, error.as_deref(), *can_cancel),
         Screen::InitRepo { path, name, error } => draw_init_repo(f, path, name, error.as_deref()),
         Screen::TaskList { tasks, selected, message } => {
-            let (repo_name, username) = app.repo.as_ref()
-                .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
-                .unwrap_or(("", ""));
-            draw_task_list(f, TaskListParams {
-                context: app.context,
-                tasks,
-                selected: *selected,
-                message: message.as_deref(),
-                pull_error: app.pull_error.as_deref(),
-                lock_warning: app.lock_warning.as_deref(),
-                filter: &app.filter,
-                filter_active: app.filter_active,
-                repo_name,
-                username,
-            })
+            draw_task_list(f, task_list_params(app, tasks, *selected, message.as_deref()))
         }
         Screen::Detail { task, message, selected_field } => {
             draw_detail(f, app.context, task, message.as_deref(), *selected_field);
@@ -67,6 +53,17 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 // ── setup ─────────────────────────────────────────────────────────────────────
+
+fn task_list_params<'a>(app: &'a App, tasks: &'a [Task], selected: usize, message: Option<&'a str>) -> TaskListParams<'a> {
+    let (repo_name, username) = app.repo.as_ref()
+        .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
+        .unwrap_or(("", ""));
+    TaskListParams {
+        context: app.context, tasks, selected, message,
+        pull_error: app.pull_error.as_deref(), lock_warning: app.lock_warning.as_deref(),
+        filter: &app.filter, filter_active: app.filter_active, repo_name, username,
+    }
+}
 
 fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool) {
     let area = f.area();
@@ -410,59 +407,19 @@ fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task) {
 
 // ── create ────────────────────────────────────────────────────────────────────
 
-fn draw_create(
-    f: &mut Frame,
-    context: TaskContext,
-    task_type: &TaskType,
-    assignee: &str,
-    field: &CreateField,
-) {
+fn draw_create(f: &mut Frame, context: TaskContext, task_type: &TaskType, assignee: &str, field: &CreateField) {
     let area = f.area();
     let block = padded_block("New task");
     let inner = block.inner(area);
     f.render_widget(block, area);
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // TYPE: label
-            Constraint::Length(1), // type selector
-            Constraint::Length(1), // blank
-            Constraint::Length(1), // ASSIGN TO: label
-            Constraint::Length(1), // assignee display
-            Constraint::Length(1), // blank
-            Constraint::Length(1), // CREATE TASK row
-            Constraint::Fill(1),   // breathing room
-            Constraint::Length(1), // nav bar
-            Constraint::Length(1), // ctrl bar
-        ])
-        .split(inner);
-
-    draw_field_label(f, rows[0], "TYPE:", *field == CreateField::Type);
-    let type_style = if *field == CreateField::Type {
-        Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
-    } else {
-        Style::new().add_modifier(Modifier::DIM)
-    };
-    f.render_widget(
-        Paragraph::new(format!("[ {} ]  Space to cycle", type_label(task_type))).style(type_style),
-        rows[1],
-    );
-
-    let assign_active = *field == CreateField::Assignee;
-    draw_field_label(f, rows[3], "ASSIGN TO:", assign_active);
-    let assign_text = if assign_active {
-        format!("{assignee}  ← Enter to pick")
-    } else {
-        assignee.to_string()
-    };
-    let assign_style = if assign_active {
-        Style::new().fg(Color::Cyan)
-    } else {
-        Style::new().add_modifier(Modifier::DIM)
-    };
-    f.render_widget(Paragraph::new(assign_text).style(assign_style), rows[4]);
-
+    let rows = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Fill(1),
+        Constraint::Length(1), Constraint::Length(1),
+    ]).split(inner);
+    draw_create_type_field(f, rows[0], rows[1], task_type, *field == CreateField::Type);
+    draw_create_assign_field(f, rows[3], rows[4], assignee, *field == CreateField::Assignee);
     let confirm_active = *field == CreateField::Confirm;
     let confirm_label = if confirm_active {
         "↵ CREATE TASK  Enter: open editor — write '# Title' on the first line"
@@ -470,9 +427,21 @@ fn draw_create(
         "↵ CREATE TASK  (Tab to reach, Enter to open editor)"
     };
     draw_field_label(f, rows[6], confirm_label, confirm_active);
-
     f.render_widget(Paragraph::new(nav_bar(context)), rows[8]);
     f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
+}
+
+fn draw_create_type_field(f: &mut Frame, label_row: Rect, val_row: Rect, task_type: &TaskType, active: bool) {
+    draw_field_label(f, label_row, "TYPE:", active);
+    let style = if active { Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
+    f.render_widget(Paragraph::new(format!("[ {} ]  Space to cycle", type_label(task_type))).style(style), val_row);
+}
+
+fn draw_create_assign_field(f: &mut Frame, label_row: Rect, val_row: Rect, assignee: &str, active: bool) {
+    draw_field_label(f, label_row, "ASSIGN TO:", active);
+    let text = if active { format!("{assignee}  ← Enter to pick") } else { assignee.to_string() };
+    let style = if active { Style::new().fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
+    f.render_widget(Paragraph::new(text).style(style), val_row);
 }
 
 // ── team view ─────────────────────────────────────────────────────────────────
@@ -482,84 +451,55 @@ fn draw_team_view(f: &mut Frame, tasks: &[(String, Task)], selected: usize) {
     let block = padded_block(" gitcake · TEAM ");
     let inner = block.inner(area);
     f.render_widget(block, area);
-
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(1), Constraint::Length(1)])
         .split(inner);
-
     let inner_width = inner.width as usize;
+    let (items, index_map) = build_team_items(tasks, selected, inner_width);
+    if items.is_empty() {
+        f.render_widget(Paragraph::new("No active tasks from any team member.").alignment(Alignment::Center).style(Style::new().add_modifier(Modifier::DIM)), rows[0]);
+    } else {
+        let mut state = ListState::default();
+        state.select(index_map.iter().position(|e| *e == Some(selected)));
+        f.render_stateful_widget(List::new(items), rows[0], &mut state);
+    }
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::raw(" "),
+        Span::styled(" WS ", Style::new().bg(Color::White).fg(Color::Black)),
+        Span::styled(" navigate  ", Style::new().fg(Color::DarkGray)),
+        Span::styled(" A ", Style::new().bg(Color::White).fg(Color::Black)),
+        Span::styled(" back  ", Style::new().fg(Color::DarkGray)),
+    ])), rows[1]);
+}
 
-    // index_map[list_row] = Some(tasks index) for task rows, None for headers/blanks
-    let mut items: Vec<ListItem> = Vec::new();
+fn build_team_items(tasks: &[(String, Task)], selected: usize, inner_width: usize) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
+    let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
-
     let mut seen_users: Vec<&str> = Vec::new();
     for (user, _) in tasks {
-        if !seen_users.contains(&user.as_str()) {
-            seen_users.push(user.as_str());
-        }
+        if !seen_users.contains(&user.as_str()) { seen_users.push(user.as_str()); }
     }
-
     for user in seen_users {
-        items.push(ListItem::new(Line::from(Span::styled(
-            format!(" {user}"),
-            Style::new().add_modifier(Modifier::BOLD | Modifier::DIM),
-        ))));
+        items.push(ListItem::new(Line::from(Span::styled(format!(" {user}"), Style::new().add_modifier(Modifier::BOLD | Modifier::DIM)))));
         index_map.push(None);
-
         for (task_idx, (_, task)) in tasks.iter().enumerate().filter(|(_, (u, _))| u.as_str() == user) {
             let is_sel = task_idx == selected;
-            let cursor = if is_sel { "▶ " } else { "  " };
-            let base = if task.status == TaskStatus::InProgress {
-                Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow)
-            } else {
-                Style::new()
-            };
-            let cursor_style = if is_sel {
-                Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan)
-            } else {
-                Style::new().add_modifier(Modifier::DIM)
-            };
+            let base = if task.status == TaskStatus::InProgress { Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow) } else { Style::new() };
+            let cursor_style = if is_sel { Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
             let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
-            let title_str = truncate_title(&task.title, inner_width.saturating_sub(22));
-
             items.push(ListItem::new(Line::from(vec![
-                Span::styled(cursor.to_string(), cursor_style),
+                Span::styled(if is_sel { "▶ " } else { "  " }, cursor_style),
                 Span::styled(format!("{}  ", task.id), row_style.add_modifier(Modifier::DIM)),
                 Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_style.add_modifier(Modifier::DIM)),
-                Span::styled(title_str, row_style),
+                Span::styled(truncate_title(&task.title, inner_width.saturating_sub(22)), row_style),
             ])));
             index_map.push(Some(task_idx));
         }
         items.push(ListItem::new(Line::from("")));
         index_map.push(None);
     }
-
-    if items.is_empty() {
-        f.render_widget(
-            Paragraph::new("No active tasks from any team member.")
-                .alignment(Alignment::Center)
-                .style(Style::new().add_modifier(Modifier::DIM)),
-            rows[0],
-        );
-    } else {
-        let list_pos = index_map.iter().position(|e| *e == Some(selected));
-        let mut state = ListState::default();
-        state.select(list_pos);
-        f.render_stateful_widget(List::new(items), rows[0], &mut state);
-    }
-
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(" WS ", Style::new().bg(Color::White).fg(Color::Black)),
-            Span::styled(" navigate  ", Style::new().fg(Color::DarkGray)),
-            Span::styled(" A ", Style::new().bg(Color::White).fg(Color::Black)),
-            Span::styled(" back  ", Style::new().fg(Color::DarkGray)),
-        ])),
-        rows[1],
-    );
+    (items, index_map)
 }
 
 // ── sync confirm ──────────────────────────────────────────────────────────────
@@ -668,28 +608,9 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
     f.render_widget(Paragraph::new(filter_line), rows[0]);
 
     if filtered.is_empty() {
-        f.render_widget(
-            Paragraph::new("No matching users.")
-                .style(Style::new().add_modifier(Modifier::DIM)),
-            rows[2],
-        );
+        f.render_widget(Paragraph::new("No matching users.").style(Style::new().add_modifier(Modifier::DIM)), rows[2]);
     } else {
-        let items: Vec<ListItem> = filtered
-            .iter()
-            .enumerate()
-            .map(|(i, u)| {
-                let (prefix, style) = if i == selected {
-                    ("▶ ", Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan))
-                } else {
-                    ("  ", Style::new())
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(prefix, style),
-                    Span::styled(u.to_string(), style),
-                ]))
-            })
-            .collect();
-
+        let items = user_picker_items(&filtered, selected);
         let mut state = ListState::default();
         state.select(Some(selected));
         f.render_stateful_widget(List::new(items), rows[2], &mut state);
@@ -700,6 +621,17 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
             .style(Style::new().add_modifier(Modifier::DIM)),
         rows[3],
     );
+}
+
+fn user_picker_items(filtered: &[&String], selected: usize) -> Vec<ListItem<'static>> {
+    filtered.iter().enumerate().map(|(i, u)| {
+        let (prefix, style) = if i == selected {
+            ("▶ ", Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan))
+        } else {
+            ("  ", Style::new())
+        };
+        ListItem::new(Line::from(vec![Span::styled(prefix, style), Span::styled(u.to_string(), style)]))
+    }).collect()
 }
 
 // ── delete confirm ────────────────────────────────────────────────────────────
