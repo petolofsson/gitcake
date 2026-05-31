@@ -36,7 +36,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::TaskList { tasks, selected, message } => {
             draw_task_list(f, task_list_params(app, tasks, *selected, message.as_deref()))
         }
-        Screen::Detail { task, message, selected_field } => {
+        Screen::Detail { task, message, selected_field, .. } => {
             draw_detail(f, app.context, task, message.as_deref(), *selected_field);
         }
         Screen::Create { task_type, assignee, field } => {
@@ -448,11 +448,11 @@ fn draw_create_assign_field(f: &mut Frame, label_row: Rect, val_row: Rect, assig
 
 fn draw_team_view(f: &mut Frame, app: &App, tasks: &[(String, Task)], selected: usize) {
     let area = f.area();
-    let block = padded_block(" gitcake · TEAM ");
+    let block = padded_block("gitcake · TEAM ");
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
     let inner_width = inner.width as usize;
     let (items, index_map) = build_team_items(tasks, selected, &app.filter, inner_width);
@@ -465,8 +465,8 @@ fn draw_team_view(f: &mut Frame, app: &App, tasks: &[(String, Task)], selected: 
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
-    f.render_widget(Paragraph::new(bar_line(&[("WS", "navigate"), ("T", "back"), ("/", "filter")])), rows[2]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[3]);
+    f.render_widget(Paragraph::new(bar_line(&[("WASD", "navigate"), ("T", "back")])), rows[3]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[4]);
 }
 
 fn build_team_items(tasks: &[(String, Task)], selected: usize, filter: &str, inner_width: usize) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
@@ -487,14 +487,18 @@ fn build_team_items(tasks: &[(String, Task)], selected: usize, filter: &str, inn
         index_map.push(None);
         for (_, task) in user_tasks {
             let is_sel = vis_idx == selected;
-            let base = if task.status == TaskStatus::InProgress { Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow) } else { Style::new() };
+            let in_prog = task.status == TaskStatus::InProgress;
+            let base = if in_prog { Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow) } else { Style::new() };
             let cursor_style = if is_sel { Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
             let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
+            let status_style = if in_prog { Style::new().fg(Color::Yellow) } else { Style::new().add_modifier(Modifier::DIM) };
+            let status_ind = if in_prog { "→ " } else { "· " };
             items.push(ListItem::new(Line::from(vec![
                 Span::styled(if is_sel { "▶ " } else { "  " }, cursor_style),
                 Span::styled(format!("{}  ", task.id), row_style.add_modifier(Modifier::DIM)),
                 Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_style.add_modifier(Modifier::DIM)),
-                Span::styled(truncate_title(&task.title, inner_width.saturating_sub(22)), row_style),
+                Span::styled(status_ind, if is_sel { row_style } else { status_style }),
+                Span::styled(truncate_title(&task.title, inner_width.saturating_sub(24)), row_style),
             ])));
             index_map.push(Some(vis_idx));
             vis_idx += 1;

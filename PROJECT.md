@@ -155,13 +155,14 @@ Detail view shows four navigable rows (TYPE, STATUS, PRIORITY, BLOCKED) with a `
 | Key | Action |
 |---|---|
 | `W` / `S` | Navigate |
-| `T` / `A` / `Esc` / `Q` | Back to personal view (clears filter) |
+| `D` | View slice detail |
+| `T` | Back to personal view (clears filter) |
 | `/` | Filter — same match rules as personal view. Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+R` | Push |
 | `Ctrl+Q` | Quit |
 
-Shows all active (non-done) slices grouped by owner. Read-only — no status changes from this view.
+Shows all active (non-done) slices grouped by owner. Rows show `→` (in-progress, yellow) or `·` (open, dim). Detail view is read-only from this context.
 
 Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 

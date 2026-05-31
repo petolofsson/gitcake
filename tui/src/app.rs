@@ -43,6 +43,7 @@ pub enum Screen {
         task: Task,
         message: Option<String>,
         selected_field: DetailField,
+        from_team: bool,
     },
     Create {
         task_type: TaskType,
@@ -311,7 +312,7 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
             KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 && no_mod => {
-                if let Some(t) = sel_task { self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type }; }
+                if let Some(t) = sel_task { self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_team: false }; }
             }
             KeyCode::Char(c) if c == km.create.chars().next().unwrap_or('c') && km.create.len() == 1 && no_mod => {
                 let assignee = self.repo.as_ref().map(|r| r.info.username.clone()).unwrap_or_default();
@@ -331,10 +332,7 @@ impl App {
                 self.filter.clear(); self.filter_active = false;
                 self.enter_task_list(None, None);
             }
-            KeyCode::Char('t') if no_mod => {
-                let tasks = self.repo.as_ref().and_then(|r| r.list_team_tasks().ok()).unwrap_or_default();
-                self.screen = Screen::TeamView { tasks, selected: 0 };
-            }
+            KeyCode::Char('t') if no_mod => { self.enter_team_view(); }
             KeyCode::Char('a') if ctrl => {
                 if let Some(t) = sel_task {
                     let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
@@ -405,6 +403,11 @@ impl App {
         self.enter_task_list(msg, Some(&task_id));
     }
 
+    fn enter_team_view(&mut self) {
+        let tasks = self.repo.as_ref().and_then(|r| r.list_team_tasks().ok()).unwrap_or_default();
+        self.screen = Screen::TeamView { tasks, selected: 0 };
+    }
+
     // ── detail ────────────────────────────────────────────────────────────────
 
     fn handle_detail(&mut self, key: KeyEvent) {
@@ -412,30 +415,34 @@ impl App {
         if is_ctrl_q(&key) { self.try_quit(); return; }
         if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
         if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            let task_id = if let Screen::Detail { task, .. } = &self.screen { task.id.clone() } else { return };
+            let (task_id, from_team) = if let Screen::Detail { task, from_team, .. } = &self.screen {
+                (task.id.clone(), *from_team)
+            } else { return };
             let (pull_msg, pull_err) = match self.repo.as_ref().map(|r| r.pull()) {
                 Some(r) => classify_pull_result(r),
                 None    => (None, Some("No repo connected.".to_string())),
             };
             self.pull_error = pull_err;
-            self.enter_task_list(pull_msg, Some(&task_id));
+            if from_team { self.enter_team_view(); } else { self.enter_task_list(pull_msg, Some(&task_id)); }
             return;
         }
-        let (task_id, field, task_type, task_status, task_priority, task_blocked, title, desc) =
+        let (task_id, field, task_type, task_status, task_priority, task_blocked, title, desc, from_team) =
             match &self.screen {
-                Screen::Detail { task, selected_field, .. } => (
+                Screen::Detail { task, selected_field, from_team, .. } => (
                     task.id.clone(), *selected_field,
                     task.task_type.clone(), task.status.clone(),
                     task.priority.clone(), task.blocked,
                     task.title.clone(), task.description.clone().unwrap_or_default(),
+                    *from_team,
                 ),
                 _ => return,
             };
         if is_key(&key, &km.back) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
-            self.enter_task_list(None, Some(&task_id)); return;
+            if from_team { self.enter_team_view(); } else { self.enter_task_list(None, Some(&task_id)); }
+            return;
         }
         if is_key(&key, &km.edit) {
-            self.do_detail_edit(task_id, title, desc); return;
+            self.do_detail_edit(task_id, title, desc, from_team); return;
         }
         if matches!(key.code, KeyCode::Char('w') | KeyCode::Up) && key.modifiers == KeyModifiers::NONE {
             if let Screen::Detail { selected_field, .. } = &mut self.screen { *selected_field = selected_field.prev(); }
@@ -450,7 +457,7 @@ impl App {
         }
     }
 
-    fn do_detail_edit(&mut self, id: String, title: String, desc: String) {
+    fn do_detail_edit(&mut self, id: String, title: String, desc: String, from_team: bool) {
         let ctx = self.context;
         let edited = edit_task_in_editor(&title, &desc);
         self.needs_clear = true;
@@ -463,7 +470,9 @@ impl App {
                 Ok(_)  => "Task updated.".to_string(),
                 Err(e) => e.to_string(),
             });
-            self.enter_task_list(msg, Some(&id));
+            if from_team { self.enter_team_view(); } else { self.enter_task_list(msg, Some(&id)); }
+        } else if from_team {
+            self.enter_team_view();
         } else {
             self.enter_task_list(None, Some(&id));
         }
@@ -885,6 +894,16 @@ impl App {
             if let Screen::TeamView { selected, .. } = &mut self.screen { *selected = 0; }
             return;
         }
+        if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::NONE {
+            let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
+            let task = if let Screen::TeamView { tasks, selected } = &self.screen {
+                tasks.iter().filter(|(_, t)| f.is_empty() || task_matches(t, &f)).nth(*selected).map(|(_, t)| t.clone())
+            } else { None };
+            if let Some(t) = task {
+                self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_team: true };
+            }
+            return;
+        }
         let Screen::TeamView { tasks, selected } = &mut self.screen else { return };
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let visible_count = tasks.iter().filter(|(_, t)| f.is_empty() || task_matches(t, &f)).count();
@@ -898,7 +917,7 @@ impl App {
             KeyCode::Char('/') if key.modifiers == KeyModifiers::NONE => {
                 self.filter_active = true; self.filter.clear(); *selected = 0;
             }
-            KeyCode::Char('t') | KeyCode::Char('a') | KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Char('t') => {
                 self.filter.clear(); self.filter_active = false;
                 self.enter_task_list(None, None);
             }
