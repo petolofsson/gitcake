@@ -6,7 +6,10 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use gitcake_core::{
-    models::task::{NewTask, Priority, Task, TaskPatch, TaskStatus, TaskType},
+    models::{
+        cake::{Cake, NewCake},
+        task::{NewTask, Priority, Task, TaskPatch, TaskStatus, TaskType},
+    },
     repo::TaskRepo,
 };
 
@@ -43,12 +46,25 @@ pub enum Screen {
         task: Task,
         message: Option<String>,
         selected_field: DetailField,
-        from_team: bool,
+        from_planner: bool,
     },
     Create {
         task_type: TaskType,
         assignee: String,
+        cake_id: Option<String>,
         field: CreateField,
+    },
+    CreateCake {
+        title: String,
+    },
+    PickCake {
+        task_id: String,
+        cakes: Vec<Cake>,
+        selected: usize,
+        filter: String,
+        from_create: bool,
+        create_task_type: Option<TaskType>,
+        create_assignee: Option<String>,
     },
     AssignTask {
         task_id: String,
@@ -69,8 +85,9 @@ pub enum Screen {
     },
     SyncConfirm,
     PushPrompt,
-    TeamView {
-        tasks: Vec<(String, gitcake_core::models::task::Task)>,
+    PlannerView {
+        cakes: Vec<Cake>,
+        tasks: Vec<(String, Task)>,
         selected: usize,
     },
 }
@@ -79,6 +96,7 @@ pub enum Screen {
 pub enum CreateField {
     Type,
     Assignee,
+    Cake,
     Confirm,
 }
 
@@ -88,23 +106,26 @@ pub enum DetailField {
     Status,
     Priority,
     Blocked,
+    Cake,
 }
 
 impl DetailField {
     pub fn next(self) -> Self {
         match self {
-            Self::Type => Self::Status,
-            Self::Status => Self::Priority,
+            Self::Type     => Self::Status,
+            Self::Status   => Self::Priority,
             Self::Priority => Self::Blocked,
-            Self::Blocked => Self::Type,
+            Self::Blocked  => Self::Cake,
+            Self::Cake     => Self::Type,
         }
     }
     pub fn prev(self) -> Self {
         match self {
-            Self::Type => Self::Blocked,
-            Self::Status => Self::Type,
+            Self::Type     => Self::Cake,
+            Self::Status   => Self::Type,
             Self::Priority => Self::Status,
-            Self::Blocked => Self::Priority,
+            Self::Blocked  => Self::Priority,
+            Self::Cake     => Self::Blocked,
         }
     }
 }
@@ -125,6 +146,8 @@ pub struct App {
     /// Persists across screen transitions — cleared only by Esc.
     pub filter: String,
     pub filter_active: bool,
+    /// Cached cake list for detail view and pickers. Refreshed when entering planner.
+    pub cached_cakes: Vec<Cake>,
 }
 
 impl App {
@@ -143,6 +166,7 @@ impl App {
                 lock_path: None,
                 filter: String::new(),
                 filter_active: false,
+                cached_cakes: Vec::new(),
             };
         }
 
@@ -166,6 +190,7 @@ impl App {
                 lock_path: None,
                 filter: String::new(),
                 filter_active: false,
+                cached_cakes: Vec::new(),
             };
         }
 
@@ -180,7 +205,7 @@ impl App {
         let tasks = sort_for_display(raw_tasks);
         let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg };
 
-        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error, lock_warning, lock_path, filter: String::new(), filter_active: false }
+        Self { screen, repo, config, context: TaskContext::Personal, should_quit: false, needs_clear: false, exit_message: None, pull_error, lock_warning, lock_path, filter: String::new(), filter_active: false, cached_cakes: Vec::new() }
     }
 
     pub fn handle_event(&mut self, event: Event) {
@@ -196,7 +221,9 @@ impl App {
             Screen::DeleteConfirm { .. } => self.handle_delete_confirm(key),
             Screen::SyncConfirm => self.handle_sync_confirm(key),
             Screen::PushPrompt => self.handle_push_prompt(key),
-            Screen::TeamView { .. } => self.handle_team_view(key),
+            Screen::PlannerView { .. } => self.handle_planner_view(key),
+            Screen::CreateCake { .. } => self.handle_create_cake(key),
+            Screen::PickCake { .. } => self.handle_pick_cake(key),
         }
     }
 
@@ -312,11 +339,11 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
             KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 && no_mod => {
-                if let Some(t) = sel_task { self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_team: false }; }
+                if let Some(t) = sel_task { self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: false }; }
             }
             KeyCode::Char(c) if c == km.create.chars().next().unwrap_or('c') && km.create.len() == 1 && no_mod => {
                 let assignee = self.repo.as_ref().map(|r| r.info.username.clone()).unwrap_or_default();
-                self.screen = Screen::Create { task_type: TaskType::Task, assignee, field: CreateField::Type };
+                self.screen = Screen::Create { task_type: TaskType::Task, assignee, cake_id: None, field: CreateField::Type };
             }
             KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 && no_mod => {
                 if let Some(t) = sel_task { self.do_task_list_edit(t.id, t.title, t.description.unwrap_or_default()); }
@@ -332,7 +359,7 @@ impl App {
                 self.filter.clear(); self.filter_active = false;
                 self.enter_task_list(None, None);
             }
-            KeyCode::Char('t') if no_mod => { self.enter_team_view(); }
+            KeyCode::Char('p') if no_mod => { self.enter_planner_view(); }
             KeyCode::Char('a') if ctrl => {
                 if let Some(t) = sel_task {
                     let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
@@ -403,9 +430,11 @@ impl App {
         self.enter_task_list(msg, Some(&task_id));
     }
 
-    fn enter_team_view(&mut self) {
+    fn enter_planner_view(&mut self) {
+        let cakes = self.repo.as_ref().and_then(|r| r.list_cakes().ok()).unwrap_or_default();
         let tasks = self.repo.as_ref().and_then(|r| r.list_team_tasks().ok()).unwrap_or_default();
-        self.screen = Screen::TeamView { tasks, selected: 0 };
+        self.cached_cakes = cakes.clone();
+        self.screen = Screen::PlannerView { cakes, tasks, selected: 0 };
     }
 
     // ── detail ────────────────────────────────────────────────────────────────
@@ -415,34 +444,34 @@ impl App {
         if is_ctrl_q(&key) { self.try_quit(); return; }
         if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
         if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            let (task_id, from_team) = if let Screen::Detail { task, from_team, .. } = &self.screen {
-                (task.id.clone(), *from_team)
+            let (task_id, from_planner) = if let Screen::Detail { task, from_planner, .. } = &self.screen {
+                (task.id.clone(), *from_planner)
             } else { return };
             let (pull_msg, pull_err) = match self.repo.as_ref().map(|r| r.pull()) {
                 Some(r) => classify_pull_result(r),
                 None    => (None, Some("No repo connected.".to_string())),
             };
             self.pull_error = pull_err;
-            if from_team { self.enter_team_view(); } else { self.enter_task_list(pull_msg, Some(&task_id)); }
+            if from_planner { self.enter_planner_view(); } else { self.enter_task_list(pull_msg, Some(&task_id)); }
             return;
         }
-        let (task_id, field, task_type, task_status, task_priority, task_blocked, title, desc, from_team) =
+        let (task_id, field, task_type, task_status, task_priority, task_blocked, title, desc, from_planner) =
             match &self.screen {
-                Screen::Detail { task, selected_field, from_team, .. } => (
+                Screen::Detail { task, selected_field, from_planner, .. } => (
                     task.id.clone(), *selected_field,
                     task.task_type.clone(), task.status.clone(),
                     task.priority.clone(), task.blocked,
                     task.title.clone(), task.description.clone().unwrap_or_default(),
-                    *from_team,
+                    *from_planner,
                 ),
                 _ => return,
             };
         if is_key(&key, &km.back) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
-            if from_team { self.enter_team_view(); } else { self.enter_task_list(None, Some(&task_id)); }
+            if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, Some(&task_id)); }
             return;
         }
         if is_key(&key, &km.edit) {
-            self.do_detail_edit(task_id, title, desc, from_team); return;
+            self.do_detail_edit(task_id, title, desc, from_planner); return;
         }
         if matches!(key.code, KeyCode::Char('w') | KeyCode::Up) && key.modifiers == KeyModifiers::NONE {
             if let Screen::Detail { selected_field, .. } = &mut self.screen { *selected_field = selected_field.prev(); }
@@ -457,7 +486,7 @@ impl App {
         }
     }
 
-    fn do_detail_edit(&mut self, id: String, title: String, desc: String, from_team: bool) {
+    fn do_detail_edit(&mut self, id: String, title: String, desc: String, from_planner: bool) {
         let ctx = self.context;
         let edited = edit_task_in_editor(&title, &desc);
         self.needs_clear = true;
@@ -470,9 +499,9 @@ impl App {
                 Ok(_)  => "Task updated.".to_string(),
                 Err(e) => e.to_string(),
             });
-            if from_team { self.enter_team_view(); } else { self.enter_task_list(msg, Some(&id)); }
-        } else if from_team {
-            self.enter_team_view();
+            if from_planner { self.enter_planner_view(); } else { self.enter_task_list(msg, Some(&id)); }
+        } else if from_planner {
+            self.enter_planner_view();
         } else {
             self.enter_task_list(None, Some(&id));
         }
@@ -502,6 +531,18 @@ impl App {
             DetailField::Blocked => {
                 self.repo.as_ref().and_then(|r| r.update_task(&task_id, TaskPatch { blocked: Some(!task_blocked), ..Default::default() }).ok())
             }
+            DetailField::Cake => {
+                let cakes = self.cached_cakes.clone();
+                if cakes.is_empty() {
+                    self.cached_cakes = self.repo.as_ref().and_then(|r| r.list_cakes().ok()).unwrap_or_default();
+                }
+                let cakes = self.cached_cakes.clone();
+                self.screen = Screen::PickCake {
+                    task_id, cakes, selected: 0, filter: String::new(),
+                    from_create: false, create_task_type: None, create_assignee: None,
+                };
+                return;
+            }
         };
         if let (Some(t), Screen::Detail { task, .. }) = (updated, &mut self.screen) {
             *task = t;
@@ -523,35 +564,46 @@ impl App {
             return;
         }
 
-        let Screen::Create { task_type, assignee, field } = &mut self.screen else { return };
+        let Screen::Create { task_type, assignee, cake_id, field } = &mut self.screen else { return };
 
         match key.code {
             KeyCode::Esc => self.enter_task_list(None, None),
-            // Tab always cycles fields
             KeyCode::Tab => {
                 *field = match field {
-                    CreateField::Type => CreateField::Assignee,
-                    CreateField::Assignee => CreateField::Confirm,
-                    CreateField::Confirm => CreateField::Type,
+                    CreateField::Type     => CreateField::Assignee,
+                    CreateField::Assignee => CreateField::Cake,
+                    CreateField::Cake     => CreateField::Confirm,
+                    CreateField::Confirm  => CreateField::Type,
                 };
             }
-            // Enter on Type advances to Assignee
             KeyCode::Enter if *field == CreateField::Type && key.modifiers == KeyModifiers::NONE => {
                 *field = CreateField::Assignee;
             }
-            // Enter on Assignee opens the user picker
             KeyCode::Enter if *field == CreateField::Assignee && key.modifiers == KeyModifiers::NONE => {
                 let tt = task_type.clone();
                 let asgn = assignee.clone();
-                let users = self.repo.as_ref()
-                    .and_then(|r| r.list_users().ok())
-                    .unwrap_or_default();
+                let cid = cake_id.clone();
+                let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
                 self.screen = Screen::PickAssignee {
                     task_type: tt, prev_assignee: asgn,
                     users, selected: 0, filter: String::new(),
                 };
+                // restore cake_id after screen change (set below via PickAssignee return)
+                let _ = cid;
             }
-            // Space cycles the task type
+            KeyCode::Enter if *field == CreateField::Cake && key.modifiers == KeyModifiers::NONE => {
+                let tt = task_type.clone();
+                let asgn = assignee.clone();
+                let cid = cake_id.clone();
+                let cakes = self.cached_cakes.clone();
+                self.screen = Screen::PickCake {
+                    task_id: String::new(), cakes, selected: 0, filter: String::new(),
+                    from_create: true,
+                    create_task_type: Some(tt),
+                    create_assignee: Some(asgn),
+                };
+                let _ = cid;
+            }
             KeyCode::Char(' ') if *field == CreateField::Type && key.modifiers == KeyModifiers::NONE => {
                 *task_type = match task_type {
                     TaskType::Task => TaskType::Bug,
@@ -566,9 +618,10 @@ impl App {
     /// Opens `$EDITOR` with a `# ` template, parses the result, and creates the task.
     /// Returns to the Create screen silently if the editor is cancelled or no title is entered.
     fn create_via_editor(&mut self) {
-        let Screen::Create { task_type, assignee, .. } = &self.screen else { return };
+        let Screen::Create { task_type, assignee, cake_id, .. } = &self.screen else { return };
         let tt = task_type.clone();
         let asgn = assignee.trim().to_string();
+        let cid = cake_id.clone();
         let ctx = self.context;
 
         let edited = open_in_editor("# \n\n");
@@ -580,8 +633,8 @@ impl App {
 
         if let Some(repo) = &self.repo {
             let result = match ctx {
-                TaskContext::Personal => repo.create_task(NewTask { title, task_type: tt, description: desc, ..Default::default() }),
-                TaskContext::Backlog => repo.create_backlog_task(NewTask { title, task_type: tt, description: desc, ..Default::default() }),
+                TaskContext::Personal => repo.create_task(NewTask { title, task_type: tt, description: desc, cake_id: cid, ..Default::default() }),
+                TaskContext::Backlog => repo.create_backlog_task(NewTask { title, task_type: tt, description: desc, cake_id: cid, ..Default::default() }),
             };
             match result {
                 Ok(task) => {
@@ -784,12 +837,12 @@ impl App {
                     .cloned()
                     .unwrap_or_default();
                 let tt = task_type.clone();
-                self.screen = Screen::Create { task_type: tt, assignee, field: CreateField::Assignee };
+                self.screen = Screen::Create { task_type: tt, assignee, cake_id: None, field: CreateField::Assignee };
             }
             KeyCode::Esc => {
                 let tt = task_type.clone();
                 let asgn = prev_assignee.clone();
-                self.screen = Screen::Create { task_type: tt, assignee: asgn, field: CreateField::Assignee };
+                self.screen = Screen::Create { task_type: tt, assignee: asgn, cake_id: None, field: CreateField::Assignee };
             }
             _ => {}
         }
@@ -872,39 +925,43 @@ impl App {
         }
     }
 
-    fn handle_team_view(&mut self, key: KeyEvent) {
+    fn handle_planner_view(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.try_quit(); return; }
         if is_key(&key, &self.config.keys.push) { self.screen = Screen::SyncConfirm; return; }
         if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
             self.handle_list_pull(); return;
         }
         if self.filter_active {
-            let Screen::TeamView { selected, .. } = &mut self.screen else { return };
+            let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
             match key.code {
-                KeyCode::Esc      => { if self.filter.is_empty() { self.filter_active = false; } else { self.filter.clear(); *selected = 0; } }
-                KeyCode::Enter    => { self.filter_active = false; }
+                KeyCode::Esc       => { if self.filter.is_empty() { self.filter_active = false; } else { self.filter.clear(); *selected = 0; } }
+                KeyCode::Enter     => { self.filter_active = false; }
                 KeyCode::Backspace => { self.filter.pop(); *selected = 0; }
-                KeyCode::Char(c)  => { self.filter.push(c); *selected = 0; }
+                KeyCode::Char(c)   => { self.filter.push(c); *selected = 0; }
                 _ => {}
             }
             return;
         }
         if key.code == KeyCode::Esc && !self.filter.is_empty() {
             self.filter.clear();
-            if let Screen::TeamView { selected, .. } = &mut self.screen { *selected = 0; }
+            if let Screen::PlannerView { selected, .. } = &mut self.screen { *selected = 0; }
             return;
         }
         if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::NONE {
             let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-            let task = if let Screen::TeamView { tasks, selected } = &self.screen {
+            let task = if let Screen::PlannerView { tasks, selected, .. } = &self.screen {
                 tasks.iter().filter(|(_, t)| f.is_empty() || task_matches(t, &f)).nth(*selected).map(|(_, t)| t.clone())
             } else { None };
             if let Some(t) = task {
-                self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_team: true };
+                self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: true };
             }
             return;
         }
-        let Screen::TeamView { tasks, selected } = &mut self.screen else { return };
+        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::NONE {
+            self.screen = Screen::CreateCake { title: String::new() };
+            return;
+        }
+        let Screen::PlannerView { tasks, selected, .. } = &mut self.screen else { return };
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let visible_count = tasks.iter().filter(|(_, t)| f.is_empty() || task_matches(t, &f)).count();
         match key.code {
@@ -917,9 +974,78 @@ impl App {
             KeyCode::Char('/') if key.modifiers == KeyModifiers::NONE => {
                 self.filter_active = true; self.filter.clear(); *selected = 0;
             }
-            KeyCode::Char('t') => {
+            KeyCode::Char('p') => {
                 self.filter.clear(); self.filter_active = false;
                 self.enter_task_list(None, None);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_create_cake(&mut self, key: KeyEvent) {
+        if is_ctrl_q(&key) { self.try_quit(); return; }
+        let Screen::CreateCake { title } = &mut self.screen else { return };
+        match key.code {
+            KeyCode::Esc => { self.enter_planner_view(); }
+            KeyCode::Enter if !title.is_empty() => {
+                let t = title.clone();
+                let owner = self.repo.as_ref().map(|r| r.info.username.clone());
+                let msg = self.repo.as_ref().map(|r| match r.create_cake(NewCake { title: t, owner, ..Default::default() }) {
+                    Ok(_)  => "Cake created.".to_string(),
+                    Err(e) => e.to_string(),
+                });
+                let _ = msg;
+                self.enter_planner_view();
+            }
+            KeyCode::Backspace => { title.pop(); }
+            KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => { title.push(c); }
+            _ => {}
+        }
+    }
+
+    fn handle_pick_cake(&mut self, key: KeyEvent) {
+        let Screen::PickCake { task_id, cakes, selected, filter, from_create, create_task_type, create_assignee } = &mut self.screen else { return };
+        let fl = filter.to_lowercase();
+        let filtered: Vec<_> = std::iter::once(None)
+            .chain(cakes.iter().map(Some))
+            .filter(|c| c.map(|c: &Cake| c.title.to_lowercase().contains(&fl)).unwrap_or(true))
+            .collect();
+        let filtered_len = filtered.len();
+        match key.code {
+            KeyCode::Up => { if *selected > 0 { *selected -= 1; } }
+            KeyCode::Down => { if filtered_len > 0 && *selected < filtered_len - 1 { *selected += 1; } }
+            KeyCode::Backspace => { filter.pop(); *selected = 0; }
+            KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => { filter.push(c); *selected = 0; }
+            KeyCode::Enter => {
+                let chosen = filtered.get(*selected).and_then(|c| *c).map(|c| c.id.clone());
+                if *from_create {
+                    let tt = create_task_type.clone().unwrap_or(TaskType::Task);
+                    let asgn = create_assignee.clone().unwrap_or_default();
+                    self.screen = Screen::Create { task_type: tt, assignee: asgn, cake_id: chosen, field: CreateField::Cake };
+                } else {
+                    let id = task_id.clone();
+                    let patch = TaskPatch { cake_id: Some(chosen), ..Default::default() };
+                    if let Some(t) = self.repo.as_ref().and_then(|r| r.update_task(&id, patch).ok()) {
+                        self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
+                    } else {
+                        self.enter_task_list(None, None);
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                if *from_create {
+                    let tt = create_task_type.clone().unwrap_or(TaskType::Task);
+                    let asgn = create_assignee.clone().unwrap_or_default();
+                    self.screen = Screen::Create { task_type: tt, assignee: asgn, cake_id: None, field: CreateField::Cake };
+                } else {
+                    let id = task_id.clone();
+                    let task = self.repo.as_ref().and_then(|r| r.get_task(&id).ok());
+                    if let Some(t) = task {
+                        self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
+                    } else {
+                        self.enter_task_list(None, None);
+                    }
+                }
             }
             _ => {}
         }

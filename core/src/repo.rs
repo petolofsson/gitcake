@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 
 use crate::{
+    cake_file,
     error::AppError,
     git::GitRepo,
     models::{
+        cake::{Cake, NewCake},
         config::{RepoConfig, RepoInfo},
         task::{NewTask, Task, TaskPatch, TaskStatus, TaskType},
     },
@@ -127,6 +129,7 @@ impl TaskRepo {
             blocked: false,
             order: args.order,
             parent_id: args.parent_id,
+            cake_id: args.cake_id,
             bites: Vec::new(),
             crumbs: Vec::new(),
         };
@@ -153,6 +156,7 @@ impl TaskRepo {
             blocked: false,
             order: args.order,
             parent_id: args.parent_id,
+            cake_id: args.cake_id,
             bites: Vec::new(),
             crumbs: Vec::new(),
         };
@@ -171,6 +175,7 @@ impl TaskRepo {
         if let Some(b) = patch.blocked     { task.blocked     = b; }
         if let Some(o) = patch.order       { task.order       = o; }
         if let Some(p) = patch.parent_id   { task.parent_id   = p; }
+        if let Some(c) = patch.cake_id     { task.cake_id     = c; }
         task_file::write_task(&path, &task)?;
         Ok(task)
     }
@@ -233,13 +238,41 @@ impl TaskRepo {
     pub fn push(&self) -> Result<String, AppError> {
         let root = Path::new(&self.info.path);
         let msg = format!("gitcake: {}", self.info.username);
-        for folder in ["tasks", "bugs", "incidents"] {
+        for folder in ["tasks", "bugs", "incidents", "cakes"] {
             if root.join(folder).exists() {
                 self.git.stage(folder)?;
             }
         }
         self.git.commit_staged(&msg)?;
         self.git.push()
+    }
+
+    // ── cake operations ───────────────────────────────────────────────────────
+
+    pub fn list_cakes(&self) -> Result<Vec<Cake>, AppError> {
+        let folder = Path::new(&self.info.path).join("cakes");
+        let (cakes, _) = cake_file::scan_cakes(&folder);
+        Ok(cakes)
+    }
+
+    pub fn create_cake(&self, args: NewCake) -> Result<Cake, AppError> {
+        let folder = Path::new(&self.info.path).join("cakes");
+        fs::create_dir_all(&folder)?;
+        let id = hex_id(&folder);
+        let cake = Cake {
+            id: id.clone(),
+            title: args.title,
+            created: Local::now().naive_local(),
+            owner: args.owner,
+            description: args.description,
+        };
+        cake_file::write_cake(&folder.join(format!("{id}.md")), &cake)?;
+        Ok(cake)
+    }
+
+    pub fn get_cake(&self, id: &str) -> Result<Cake, AppError> {
+        let path = Path::new(&self.info.path).join("cakes").join(format!("{id}.md"));
+        cake_file::read_cake(&path)
     }
 
     /// Alias — backlog lives in the same type folders.
@@ -528,6 +561,7 @@ fn migrate_folder(
             blocked: false,
             order: None,
             parent_id: None,
+            cake_id: None,
             bites: Vec::new(),
             crumbs: Vec::new(),
         };

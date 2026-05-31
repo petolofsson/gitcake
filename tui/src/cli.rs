@@ -242,6 +242,7 @@ pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
                     blocked,
                     order,
                     parent_id,
+                    cake_id: None,
                 })
                 .map_err(|e| e.to_string())?;
             println!("{}: updated", task.id);

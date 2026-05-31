@@ -31,6 +31,8 @@ struct Frontmatter {
     order: Option<u32>,
     #[serde(default)]
     parent: Option<String>,
+    #[serde(default)]
+    cake_id: Option<String>,
 }
 
 /// V1 frontmatter used only during migration. Reads the old `type:` and `assignee:` fields.
@@ -125,6 +127,7 @@ fn parse_task_content(content: &str, task_type: TaskType) -> Result<Task, AppErr
         blocked: fm.blocked,
         order: fm.order,
         parent_id: fm.parent,
+        cake_id: fm.cake_id,
         bites,
         crumbs,
     })
@@ -179,9 +182,12 @@ fn serialize_task(task: &Task) -> String {
     let parent_line = task.parent_id.as_deref()
         .map(|p| format!("parent: {}\n", yaml_str(p)))
         .unwrap_or_default();
+    let cake_line = task.cake_id.as_deref()
+        .map(|c| format!("cake_id: {}\n", yaml_str(c)))
+        .unwrap_or_default();
 
     let mut out = format!(
-        "---\nid: {}\ntitle: {}\nstatus: {}\ncreated: {}\ndone: {}\n{}{}{}{}{}---\n",
+        "---\nid: {}\ntitle: {}\nstatus: {}\ncreated: {}\ndone: {}\n{}{}{}{}{}{}---\n",
         yaml_str(&task.id),
         yaml_str(&task.title),
         status_str,
@@ -192,6 +198,7 @@ fn serialize_task(task: &Task) -> String {
         blocked_line,
         order_line,
         parent_line,
+        cake_line,
     );
 
     if let Some(desc) = &task.description {

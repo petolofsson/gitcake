@@ -157,6 +157,7 @@ impl GitcakeMcp {
             priority,
             order: args.order,
             parent_id: args.parent_id,
+            cake_id: None,
         }).map_err(mcp_err)?;
         if let Some(username) = args.assignee {
             task = self.repo.assign_task(&task.id, Some(username)).map_err(mcp_err)?;
@@ -185,6 +186,7 @@ impl GitcakeMcp {
             blocked: args.blocked,
             order,
             parent_id,
+            cake_id: None,
         }).map_err(mcp_err)?;
         let json = serde_json::to_string_pretty(&task).map_err(|e| mcp_err_str(e.to_string()))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))

@@ -1,3 +1,4 @@
+pub mod cake_file;
 pub mod error;
 pub mod git;
 pub mod models;

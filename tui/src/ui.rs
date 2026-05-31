@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use gitcake_core::models::task::{Priority, Task, TaskStatus, TaskType};
+use gitcake_core::models::{cake::Cake, task::{Priority, Task, TaskStatus, TaskType}};
 
 use crate::app::{App, CreateField, DetailField, Screen, TaskContext};
 
@@ -37,18 +37,20 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_task_list(f, task_list_params(app, tasks, *selected, message.as_deref()))
         }
         Screen::Detail { task, message, selected_field, .. } => {
-            draw_detail(f, app.context, task, message.as_deref(), *selected_field);
+            draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes);
         }
-        Screen::Create { task_type, assignee, field } => {
-            draw_create(f, app.context, task_type, assignee, field)
+        Screen::Create { task_type, assignee, cake_id, field } => {
+            draw_create(f, app.context, task_type, assignee, cake_id.as_deref(), &app.cached_cakes, field)
         }
+        Screen::CreateCake { title } => draw_create_cake(f, title),
+        Screen::PickCake { cakes, selected, filter, .. } => draw_pick_cake(f, cakes, *selected, filter),
         Screen::AssignTask { users, selected, filter, .. } => draw_assign_task(f, users, *selected, filter),
         Screen::PickAssignee { users, selected, filter, .. } => draw_pick_assignee(f, users, *selected, filter),
 
         Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title, app.context),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context),
         Screen::PushPrompt => draw_push_prompt(f),
-        Screen::TeamView { tasks, selected } => draw_team_view(f, app, tasks, *selected),
+        Screen::PlannerView { cakes, tasks, selected } => draw_planner_view(f, app, cakes, tasks, *selected),
     }
 }
 
@@ -348,7 +350,7 @@ fn bite_progress(bites: &[gitcake_core::models::task::Bite]) -> Option<String> {
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField) {
+fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField, cakes: &[Cake]) {
     let area = f.area();
     let block = Block::default()
         .title(Line::from(vec![Span::raw(" Task "), Span::styled(task.id.clone(), Style::new().add_modifier(Modifier::BOLD)), Span::raw(" ")]))
@@ -359,15 +361,16 @@ fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Opti
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Fill(1),   Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
+        Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
-    render_detail_fields(f, &rows, task, selected);
-    render_detail_desc(f, rows[10], task);
-    f.render_widget(Paragraph::new(detail_nav_bar()), rows[11]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[12]);
+    render_detail_fields(f, &rows, task, selected, cakes);
+    render_detail_desc(f, rows[11], task);
+    f.render_widget(Paragraph::new(detail_nav_bar()), rows[12]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[13]);
 }
 
-fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField) {
+fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField, cakes: &[Cake]) {
     let dim  = Style::new().add_modifier(Modifier::DIM);
     let bold = Style::new().add_modifier(Modifier::BOLD);
     let cyan = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
@@ -389,17 +392,23 @@ fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: Det
         Priority::Normal => Style::new(), Priority::Low => dim,
     };
     let blocked_style = if task.blocked { Style::new().fg(Color::Red).add_modifier(Modifier::BOLD) } else { dim };
+    let cake_title = task.cake_id.as_deref()
+        .and_then(|id| cakes.iter().find(|c| c.id == id))
+        .map(|c| c.title.as_str())
+        .unwrap_or("none");
+    let cake_style = if task.cake_id.is_some() { bold } else { dim };
     render_field(f, rows[1], DetailField::Type,     "TYPE:",     type_label(&task.task_type), bold);
     render_field(f, rows[2], DetailField::Status,   "STATUS:",   status_label(&task.status),  status_style);
     render_field(f, rows[3], DetailField::Priority, "PRIORITY:", priority_label(&task.priority), priority_style);
     render_field(f, rows[4], DetailField::Blocked,  "BLOCKED:",  if task.blocked { "yes" } else { "no" }, blocked_style);
+    render_field(f, rows[5], DetailField::Cake,     "CAKE:",     cake_title, cake_style);
     let file_path = format!("{}s/{}.md", type_label(&task.task_type), task.id);
     let ro = |label: &str, value: String| Paragraph::new(Line::from(vec![
         Span::raw("  "), Span::styled(format!("{:<10}", label), bold), Span::styled(value, dim),
     ]));
-    f.render_widget(ro("FILE:",    file_path), rows[5]);
-    f.render_widget(ro("CREATED:", task.created.format("%Y-%m-%d %H:%M").to_string()), rows[6]);
-    f.render_widget(ro("TITLE:",   task.title.clone()), rows[8]);
+    f.render_widget(ro("FILE:",    file_path), rows[6]);
+    f.render_widget(ro("CREATED:", task.created.format("%Y-%m-%d %H:%M").to_string()), rows[7]);
+    f.render_widget(ro("TITLE:",   task.title.clone()), rows[9]);
 }
 
 fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task) {
@@ -432,7 +441,7 @@ fn desc_line_render(line: &str) -> Line<'static> {
 
 // ── create ────────────────────────────────────────────────────────────────────
 
-fn draw_create(f: &mut Frame, context: TaskContext, task_type: &TaskType, assignee: &str, field: &CreateField) {
+fn draw_create(f: &mut Frame, context: TaskContext, task_type: &TaskType, assignee: &str, cake_id: Option<&str>, cakes: &[Cake], field: &CreateField) {
     let area = f.area();
     let block = padded_block("New task");
     let inner = block.inner(area);
@@ -440,20 +449,21 @@ fn draw_create(f: &mut Frame, context: TaskContext, task_type: &TaskType, assign
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Fill(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
         Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
     draw_create_type_field(f, rows[0], rows[1], task_type, *field == CreateField::Type);
     draw_create_assign_field(f, rows[3], rows[4], assignee, *field == CreateField::Assignee);
+    draw_create_cake_field(f, rows[5], rows[6], cake_id, cakes, *field == CreateField::Cake);
     let confirm_active = *field == CreateField::Confirm;
     let confirm_label = if confirm_active {
         "↵ CREATE TASK  Enter: open editor — write '# Title' on the first line"
     } else {
         "↵ CREATE TASK  (Tab to reach, Enter to open editor)"
     };
-    draw_field_label(f, rows[6], confirm_label, confirm_active);
-    f.render_widget(Paragraph::new(nav_bar(context)), rows[8]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
+    draw_field_label(f, rows[7], confirm_label, confirm_active);
+    f.render_widget(Paragraph::new(nav_bar(context)), rows[9]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[10]);
 }
 
 fn draw_create_type_field(f: &mut Frame, label_row: Rect, val_row: Rect, task_type: &TaskType, active: bool) {
@@ -469,20 +479,62 @@ fn draw_create_assign_field(f: &mut Frame, label_row: Rect, val_row: Rect, assig
     f.render_widget(Paragraph::new(text).style(style), val_row);
 }
 
-// ── team view ─────────────────────────────────────────────────────────────────
+fn draw_create_cake_field(f: &mut Frame, label_row: Rect, val_row: Rect, cake_id: Option<&str>, cakes: &[Cake], active: bool) {
+    draw_field_label(f, label_row, "CAKE:", active);
+    let title = cake_id
+        .and_then(|id| cakes.iter().find(|c| c.id == id))
+        .map(|c| c.title.as_str())
+        .unwrap_or("none");
+    let text = if active { format!("{title}  ← Enter to pick") } else { title.to_string() };
+    let style = if active { Style::new().fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
+    f.render_widget(Paragraph::new(text).style(style), val_row);
+}
 
-fn draw_team_view(f: &mut Frame, app: &App, tasks: &[(String, Task)], selected: usize) {
+fn draw_create_cake(f: &mut Frame, title: &str) {
     let area = f.area();
-    let block = padded_block("gitcake · TEAM ");
+    let block = padded_block("New cake");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let rows = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
+        Constraint::Length(1),
+    ]).split(inner);
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled("TITLE:", Style::new().add_modifier(Modifier::BOLD)),
+    ])), rows[0]);
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::raw(title),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+    ])).style(Style::new().fg(Color::Cyan)), rows[1]);
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled("  Enter: create  ", dim),
+        Span::styled("  Esc: cancel", dim),
+    ])), rows[3]);
+}
+
+fn draw_pick_cake(f: &mut Frame, cakes: &[Cake], selected: usize, filter: &str) {
+    let items: Vec<String> = std::iter::once("none".to_string())
+        .chain(cakes.iter().map(|c| c.title.clone()))
+        .filter(|t| filter.is_empty() || t.to_lowercase().contains(&filter.to_lowercase()))
+        .collect();
+    draw_user_picker(f, "Pick cake", &items, selected, filter);
+}
+
+// ── planner view ──────────────────────────────────────────────────────────────
+
+fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String, Task)], selected: usize) {
+    let area = f.area();
+    let block = padded_block("gitcake · PLANNER ");
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
     let inner_width = inner.width as usize;
-    let (items, index_map) = build_team_items(tasks, selected, &app.filter, inner_width);
+    let (items, index_map) = build_planner_items(cakes, tasks, selected, &app.filter, inner_width);
     if items.is_empty() {
-        let msg = if app.filter.is_empty() { "No active tasks from any team member." } else { "No tasks match the filter." };
+        let msg = if app.filter.is_empty() { "No active tasks. Create a cake with C." } else { "No tasks match the filter." };
         f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(Style::new().add_modifier(Modifier::DIM)), rows[0]);
     } else {
         let mut state = ListState::default();
@@ -490,46 +542,64 @@ fn draw_team_view(f: &mut Frame, app: &App, tasks: &[(String, Task)], selected: 
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
-    f.render_widget(Paragraph::new(bar_line(&[("WASD", "navigate"), ("T", "back")])), rows[3]);
+    f.render_widget(Paragraph::new(bar_line(&[("WASD", "navigate"), ("C", "cake"), ("P", "back")])), rows[3]);
     f.render_widget(Paragraph::new(ctrl_bar()), rows[4]);
 }
 
-fn build_team_items(tasks: &[(String, Task)], selected: usize, filter: &str, inner_width: usize) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
+fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, inner_width: usize) -> ListItem<'static> {
+    let is_sel = vis_idx == selected;
+    let in_prog = task.status == TaskStatus::InProgress;
+    let base = if in_prog { Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow) } else { Style::new() };
+    let cursor_style = if is_sel { Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
+    let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
+    let status_style = if in_prog { Style::new().fg(Color::Yellow) } else { Style::new().add_modifier(Modifier::DIM) };
+    let status_ind = if in_prog { "→ " } else { "· " };
+    let owner_str = format!("{:<12}  ", truncate_title(owner, 12));
+    let title_budget = inner_width.saturating_sub(2 + 14 + 2 + 10 + 2);
+    ListItem::new(Line::from(vec![
+        Span::styled(if is_sel { "▶ " } else { "  " }, cursor_style),
+        Span::styled(owner_str, row_style.add_modifier(Modifier::DIM)),
+        Span::styled(status_ind, if is_sel { row_style } else { status_style }),
+        Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_style.add_modifier(Modifier::DIM)),
+        Span::styled(truncate_title(&task.title, title_budget), row_style),
+    ]))
+}
+
+fn build_planner_items(cakes: &[Cake], tasks: &[(String, Task)], selected: usize, filter: &str, inner_width: usize) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
     use crate::app::task_matches;
     let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
     let is_vis = |t: &Task| f.is_empty() || task_matches(t, &f);
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
-    let mut seen_users: Vec<&str> = Vec::new();
-    for (user, task) in tasks {
-        if is_vis(task) && !seen_users.contains(&user.as_str()) { seen_users.push(user.as_str()); }
-    }
     let mut vis_idx = 0usize;
-    for user in seen_users {
-        let user_tasks: Vec<_> = tasks.iter().filter(|(u, t)| u.as_str() == user && is_vis(t)).collect();
-        if user_tasks.is_empty() { continue; }
-        items.push(ListItem::new(Line::from(Span::styled(format!(" {user}"), Style::new().add_modifier(Modifier::BOLD | Modifier::DIM)))));
+    let section_hdr = |title: &str| ListItem::new(Line::from(
+        Span::styled(format!(" {title}"), Style::new().add_modifier(Modifier::BOLD | Modifier::DIM))
+    ));
+    for cake in cakes {
+        let cake_tasks: Vec<_> = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && is_vis(t)).collect();
+        let total = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id)).count();
+        let done = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && t.status == TaskStatus::Done).count();
+        let progress = if total > 0 { format!("  {}/{}", total - done, total) } else { String::new() };
+        let hdr = format!(" {}{}", cake.title, progress);
+        items.push(ListItem::new(Line::from(Span::styled(hdr, Style::new().add_modifier(Modifier::BOLD | Modifier::DIM)))));
         index_map.push(None);
-        for (_, task) in user_tasks {
-            let is_sel = vis_idx == selected;
-            let in_prog = task.status == TaskStatus::InProgress;
-            let base = if in_prog { Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow) } else { Style::new() };
-            let cursor_style = if is_sel { Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
-            let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
-            let status_style = if in_prog { Style::new().fg(Color::Yellow) } else { Style::new().add_modifier(Modifier::DIM) };
-            let status_ind = if in_prog { "→ " } else { "· " };
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled(if is_sel { "▶ " } else { "  " }, cursor_style),
-                Span::styled(format!("{}  ", task.id), row_style.add_modifier(Modifier::DIM)),
-                Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_style.add_modifier(Modifier::DIM)),
-                Span::styled(status_ind, if is_sel { row_style } else { status_style }),
-                Span::styled(truncate_title(&task.title, inner_width.saturating_sub(24)), row_style),
-            ])));
+        for (owner, task) in &cake_tasks {
+            items.push(planner_task_row(task, owner, vis_idx, selected, inner_width));
             index_map.push(Some(vis_idx));
             vis_idx += 1;
         }
         items.push(ListItem::new(Line::from("")));
         index_map.push(None);
+    }
+    let standalone: Vec<_> = tasks.iter().filter(|(_, t)| t.cake_id.is_none() && is_vis(t)).collect();
+    if !standalone.is_empty() {
+        items.push(section_hdr("STANDALONE"));
+        index_map.push(None);
+        for (owner, task) in standalone {
+            items.push(planner_task_row(task, owner, vis_idx, selected, inner_width));
+            index_map.push(Some(vis_idx));
+            vis_idx += 1;
+        }
     }
     (items, index_map)
 }
@@ -724,7 +794,7 @@ fn nav_bar<'a>(context: TaskContext) -> Line<'a> {
         ("E", "edit"),
         ("F", f_label),
         ("B", b_label),
-        ("T", "team"),
+        ("P", "planner"),
     ];
     bar_line(items)
 }

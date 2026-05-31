@@ -60,6 +60,8 @@ pub struct Task {
     pub order: Option<u32>,
     /// ID of a parent slice; used to group subtasks under a parent.
     pub parent_id: Option<String>,
+    /// ID of the cake (epic) this slice belongs to. Optional.
+    pub cake_id: Option<String>,
     /// Parsed from description body at load time. Not stored in frontmatter.
     #[serde(skip)]
     pub bites: Vec<Bite>,
@@ -76,6 +78,7 @@ pub struct NewTask {
     pub priority: Priority,
     pub order: Option<u32>,
     pub parent_id: Option<String>,
+    pub cake_id: Option<String>,
 }
 
 /// Patch applied by `update_task`.
@@ -90,4 +93,5 @@ pub struct TaskPatch {
     pub blocked: Option<bool>,
     pub order: Option<Option<u32>>,
     pub parent_id: Option<Option<String>>,
+    pub cake_id: Option<Option<String>>,
 }
