@@ -1,6 +1,18 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bite {
+    pub text: String,
+    pub done: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Crumb {
+    pub text: String,
+    pub done: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum TaskType {
@@ -48,6 +60,11 @@ pub struct Task {
     pub order: Option<u32>,
     /// ID of a parent slice; used to group subtasks under a parent.
     pub parent_id: Option<String>,
+    /// Parsed from description body at load time. Not stored in frontmatter.
+    #[serde(skip)]
+    pub bites: Vec<Bite>,
+    #[serde(skip)]
+    pub crumbs: Vec<Crumb>,
 }
 
 /// Arguments for creating a new task. Use `..Default::default()` for optional fields.

@@ -127,6 +127,8 @@ impl TaskRepo {
             blocked: false,
             order: args.order,
             parent_id: args.parent_id,
+            bites: Vec::new(),
+            crumbs: Vec::new(),
         };
         task_file::write_task(&folder.join(format!("{id}.md")), &task)?;
         Ok(task)
@@ -151,6 +153,8 @@ impl TaskRepo {
             blocked: false,
             order: args.order,
             parent_id: args.parent_id,
+            bites: Vec::new(),
+            crumbs: Vec::new(),
         };
         task_file::write_task(&folder.join(format!("{id}.md")), &task)?;
         Ok(task)
@@ -524,6 +528,8 @@ fn migrate_folder(
             blocked: false,
             order: None,
             parent_id: None,
+            bites: Vec::new(),
+            crumbs: Vec::new(),
         };
         task_file::write_task(&dest, &task)?;
         let rel = rel_path(root, &dest);

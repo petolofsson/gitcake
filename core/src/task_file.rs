@@ -6,7 +6,7 @@ use gray_matter::{engine::YAML, Matter};
 use serde::Deserialize;
 
 use crate::error::AppError;
-use crate::models::task::{Priority, Task, TaskStatus, TaskType};
+use crate::models::task::{Bite, Crumb, Priority, Task, TaskStatus, TaskType};
 
 const DATETIME_FMT: &str = "%Y-%m-%dT%H:%M:%S";
 
@@ -105,6 +105,7 @@ fn parse_task_content(content: &str, task_type: TaskType) -> Result<Task, AppErr
 
     let body = parsed.content.trim().to_string();
     let description = if body.is_empty() { None } else { Some(body) };
+    let (bites, crumbs) = description.as_deref().map(parse_bites_crumbs).unwrap_or_default();
 
     Ok(Task {
         id: fm.id,
@@ -124,7 +125,26 @@ fn parse_task_content(content: &str, task_type: TaskType) -> Result<Task, AppErr
         blocked: fm.blocked,
         order: fm.order,
         parent_id: fm.parent,
+        bites,
+        crumbs,
     })
+}
+
+fn parse_bites_crumbs(description: &str) -> (Vec<Bite>, Vec<Crumb>) {
+    let mut bites = Vec::new();
+    let mut crumbs = Vec::new();
+    for line in description.lines() {
+        if let Some(t) = line.strip_prefix("!!bite ") {
+            bites.push(Bite { text: t.to_string(), done: true });
+        } else if let Some(t) = line.strip_prefix("!bite ") {
+            bites.push(Bite { text: t.to_string(), done: false });
+        } else if let Some(t) = line.strip_prefix("!!crumb ") {
+            crumbs.push(Crumb { text: t.to_string(), done: true });
+        } else if let Some(t) = line.strip_prefix("!crumb ") {
+            crumbs.push(Crumb { text: t.to_string(), done: false });
+        }
+    }
+    (bites, crumbs)
 }
 
 fn parse_dt(s: &str) -> Result<NaiveDateTime, AppError> {

@@ -297,10 +297,11 @@ fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a>
 fn task_row(task: &Task, vis_idx: usize, safe_selected: usize, inner_width: usize) -> (ListItem<'static>, usize) {
     let is_sel = vis_idx == safe_selected;
     let cursor = if is_sel { "▶ " } else { "  " };
-    let tl = format!("{:<8}", type_label(&task.task_type));
     let id_str = format!("{}  ", task.id);
-    let type_str = format!("{tl}  ");
-    let title_str = truncate_title(&task.title, inner_width.saturating_sub(24));
+    let type_str = format!("{:<8}  ", type_label(&task.task_type));
+    let bite_prog = bite_progress(&task.bites);
+    let prog_width = bite_prog.as_ref().map(|s| s.len() + 2).unwrap_or(0);
+    let title_str = truncate_title(&task.title, inner_width.saturating_sub(24 + prog_width));
     let base = match task.status {
         TaskStatus::Done       => Style::new().add_modifier(Modifier::DIM),
         TaskStatus::InProgress => Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow),
@@ -325,14 +326,24 @@ fn task_row(task: &Task, vis_idx: usize, safe_selected: usize, inner_width: usiz
     } else {
         ("  ", Style::new())
     };
-    let line = Line::from(vec![
+    let flag_span = Span::styled(flag_char, if is_sel { flag_style.add_modifier(Modifier::REVERSED) } else { flag_style });
+    let mut spans = vec![
         Span::styled(cursor.to_string(), cursor_style),
-        Span::styled(flag_char, if is_sel { flag_style.add_modifier(Modifier::REVERSED) } else { flag_style }),
+        flag_span,
         Span::styled(id_str, row_style.add_modifier(Modifier::DIM)),
         Span::styled(type_str, row_style.add_modifier(Modifier::DIM)),
         Span::styled(title_str, row_style),
-    ]);
-    (ListItem::new(line), vis_idx)
+    ];
+    if let Some(p) = bite_prog {
+        spans.push(Span::styled(format!("  {p}"), Style::new().add_modifier(Modifier::DIM)));
+    }
+    (ListItem::new(Line::from(spans)), vis_idx)
+}
+
+fn bite_progress(bites: &[gitcake_core::models::task::Bite]) -> Option<String> {
+    if bites.is_empty() { return None; }
+    let done = bites.iter().filter(|b| b.done).count();
+    Some(format!("{done}/{}", bites.len()))
 }
 
 // ── detail ────────────────────────────────────────────────────────────────────
@@ -392,17 +403,31 @@ fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: Det
 }
 
 fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task) {
-    let dim = Style::new().add_modifier(Modifier::DIM);
-    let mut text = task.description.as_deref().unwrap_or_default().to_string();
+    let mut lines: Vec<Line> = task.description.as_deref().unwrap_or_default()
+        .lines().map(desc_line_render).collect();
     if task.order.is_some() || task.parent_id.is_some() {
-        if !text.is_empty() { text.push('\n'); }
-        if let Some(o) = task.order      { text.push_str(&format!("order: {o}  ")); }
-        if let Some(p) = &task.parent_id { text.push_str(&format!("parent: {p}")); }
+        let mut meta = String::new();
+        if let Some(o) = task.order      { meta.push_str(&format!("order: {o}  ")); }
+        if let Some(p) = &task.parent_id { meta.push_str(&format!("parent: {p}")); }
+        lines.push(desc_line_render(&meta));
     }
-    let lines: Vec<Line> = text.lines()
-        .map(|l| Line::from(vec![Span::raw("  "), Span::styled(l.to_string(), dim)]))
-        .collect();
     f.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }), area);
+}
+
+fn desc_line_render(line: &str) -> Line<'static> {
+    let dim  = Style::new().add_modifier(Modifier::DIM);
+    let bold = Style::new().add_modifier(Modifier::BOLD);
+    if let Some(t) = line.strip_prefix("!!bite ") {
+        Line::from(vec![Span::styled("  ✓ ".to_string(), dim), Span::styled(t.to_string(), dim)])
+    } else if let Some(t) = line.strip_prefix("!bite ") {
+        Line::from(vec![Span::styled("  ○ ".to_string(), bold), Span::styled(t.to_string(), bold)])
+    } else if let Some(t) = line.strip_prefix("!!crumb ") {
+        Line::from(vec![Span::styled("  · ".to_string(), dim), Span::styled(t.to_string(), dim)])
+    } else if let Some(t) = line.strip_prefix("!crumb ") {
+        Line::from(vec![Span::styled("  · ".to_string(), dim), Span::styled(t.to_string(), dim)])
+    } else {
+        Line::from(vec![Span::raw("  "), Span::styled(line.to_string(), dim)])
+    }
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
