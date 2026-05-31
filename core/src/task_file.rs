@@ -183,9 +183,14 @@ fn serialize_task(task: &Task) -> String {
     out
 }
 
-/// Double-quotes a string for YAML, escaping backslashes and double-quotes.
+/// Double-quotes a string for YAML, escaping backslashes and control characters.
 fn yaml_str(s: &str) -> String {
-    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    format!("\"{}\"",
+        s.replace('\\', "\\\\")
+         .replace('"',  "\\\"")
+         .replace('\n', "\\n")
+         .replace('\r', "\\r")
+         .replace('\t', "\\t"))
 }
 
 fn collect_tasks(
@@ -330,6 +335,24 @@ mod tests {
     #[test]
     fn yaml_str_escapes_backslashes() {
         assert_eq!(yaml_str("C:\\path"), r#""C:\\path""#);
+    }
+
+    #[test]
+    fn yaml_str_escapes_newline_and_tab() {
+        assert_eq!(yaml_str("line1\nline2"), r#""line1\nline2""#);
+        assert_eq!(yaml_str("col1\tcol2"),  r#""col1\tcol2""#);
+        assert_eq!(yaml_str("a\rb"),        r#""a\rb""#);
+    }
+
+    #[test]
+    fn round_trip_title_with_newline() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("001.md");
+        let mut task = parse_task_content(minimal_task_content(), TaskType::Task).unwrap();
+        task.title = "line1\nline2".to_string();
+        write_task(&path, &task).unwrap();
+        let back = read_task(&path, TaskType::Task).unwrap();
+        assert_eq!(back.title, "line1\nline2");
     }
 
     // ── filesystem ───────────────────────────────────────────────────────────

@@ -61,13 +61,16 @@ pub struct NewTask {
     pub parent_id: Option<String>,
 }
 
-/// Patch applied by `update_task`. `None` means leave the field unchanged.
+/// Patch applied by `update_task`.
+/// - `None` on any field → leave unchanged
+/// - `Some(None)` on description / order / parent_id → clear the field
+/// - `Some(Some(v))` → set to v
 #[derive(Default)]
 pub struct TaskPatch {
     pub title: Option<String>,
-    pub description: Option<String>,
+    pub description: Option<Option<String>>,
     pub priority: Option<Priority>,
     pub blocked: Option<bool>,
-    pub order: Option<u32>,
-    pub parent_id: Option<String>,
+    pub order: Option<Option<u32>>,
+    pub parent_id: Option<Option<String>>,
 }

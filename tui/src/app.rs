@@ -395,7 +395,7 @@ impl App {
                     let desc = task.description.clone().unwrap_or_default();
                     if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
                         let msg = self.repo.as_ref().map(|r| {
-                            r.update_task(&id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() })
+                            r.update_task(&id, TaskPatch { title: Some(new_title), description: Some(new_desc), ..Default::default() })
                         }).map(|res| match res {
                             Ok(_) => "Task updated.".to_string(),
                             Err(e) => e.to_string(),
@@ -526,8 +526,8 @@ impl App {
             if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
                 let ctx = self.context;
                 let msg = self.repo.as_ref().map(|r| match ctx {
-                    TaskContext::Personal => r.update_task(&task_id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() }),
-                    TaskContext::Backlog => r.update_backlog_task(&task_id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() }),
+                    TaskContext::Personal => r.update_task(&task_id, TaskPatch { title: Some(new_title), description: Some(new_desc), ..Default::default() }),
+                    TaskContext::Backlog => r.update_backlog_task(&task_id, TaskPatch { title: Some(new_title), description: Some(new_desc), ..Default::default() }),
                 }).map(|res| match res {
                     Ok(_) => "Task updated.".to_string(),
                     Err(e) => e.to_string(),
@@ -664,10 +664,15 @@ impl App {
             };
             match result {
                 Ok(task) => {
-                    if let Some(a) = asgn_opt {
-                        let _ = repo.assign_task(&task.id, Some(a));
-                    }
-                    self.enter_task_list(Some("Task created.".into()), None);
+                    let msg = if let Some(a) = asgn_opt {
+                        match repo.assign_task(&task.id, Some(a)) {
+                            Ok(_) => "Task created.".to_string(),
+                            Err(e) => format!("Task created but assign failed: {e}"),
+                        }
+                    } else {
+                        "Task created.".to_string()
+                    };
+                    self.enter_task_list(Some(msg), None);
                 }
                 Err(e) => self.enter_task_list(Some(e.to_string()), None),
             }
@@ -799,11 +804,7 @@ impl App {
         let Some(repo) = &self.repo else { return };
         let ctx = self.context;
 
-        let (tasks, _) = match ctx {
-            TaskContext::Personal => repo.list_tasks().unwrap_or_default(),
-            TaskContext::Backlog => repo.list_backlog_tasks().unwrap_or_default(),
-        };
-        let Some(task) = tasks.iter().find(|t| t.id == task_id) else { return };
+        let Ok(task) = repo.get_task(task_id) else { return };
 
         let result = match (ctx, &task.status) {
             (TaskContext::Personal, TaskStatus::Open) => repo.set_task_in_progress(task_id),
@@ -963,7 +964,14 @@ impl App {
     }
 
     fn try_quit(&mut self) {
-        self.screen = Screen::PushPrompt;
+        let has_changes = self.repo.as_ref()
+            .and_then(|r| r.has_local_changes().ok())
+            .unwrap_or(true); // treat error or no-repo as "maybe has changes" — safer to prompt
+        if has_changes {
+            self.screen = Screen::PushPrompt;
+        } else {
+            self.should_quit = true;
+        }
     }
 
     /// Removes the session lock file. Call only on clean exit.
@@ -1035,8 +1043,13 @@ fn lock_file_path(repo_path: &str) -> Option<PathBuf> {
 }
 
 /// Checks whether a process with the given PID is currently running.
+/// On Linux this uses /proc; on other platforms the check is not available
+/// so we return false, which causes any existing lock to appear stale.
 fn process_running(pid: u32) -> bool {
-    Path::new(&format!("/proc/{pid}")).exists()
+    #[cfg(target_os = "linux")]
+    { Path::new(&format!("/proc/{pid}")).exists() }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = pid; false }
 }
 
 /// Formats a list of unreadable filenames into a single warning string.

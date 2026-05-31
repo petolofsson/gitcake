@@ -169,6 +169,7 @@ gitcake create "title" [--type task|bug|incident] [--assign username]
 gitcake show <id> [--json]
 gitcake set <id> [--title "..."] [--description "..."] [--priority high|normal|low]
           [--block] [--unblock] [--order N] [--parent <id>]
+          # pass "" to --description or --parent to clear the field
 gitcake done <id>
 gitcake start <id>
 gitcake delete <id>
@@ -189,7 +190,7 @@ Tools: `list_slices`, `create_slice`, `get_slice`, `edit_slice`, `start_slice`, 
 
 - `create_slice` — accepts `title`, `type`, `assignee`, `description`, `priority`, `order`, `parent_id`. Returns full slice JSON.
 - `get_slice` — fetch one slice by ID, returns full JSON including description body.
-- `edit_slice` — update any field (`title`, `description`, `priority`, `blocked`, `order`, `parent_id`). Omit a field to leave it unchanged.
+- `edit_slice` — update any field (`title`, `description`, `priority`, `blocked`, `order`, `parent_id`). Omit a field to leave it unchanged. Pass `""` for `description` or `parent_id` to clear the field.
 
 Configure in `~/.claude/.mcp.json` (use full binary path):
 ```json

@@ -101,7 +101,7 @@ impl TaskRepo {
         let result = all
             .into_iter()
             .filter(|t| t.owner.is_some() && t.status != TaskStatus::Done)
-            .map(|t| (t.owner.clone().unwrap(), t))
+            .map(|t| (t.owner.clone().expect("owner is Some — filtered above"), t))
             .collect();
         Ok(result)
     }
@@ -161,12 +161,12 @@ impl TaskRepo {
         let root = Path::new(&self.info.path);
         let (path, task_type) = find_task_path(root, id)?;
         let mut task = task_file::read_task(&path, task_type)?;
-        if let Some(t) = patch.title { task.title = t; }
-        if patch.description.is_some() { task.description = patch.description; }
-        if let Some(p) = patch.priority { task.priority = p; }
-        if let Some(b) = patch.blocked { task.blocked = b; }
-        if let Some(o) = patch.order { task.order = Some(o); }
-        if patch.parent_id.is_some() { task.parent_id = patch.parent_id; }
+        if let Some(t) = patch.title       { task.title       = t; }
+        if let Some(d) = patch.description { task.description = d; }
+        if let Some(p) = patch.priority    { task.priority    = p; }
+        if let Some(b) = patch.blocked     { task.blocked     = b; }
+        if let Some(o) = patch.order       { task.order       = o; }
+        if let Some(p) = patch.parent_id   { task.parent_id   = p; }
         task_file::write_task(&path, &task)?;
         Ok(task)
     }
@@ -501,7 +501,9 @@ fn migrate_folder(
         };
         let dest_folder = type_folder(root, &fm.task_type);
         fs::create_dir_all(&dest_folder)?;
-        let dest = dest_folder.join(path.file_name().unwrap());
+        let file_name = path.file_name()
+            .ok_or_else(|| AppError::Parse(format!("invalid path during migration: {}", path.display())))?;
+        let dest = dest_folder.join(file_name);
         if dest.exists() {
             continue; // already migrated by another user's pass
         }

@@ -83,7 +83,7 @@ struct EditSliceArgs {
     id: String,
     /// New title — omit to leave unchanged
     title: Option<String>,
-    /// New description body — omit to leave unchanged
+    /// New description body — omit to leave unchanged, pass "" to clear
     description: Option<String>,
     /// New priority: high, normal, or low — omit to leave unchanged
     priority: Option<String>,
@@ -91,7 +91,7 @@ struct EditSliceArgs {
     blocked: Option<bool>,
     /// Sequence number — omit to leave unchanged
     order: Option<u32>,
-    /// Parent slice ID — omit to leave unchanged
+    /// Parent slice ID — omit to leave unchanged, pass "" to clear
     parent_id: Option<String>,
 }
 
@@ -175,13 +175,16 @@ impl GitcakeMcp {
     #[tool(description = "Edit a slice. Omit any field to leave it unchanged. Set blocked=true when human input is needed, false to unblock.")]
     fn edit_slice(&self, Parameters(args): Parameters<EditSliceArgs>) -> Result<CallToolResult, McpError> {
         let priority = args.priority.as_deref().map(parse_priority).transpose()?;
+        let description = args.description.map(|d| if d.is_empty() { None } else { Some(d) });
+        let order = args.order.map(Some);
+        let parent_id = args.parent_id.map(|p| if p.is_empty() { None } else { Some(p) });
         let task = self.repo.update_task(&args.id, TaskPatch {
             title: args.title,
-            description: args.description,
+            description,
             priority,
             blocked: args.blocked,
-            order: args.order,
-            parent_id: args.parent_id,
+            order,
+            parent_id,
         }).map_err(mcp_err)?;
         let json = serde_json::to_string_pretty(&task).map_err(|e| mcp_err_str(e.to_string()))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))

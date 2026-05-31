@@ -231,7 +231,9 @@ pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
                 return Err("--block and --unblock are mutually exclusive".into());
             }
             let blocked = if block { Some(true) } else if unblock { Some(false) } else { None };
-            let parent_id = parent.map(|p| if p.is_empty() { None } else { Some(p) }).flatten();
+            let description = description.map(|d| if d.is_empty() { None } else { Some(d) });
+            let order = order.map(Some);
+            let parent_id = parent.map(|p| if p.is_empty() { None } else { Some(p) });
             let task = repo
                 .update_task(&id, TaskPatch {
                     title,
