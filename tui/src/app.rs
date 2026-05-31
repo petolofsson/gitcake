@@ -1107,12 +1107,20 @@ fn classify_pull_result(result: Result<String, gitcake_core::error::AppError>) -
     }
 }
 
-/// Sorts tasks into display order: in-progress → open → done.
+/// Sorts tasks into display order: in-progress → open → done, then high → normal → low within each group.
 fn sort_for_display(mut tasks: Vec<Task>) -> Vec<Task> {
-    tasks.sort_by_key(|t| match &t.status {
-        TaskStatus::InProgress => 0,
-        TaskStatus::Open => 1,
-        TaskStatus::Done => 2,
+    tasks.sort_by_key(|t| {
+        let status_rank = match &t.status {
+            TaskStatus::InProgress => 0u8,
+            TaskStatus::Open => 1,
+            TaskStatus::Done => 2,
+        };
+        let priority_rank = match &t.priority {
+            Priority::High => 0u8,
+            Priority::Normal => 1,
+            Priority::Low => 2,
+        };
+        (status_rank, priority_rank)
     });
     tasks
 }

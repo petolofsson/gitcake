@@ -243,21 +243,14 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let visible: Vec<&Task> = apply_filter(tasks, filter);
     let safe_selected = selected.min(visible.len().saturating_sub(1));
 
-    let priority_rank = |t: &&Task| match t.priority {
-        Priority::High => 0u8,
-        Priority::Normal => 1,
-        Priority::Low => 2,
-    };
-    let mut in_progress: Vec<(usize, &Task)> = visible.iter().enumerate()
+    let in_progress: Vec<(usize, &Task)> = visible.iter().enumerate()
         .filter(|(_, t)| t.status == TaskStatus::InProgress)
         .map(|(i, t)| (i, *t))
         .collect();
-    in_progress.sort_by_key(|(_, t)| priority_rank(t));
-    let mut open: Vec<(usize, &Task)> = visible.iter().enumerate()
+    let open: Vec<(usize, &Task)> = visible.iter().enumerate()
         .filter(|(_, t)| t.status == TaskStatus::Open)
         .map(|(i, t)| (i, *t))
         .collect();
-    open.sort_by_key(|(_, t)| priority_rank(t));
     let done: Vec<(usize, &Task)> = visible.iter().enumerate()
         .filter(|(_, t)| t.status == TaskStatus::Done)
         .map(|(i, t)| (i, *t))
