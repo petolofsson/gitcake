@@ -69,6 +69,10 @@ status: in-progress
 created: 2026-05-29T09:14:00
 done:
 owner: alice-smith
+priority: high
+blocked: true
+order: 2
+parent: b5c0f3a1
 ---
 Optional description in markdown.
 ```
@@ -81,8 +85,12 @@ Optional description in markdown.
 | `created` | Timestamp when created |
 | `done` | Timestamp when marked done (empty until then) |
 | `owner` | Optional. Git username of the person responsible. Empty = unowned (backlog) |
+| `priority` | Optional. `high`, `normal` (default, omitted from file), or `low` |
+| `blocked` | Optional. `true` when AI or human needs external input to continue. Omitted when false |
+| `order` | Optional. Sequence number for AI-planned work ordering |
+| `parent` | Optional. ID of a parent slice for grouping subtasks |
 
-Type is derived from the parent folder name (`tasks/` → task, `bugs/` → bug, `incidents/` → incident) and is not stored in the file.
+Type is derived from the parent folder name (`tasks/` → task, `bugs/` → bug, `incidents/` → incident) and is not stored in the file. Optional fields are omitted from the file when at their defaults.
 
 ---
 
@@ -110,12 +118,14 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `F` | Cycle status (open → in-progress → done, wraps) |
 | `B` | Switch to backlog view |
 | `T` | Team view (read-only) |
-| `/` | Filter — matches title, hex ID, owner, type, status. Esc to clear |
+| `/` | Filter — matches title, hex ID, owner, type, status, `blocked`, `high`, `low`. Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice to any user (including yourself) |
 | `Ctrl+R` | Push (commit + push) |
 | `Ctrl+D` | Move to backlog (clears owner, resets status) |
 | `Ctrl+Q` | Quit |
+
+List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `v` (low, dim), `!` (blocked, red). Tasks are sorted in-progress → open → done, then high → normal → low within each group.
 
 ### Backlog view
 
@@ -130,12 +140,15 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 
 | Key | Action |
 |---|---|
+| `W` / `S` | Move cursor between navigable fields (TYPE, STATUS, PRIORITY, BLOCKED) |
+| `F` | Cycle or toggle the focused field |
+| `E` | Edit title + description in `$EDITOR` |
 | `A` / `Esc` / `Q` | Back to list |
-| `E` | Edit in `$EDITOR` |
-| `F` | Cycle status (personal context) |
 | `Shift+R` | Pull |
 | `Ctrl+R` | Push |
 | `Ctrl+Q` | Quit |
+
+Detail view shows four navigable rows (TYPE, STATUS, PRIORITY, BLOCKED) with a `▶` cursor. `F` cycles the focused field. Changing TYPE does a `git mv` to preserve history.
 
 Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 
@@ -152,6 +165,10 @@ gitcake --new                    # launch TUI with fresh setup screen
 
 gitcake list [--json] [--status open|in-progress|done] [--backlog]
 gitcake create "title" [--type task|bug|incident] [--assign username]
+             [--priority high|normal|low] [--order N] [--parent <id>]
+gitcake show <id> [--json]
+gitcake set <id> [--title "..."] [--description "..."] [--priority high|normal|low]
+          [--block] [--unblock] [--order N] [--parent <id>]
 gitcake done <id>
 gitcake start <id>
 gitcake delete <id>
@@ -168,7 +185,11 @@ Plain text by default; `--json` for machine-readable output. Thin layer on `gitc
 
 `gitcake-mcp` — Model Context Protocol server wrapping `gitcake-core`. Enables Claude Code, Cursor, and any MCP-compatible AI to read and write slices as typed tool calls.
 
-Tools: `list_slices`, `create_slice`, `start_slice`, `done_slice`, `assign_slice`, `list_users`, `sync`.
+Tools: `list_slices`, `create_slice`, `get_slice`, `edit_slice`, `start_slice`, `done_slice`, `assign_slice`, `list_users`, `sync`.
+
+- `create_slice` — accepts `title`, `type`, `assignee`, `description`, `priority`, `order`, `parent_id`. Returns full slice JSON.
+- `get_slice` — fetch one slice by ID, returns full JSON including description body.
+- `edit_slice` — update any field (`title`, `description`, `priority`, `blocked`, `order`, `parent_id`). Omit a field to leave it unchanged.
 
 Configure in `~/.claude/.mcp.json` (use full binary path):
 ```json

@@ -36,4 +36,9 @@
 ## Resolved — Features
 - **Rename: git-task → gitcake**: binary `gt` → `gitcake`, config dir `~/.config/git-task/` → `~/.config/gitcake/`, repo marker `git-task.toml` → `gitcake.toml`, crate names updated.
 - **CLI subcommands**: `gitcake list/create/start/done/delete/assign/sync` — thin layer on `gitcake-core`, `--json` flag on `list`, no args launches TUI.
-- **MCP server**: `gitcake-mcp` crate — 7 tools (`list_slices`, `create_slice`, `start_slice`, `done_slice`, `assign_slice`, `list_users`, `sync`) over stdio transport.
+- **MCP server**: `gitcake-mcp` crate — 9 tools over stdio transport.
+- **Priority, blocked, order, parent fields**: optional frontmatter fields on all slices. `NewTask`/`TaskPatch` structs replace loose params on `create_task`/`update_task`.
+- **MCP get_slice / edit_slice**: fetch single slice by ID; edit any field in place. `create_slice` accepts description and returns full JSON.
+- **CLI show / set**: `gitcake show <id> [--json]` and `gitcake set <id> [--title] [--description] [--priority] [--block/--unblock] [--order] [--parent]`.
+- **Detail view navigable fields**: W/S moves cursor between TYPE, STATUS, PRIORITY, BLOCKED; F cycles/toggles focused field. Separate row per field with `▶` cursor. `change_task_type` uses `git mv`.
+- **Navigation sort fix**: tasks sorted at load time by (status group, priority) so W/S navigation and display order are always consistent.
