@@ -6,7 +6,7 @@ use gray_matter::{engine::YAML, Matter};
 use serde::Deserialize;
 
 use crate::error::AppError;
-use crate::models::task::{Task, TaskStatus, TaskType};
+use crate::models::task::{Priority, Task, TaskStatus, TaskType};
 
 const DATETIME_FMT: &str = "%Y-%m-%dT%H:%M:%S";
 
@@ -23,6 +23,14 @@ struct Frontmatter {
     done: Option<String>,
     #[serde(default)]
     owner: Option<String>,
+    #[serde(default)]
+    priority: Priority,
+    #[serde(default)]
+    blocked: bool,
+    #[serde(default)]
+    order: Option<u32>,
+    #[serde(default)]
+    parent: Option<String>,
 }
 
 /// V1 frontmatter used only during migration. Reads the old `type:` and `assignee:` fields.
@@ -112,6 +120,10 @@ fn parse_task_content(content: &str, task_type: TaskType) -> Result<Task, AppErr
             .transpose()?,
         description,
         owner: fm.owner,
+        priority: fm.priority,
+        blocked: fm.blocked,
+        order: fm.order,
+        parent_id: fm.parent,
     })
 }
 
@@ -137,15 +149,29 @@ fn serialize_task(task: &Task) -> String {
         .as_deref()
         .map(|o| format!("owner: {}\n", yaml_str(o)))
         .unwrap_or_default();
+    let priority_line = match task.priority {
+        Priority::Normal => String::new(),
+        Priority::High => "priority: high\n".to_string(),
+        Priority::Low => "priority: low\n".to_string(),
+    };
+    let blocked_line = if task.blocked { "blocked: true\n".to_string() } else { String::new() };
+    let order_line = task.order.map(|o| format!("order: {o}\n")).unwrap_or_default();
+    let parent_line = task.parent_id.as_deref()
+        .map(|p| format!("parent: {}\n", yaml_str(p)))
+        .unwrap_or_default();
 
     let mut out = format!(
-        "---\nid: {}\ntitle: {}\nstatus: {}\ncreated: {}\ndone: {}\n{}---\n",
+        "---\nid: {}\ntitle: {}\nstatus: {}\ncreated: {}\ndone: {}\n{}{}{}{}{}---\n",
         yaml_str(&task.id),
         yaml_str(&task.title),
         status_str,
         task.created.format(DATETIME_FMT),
         done_str,
         owner_line,
+        priority_line,
+        blocked_line,
+        order_line,
+        parent_line,
     );
 
     if let Some(desc) = &task.description {

@@ -6,7 +6,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use gitcake_core::{
-    models::task::{Task, TaskStatus, TaskType},
+    models::task::{NewTask, Task, TaskPatch, TaskStatus, TaskType},
     repo::TaskRepo,
 };
 
@@ -367,7 +367,7 @@ impl App {
                     let desc = task.description.clone().unwrap_or_default();
                     if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
                         let msg = self.repo.as_ref().map(|r| {
-                            r.update_task(&id, Some(new_title), new_desc)
+                            r.update_task(&id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() })
                         }).map(|res| match res {
                             Ok(_) => "Task updated.".to_string(),
                             Err(e) => e.to_string(),
@@ -490,8 +490,8 @@ impl App {
             };
             if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
                 let msg = self.repo.as_ref().map(|r| match ctx {
-                    TaskContext::Personal => r.update_task(&task_id, Some(new_title), new_desc),
-                    TaskContext::Backlog => r.update_backlog_task(&task_id, Some(new_title), new_desc),
+                    TaskContext::Personal => r.update_task(&task_id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() }),
+                    TaskContext::Backlog => r.update_backlog_task(&task_id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() }),
                 }).map(|res| match res {
                     Ok(_) => "Task updated.".to_string(),
                     Err(e) => e.to_string(),
@@ -588,8 +588,8 @@ impl App {
 
         if let Some(repo) = &self.repo {
             let result = match ctx {
-                TaskContext::Personal => repo.create_task(title, tt, desc),
-                TaskContext::Backlog => repo.create_backlog_task(title, tt, desc),
+                TaskContext::Personal => repo.create_task(NewTask { title, task_type: tt, description: desc, ..Default::default() }),
+                TaskContext::Backlog => repo.create_backlog_task(NewTask { title, task_type: tt, description: desc, ..Default::default() }),
             };
             match result {
                 Ok(task) => {
@@ -1069,11 +1069,15 @@ fn apply_filter_indices(tasks: &[Task], filter: &str) -> Vec<usize> {
 }
 
 fn task_matches(t: &Task, f: &str) -> bool {
+    use gitcake_core::models::task::Priority;
     t.id.starts_with(f)
         || t.title.to_lowercase().contains(f)
         || t.owner.as_deref().map(|o| o.to_lowercase().contains(f)).unwrap_or(false)
         || type_str(&t.task_type).contains(f)
         || status_str(&t.status).contains(f)
+        || (f == "blocked" && t.blocked)
+        || (f == "high" && t.priority == Priority::High)
+        || (f == "low" && t.priority == Priority::Low)
 }
 
 fn type_str(t: &gitcake_core::models::task::TaskType) -> &'static str {

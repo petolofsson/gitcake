@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use gitcake_core::{
-    models::task::{TaskStatus, TaskType},
+    models::task::{NewTask, Priority, TaskPatch, TaskStatus, TaskType},
     repo::TaskRepo,
 };
 use rmcp::{
@@ -69,6 +69,12 @@ struct CreateSliceArgs {
     assignee: Option<String>,
     /// Optional markdown description / plan body
     description: Option<String>,
+    /// Priority: high, normal, or low (default: normal)
+    priority: Option<String>,
+    /// Sequence number for ordering within a plan
+    order: Option<u32>,
+    /// ID of a parent slice (for grouping subtasks)
+    parent_id: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -79,6 +85,14 @@ struct EditSliceArgs {
     title: Option<String>,
     /// New description body — omit to leave unchanged
     description: Option<String>,
+    /// New priority: high, normal, or low — omit to leave unchanged
+    priority: Option<String>,
+    /// Set to true to mark blocked (needs human input), false to unblock — omit to leave unchanged
+    blocked: Option<bool>,
+    /// Sequence number — omit to leave unchanged
+    order: Option<u32>,
+    /// Parent slice ID — omit to leave unchanged
+    parent_id: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -135,7 +149,15 @@ impl GitcakeMcp {
             "incident" => TaskType::Incident,
             t => return Err(McpError::invalid_params(format!("unknown type: {t}"), None)),
         };
-        let mut task = self.repo.create_task(args.title, task_type, args.description).map_err(mcp_err)?;
+        let priority = parse_priority(args.priority.as_deref().unwrap_or("normal"))?;
+        let mut task = self.repo.create_task(NewTask {
+            title: args.title,
+            task_type,
+            description: args.description,
+            priority,
+            order: args.order,
+            parent_id: args.parent_id,
+        }).map_err(mcp_err)?;
         if let Some(username) = args.assignee {
             task = self.repo.assign_task(&task.id, Some(username)).map_err(mcp_err)?;
         }
@@ -150,9 +172,17 @@ impl GitcakeMcp {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(description = "Edit a slice title and/or description body. Omit a field to leave it unchanged.")]
+    #[tool(description = "Edit a slice. Omit any field to leave it unchanged. Set blocked=true when human input is needed, false to unblock.")]
     fn edit_slice(&self, Parameters(args): Parameters<EditSliceArgs>) -> Result<CallToolResult, McpError> {
-        let task = self.repo.update_task(&args.id, args.title, args.description).map_err(mcp_err)?;
+        let priority = args.priority.as_deref().map(parse_priority).transpose()?;
+        let task = self.repo.update_task(&args.id, TaskPatch {
+            title: args.title,
+            description: args.description,
+            priority,
+            blocked: args.blocked,
+            order: args.order,
+            parent_id: args.parent_id,
+        }).map_err(mcp_err)?;
         let json = serde_json::to_string_pretty(&task).map_err(|e| mcp_err_str(e.to_string()))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
@@ -209,6 +239,15 @@ fn mcp_err(e: gitcake_core::error::AppError) -> McpError {
 
 fn mcp_err_str(s: String) -> McpError {
     McpError::internal_error(s, None)
+}
+
+fn parse_priority(s: &str) -> Result<Priority, McpError> {
+    match s {
+        "high" => Ok(Priority::High),
+        "normal" => Ok(Priority::Normal),
+        "low" => Ok(Priority::Low),
+        p => Err(McpError::invalid_params(format!("unknown priority: {p}"), None)),
+    }
 }
 
 // ── entry point ───────────────────────────────────────────────────────────────

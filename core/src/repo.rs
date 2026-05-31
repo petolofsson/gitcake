@@ -9,7 +9,7 @@ use crate::{
     git::GitRepo,
     models::{
         config::{RepoConfig, RepoInfo},
-        task::{Task, TaskStatus, TaskType},
+        task::{NewTask, Task, TaskPatch, TaskStatus, TaskType},
     },
     task_file,
 };
@@ -109,83 +109,71 @@ impl TaskRepo {
     // ── task mutations ────────────────────────────────────────────────────────
 
     /// Creates a new personal task in the appropriate type folder.
-    pub fn create_task(
-        &self,
-        title: String,
-        task_type: TaskType,
-        description: Option<String>,
-    ) -> Result<Task, AppError> {
+    pub fn create_task(&self, args: NewTask) -> Result<Task, AppError> {
         let root = Path::new(&self.info.path);
-        let folder = type_folder(root, &task_type);
+        let folder = type_folder(root, &args.task_type);
         fs::create_dir_all(&folder)?;
         let id = hex_id(&folder);
         let task = Task {
             id: id.clone(),
-            task_type,
-            title,
+            task_type: args.task_type,
+            title: args.title,
             status: TaskStatus::Open,
             created: Local::now().naive_local(),
             done: None,
-            description,
+            description: args.description,
             owner: Some(self.info.username.clone()),
+            priority: args.priority,
+            blocked: false,
+            order: args.order,
+            parent_id: args.parent_id,
         };
         task_file::write_task(&folder.join(format!("{id}.md")), &task)?;
         Ok(task)
     }
 
     /// Creates an unowned (backlog) task in the appropriate type folder.
-    pub fn create_backlog_task(
-        &self,
-        title: String,
-        task_type: TaskType,
-        description: Option<String>,
-    ) -> Result<Task, AppError> {
+    pub fn create_backlog_task(&self, args: NewTask) -> Result<Task, AppError> {
         let root = Path::new(&self.info.path);
-        let folder = type_folder(root, &task_type);
+        let folder = type_folder(root, &args.task_type);
         fs::create_dir_all(&folder)?;
         let id = hex_id(&folder);
         let task = Task {
             id: id.clone(),
-            task_type,
-            title,
+            task_type: args.task_type,
+            title: args.title,
             status: TaskStatus::Open,
             created: Local::now().naive_local(),
             done: None,
-            description,
+            description: args.description,
             owner: None,
+            priority: args.priority,
+            blocked: false,
+            order: args.order,
+            parent_id: args.parent_id,
         };
         task_file::write_task(&folder.join(format!("{id}.md")), &task)?;
         Ok(task)
     }
 
-    /// Updates title and/or description of any task. Passing `None` leaves the field unchanged.
-    pub fn update_task(
-        &self,
-        id: &str,
-        title: Option<String>,
-        description: Option<String>,
-    ) -> Result<Task, AppError> {
+    /// Applies a patch to any task. `None` fields in the patch are left unchanged.
+    pub fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, AppError> {
         let root = Path::new(&self.info.path);
         let (path, task_type) = find_task_path(root, id)?;
         let mut task = task_file::read_task(&path, task_type)?;
-        if let Some(t) = title {
-            task.title = t;
-        }
-        if description.is_some() {
-            task.description = description;
-        }
+        if let Some(t) = patch.title { task.title = t; }
+        if patch.description.is_some() { task.description = patch.description; }
+        if let Some(p) = patch.priority { task.priority = p; }
+        if let Some(b) = patch.blocked { task.blocked = b; }
+        if let Some(o) = patch.order { task.order = Some(o); }
+        if patch.parent_id.is_some() { task.parent_id = patch.parent_id; }
         task_file::write_task(&path, &task)?;
         Ok(task)
     }
 
     /// Alias for update_task — backlog tasks live in the same type folders.
-    pub fn update_backlog_task(
-        &self,
-        id: &str,
-        title: Option<String>,
-        description: Option<String>,
-    ) -> Result<Task, AppError> {
-        self.update_task(id, title, description)
+    pub fn update_backlog_task(&self, id: &str, patch: TaskPatch) -> Result<Task, AppError> {
+        self.update_task(id, patch)
     }
 
     /// Sets a task to in-progress, clearing the done timestamp.
@@ -514,6 +502,10 @@ fn migrate_folder(
             done,
             description,
             owner: owner.map(|s| s.to_string()),
+            priority: Default::default(),
+            blocked: false,
+            order: None,
+            parent_id: None,
         };
         task_file::write_task(&dest, &task)?;
         let rel = rel_path(root, &dest);
@@ -628,8 +620,8 @@ mod tests {
     #[test]
     fn list_tasks_returns_only_owned_tasks() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Mine".into(), TaskType::Task, None).unwrap();
-        repo.create_backlog_task("Unowned".into(), TaskType::Bug, None).unwrap();
+        repo.create_task(NewTask { title: "Mine".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
+        repo.create_backlog_task(NewTask { title: "Unowned".into(), task_type: TaskType::Bug, ..Default::default() }).unwrap();
         let (tasks, _) = repo.list_tasks().unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].title, "Mine");
@@ -642,8 +634,8 @@ mod tests {
     #[test]
     fn list_backlog_returns_only_unowned_tasks() {
         let (dir, repo) = make_repo("Alice Smith");
-        repo.create_task("Mine".into(), TaskType::Task, None).unwrap();
-        repo.create_backlog_task("Shared".into(), TaskType::Bug, None).unwrap();
+        repo.create_task(NewTask { title: "Mine".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
+        repo.create_backlog_task(NewTask { title: "Shared".into(), task_type: TaskType::Bug, ..Default::default() }).unwrap();
         let (backlog, _) = repo.list_backlog_tasks().unwrap();
         assert_eq!(backlog.len(), 1);
         assert_eq!(backlog[0].title, "Shared");
@@ -656,7 +648,7 @@ mod tests {
     #[test]
     fn create_task_writes_to_type_folder() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_task("Fix login".into(), TaskType::Bug, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Fix login".into(), task_type: TaskType::Bug, ..Default::default() }).unwrap();
 
         assert_eq!(task.id.len(), 8);
         assert!(task.id.chars().all(|c| c.is_ascii_hexdigit()));
@@ -673,7 +665,7 @@ mod tests {
     #[test]
     fn create_backlog_task_has_no_owner() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_backlog_task("Shared".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_backlog_task(NewTask { title: "Shared".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         assert!(task.owner.is_none());
         assert!(Path::new(&repo.info.path)
             .join(format!("tasks/{}.md", task.id))
@@ -686,7 +678,7 @@ mod tests {
     #[test]
     fn claim_sets_owner_no_file_move() {
         let (dir, repo) = make_repo("Alice Smith");
-        let backlog = repo.create_backlog_task("Team item".into(), TaskType::Task, None).unwrap();
+        let backlog = repo.create_backlog_task(NewTask { title: "Team item".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         let id = backlog.id.clone();
         let original_path = Path::new(&repo.info.path).join(format!("tasks/{id}.md"));
         assert!(original_path.exists());
@@ -702,7 +694,7 @@ mod tests {
     #[test]
     fn claim_fails_if_already_owned() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_task("Mine".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Mine".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         assert!(matches!(
             repo.claim_backlog_task(&task.id),
             Err(AppError::InvalidRepo(_))
@@ -715,7 +707,7 @@ mod tests {
     #[test]
     fn move_to_backlog_clears_owner() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_task("My task".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "My task".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         let id = task.id.clone();
         repo.move_task_to_backlog(&id).unwrap();
 
@@ -732,7 +724,7 @@ mod tests {
     #[test]
     fn mark_task_done_stays_in_type_folder() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Task".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         let id = task.id.clone();
         let task = repo.mark_task_done(&id).unwrap();
         assert_eq!(task.status, TaskStatus::Done);
@@ -748,7 +740,7 @@ mod tests {
     #[test]
     fn set_task_in_progress_changes_status() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Task".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         let task = repo.set_task_in_progress(&task.id).unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
         drop(dir);
@@ -757,7 +749,7 @@ mod tests {
     #[test]
     fn set_task_in_progress_cycles_back_from_done() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Task".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         let id = task.id.clone();
         repo.mark_task_done(&id).unwrap();
         let task = repo.set_task_in_progress(&id).unwrap();
@@ -771,7 +763,7 @@ mod tests {
     #[test]
     fn assign_task_changes_owner_no_file_move() {
         let (dir, repo) = make_repo("Alice Smith");
-        let task = repo.create_task("Hand off".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Hand off".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         let id = task.id.clone();
         let original_path = Path::new(&repo.info.path).join(format!("tasks/{id}.md"));
 
@@ -787,7 +779,7 @@ mod tests {
     #[test]
     fn push_stages_type_folders_no_completed_created() {
         let (work_dir, bare_dir, repo) = make_repo_with_remote("Alice Smith");
-        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Task".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         let id = task.id.clone();
         repo.mark_task_done(&id).unwrap();
         repo.push().unwrap();
@@ -813,7 +805,7 @@ mod tests {
     fn list_users_discovers_owners_from_tasks() {
         let (dir, repo) = make_repo("Alice Smith");
         // Create a task then manually set owner to another user
-        let task = repo.create_task("Task".into(), TaskType::Task, None).unwrap();
+        let task = repo.create_task(NewTask { title: "Task".into(), task_type: TaskType::Task, ..Default::default() }).unwrap();
         repo.assign_task(&task.id, Some("bob-jones".into())).unwrap();
         let users = repo.list_users().unwrap();
         assert!(users.contains(&"bob-jones".to_string()));

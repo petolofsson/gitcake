@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use gitcake_core::models::task::{Task, TaskStatus, TaskType};
+use gitcake_core::models::task::{Priority, Task, TaskStatus, TaskType};
 
 use crate::app::{App, CreateField, Screen, TaskContext};
 
@@ -243,14 +243,21 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let visible: Vec<&Task> = apply_filter(tasks, filter);
     let safe_selected = selected.min(visible.len().saturating_sub(1));
 
-    let in_progress: Vec<(usize, &Task)> = visible.iter().enumerate()
+    let priority_rank = |t: &&Task| match t.priority {
+        Priority::High => 0u8,
+        Priority::Normal => 1,
+        Priority::Low => 2,
+    };
+    let mut in_progress: Vec<(usize, &Task)> = visible.iter().enumerate()
         .filter(|(_, t)| t.status == TaskStatus::InProgress)
         .map(|(i, t)| (i, *t))
         .collect();
-    let open: Vec<(usize, &Task)> = visible.iter().enumerate()
+    in_progress.sort_by_key(|(_, t)| priority_rank(t));
+    let mut open: Vec<(usize, &Task)> = visible.iter().enumerate()
         .filter(|(_, t)| t.status == TaskStatus::Open)
         .map(|(i, t)| (i, *t))
         .collect();
+    open.sort_by_key(|(_, t)| priority_rank(t));
     let done: Vec<(usize, &Task)> = visible.iter().enumerate()
         .filter(|(_, t)| t.status == TaskStatus::Done)
         .map(|(i, t)| (i, *t))
@@ -279,7 +286,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
             let tl = format!("{:<8}", type_label(&task.task_type));
             let id_str = format!("{}  ", task.id);
             let type_str = format!("{tl}  ");
-            let title_budget = inner_width.saturating_sub(22);
+            let title_budget = inner_width.saturating_sub(24);
             let title_str = truncate_title(&task.title, title_budget);
             let base = if task.status == TaskStatus::Done {
                 Style::new().add_modifier(Modifier::DIM)
@@ -294,8 +301,22 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
                 Style::new().add_modifier(Modifier::DIM)
             };
             let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
+            let (flag_char, flag_style) = if task.status != TaskStatus::Done {
+                if task.blocked {
+                    ("! ", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD))
+                } else {
+                    match task.priority {
+                        Priority::High => ("^ ", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Priority::Low => ("v ", Style::new().add_modifier(Modifier::DIM)),
+                        Priority::Normal => ("  ", Style::new()),
+                    }
+                }
+            } else {
+                ("  ", Style::new())
+            };
             let line = Line::from(vec![
                 Span::styled(cursor.to_string(), cursor_style),
+                Span::styled(flag_char, if is_sel { flag_style.add_modifier(Modifier::REVERSED) } else { flag_style }),
                 Span::styled(id_str, row_style.add_modifier(Modifier::DIM)),
                 Span::styled(type_str, row_style.add_modifier(Modifier::DIM)),
                 Span::styled(title_str, row_style),
@@ -382,6 +403,7 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
             Constraint::Length(1), // task: {status}
             Constraint::Length(1), // file: {path}
             Constraint::Length(1), // created: {timestamp}
+            Constraint::Length(1), // priority / blocked / order / parent
             Constraint::Length(1), // blank
             Constraint::Length(1), // title: {title}
             Constraint::Length(1), // blank
@@ -432,7 +454,31 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
         ])),
         rows[3],
     );
-    // rows[4] blank
+    // rows[4] — priority / blocked / order / parent meta line
+    let mut meta_spans = vec![Span::raw("  ")];
+    let priority_label = match task.priority {
+        Priority::High => "high",
+        Priority::Normal => "normal",
+        Priority::Low => "low",
+    };
+    let priority_style = match task.priority {
+        Priority::High => Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        Priority::Normal => dim,
+        Priority::Low => dim,
+    };
+    meta_spans.push(Span::styled("PRIORITY:", bold));
+    meta_spans.push(Span::styled(format!("  {priority_label}"), priority_style));
+    if task.blocked {
+        meta_spans.push(Span::styled("  [BLOCKED]", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)));
+    }
+    if let Some(o) = task.order {
+        meta_spans.push(Span::styled(format!("  order:{o}"), dim));
+    }
+    if let Some(p) = &task.parent_id {
+        meta_spans.push(Span::styled(format!("  parent:{p}"), dim));
+    }
+    f.render_widget(Paragraph::new(Line::from(meta_spans)), rows[4]);
+    // rows[5] blank
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
@@ -440,20 +486,20 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
             Span::raw("    "),
             Span::styled(task.title.clone(), bold),
         ])),
-        rows[5],
+        rows[6],
     );
-    // rows[6] blank
+    // rows[7] blank
     let desc = task.description.as_deref().unwrap_or_default();
     let desc_lines: Vec<Line> = desc.lines()
         .map(|l| Line::from(vec![Span::raw("            "), Span::raw(l.to_string())]))
         .collect();
     f.render_widget(
         Paragraph::new(desc_lines).wrap(ratatui::widgets::Wrap { trim: false }),
-        rows[7],
+        rows[8],
     );
 
-    f.render_widget(Paragraph::new(nav_bar(context)), rows[8]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[9]);
+    f.render_widget(Paragraph::new(nav_bar(context)), rows[9]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[10]);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────

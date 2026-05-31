@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use gitcake_core::{
-    models::task::{Task, TaskStatus, TaskType},
+    models::task::{NewTask, Priority, Task, TaskPatch, TaskStatus, TaskType},
     repo::TaskRepo,
 };
 
@@ -45,6 +45,15 @@ pub enum Command {
         /// Assign to this username
         #[arg(long)]
         assign: Option<String>,
+        /// Priority: high, normal, or low
+        #[arg(long, default_value = "normal")]
+        priority: CliPriority,
+        /// Sequence number for ordering within a plan
+        #[arg(long)]
+        order: Option<u32>,
+        /// ID of a parent slice
+        #[arg(long)]
+        parent: Option<String>,
     },
     /// Set a slice in-progress
     Start { id: String },
@@ -74,6 +83,21 @@ pub enum Command {
         /// New description body
         #[arg(long)]
         description: Option<String>,
+        /// New priority: high, normal, or low
+        #[arg(long)]
+        priority: Option<CliPriority>,
+        /// Mark the slice as blocked (needs human input)
+        #[arg(long)]
+        block: bool,
+        /// Clear the blocked flag
+        #[arg(long)]
+        unblock: bool,
+        /// Sequence number for ordering within a plan
+        #[arg(long)]
+        order: Option<u32>,
+        /// ID of a parent slice (use empty string to clear)
+        #[arg(long)]
+        parent: Option<String>,
     },
     /// Commit and push all changes
     Sync,
@@ -94,12 +118,29 @@ pub enum CliType {
     Incident,
 }
 
+#[derive(ValueEnum, Clone)]
+pub enum CliPriority {
+    High,
+    Normal,
+    Low,
+}
+
 impl From<CliType> for TaskType {
     fn from(t: CliType) -> Self {
         match t {
             CliType::Task => TaskType::Task,
             CliType::Bug => TaskType::Bug,
             CliType::Incident => TaskType::Incident,
+        }
+    }
+}
+
+impl From<CliPriority> for Priority {
+    fn from(p: CliPriority) -> Self {
+        match p {
+            CliPriority::High => Priority::High,
+            CliPriority::Normal => Priority::Normal,
+            CliPriority::Low => Priority::Low,
         }
     }
 }
@@ -129,9 +170,16 @@ pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
             }
         }
 
-        Command::Create { title, r#type, assign } => {
+        Command::Create { title, r#type, assign, priority, order, parent } => {
             let task = repo
-                .create_task(title, r#type.into(), None)
+                .create_task(NewTask {
+                    title,
+                    task_type: r#type.into(),
+                    priority: priority.into(),
+                    order,
+                    parent_id: parent,
+                    ..Default::default()
+                })
                 .map_err(|e| e.to_string())?;
             if let Some(username) = assign {
                 repo.assign_task(&task.id, Some(username))
@@ -173,12 +221,26 @@ pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
             }
         }
 
-        Command::Set { id, title, description } => {
-            if title.is_none() && description.is_none() {
-                return Err("provide at least --title or --description".into());
+        Command::Set { id, title, description, priority, block, unblock, order, parent } => {
+            if title.is_none() && description.is_none() && priority.is_none()
+                && !block && !unblock && order.is_none() && parent.is_none()
+            {
+                return Err("provide at least one field to update".into());
             }
+            if block && unblock {
+                return Err("--block and --unblock are mutually exclusive".into());
+            }
+            let blocked = if block { Some(true) } else if unblock { Some(false) } else { None };
+            let parent_id = parent.map(|p| if p.is_empty() { None } else { Some(p) }).flatten();
             let task = repo
-                .update_task(&id, title, description)
+                .update_task(&id, TaskPatch {
+                    title,
+                    description,
+                    priority: priority.map(Into::into),
+                    blocked,
+                    order,
+                    parent_id,
+                })
                 .map_err(|e| e.to_string())?;
             println!("{}: updated", task.id);
         }
@@ -215,16 +277,29 @@ fn print_task_detail(task: &Task) {
         TaskType::Bug => "bug",
         TaskType::Incident => "incident",
     };
-    println!("id:      {}", task.id);
-    println!("type:    {type_str}");
-    println!("status:  {status}");
-    println!("title:   {}", task.title);
-    println!("created: {}", task.created.format("%Y-%m-%dT%H:%M:%S"));
+    let priority_str = match task.priority {
+        Priority::High => "high",
+        Priority::Normal => "normal",
+        Priority::Low => "low",
+    };
+    println!("id:       {}", task.id);
+    println!("type:     {type_str}");
+    println!("status:   {status}");
+    println!("priority: {priority_str}");
+    if task.blocked { println!("blocked:  yes"); }
+    println!("title:    {}", task.title);
+    println!("created:  {}", task.created.format("%Y-%m-%dT%H:%M:%S"));
     if let Some(d) = task.done {
-        println!("done:    {}", d.format("%Y-%m-%dT%H:%M:%S"));
+        println!("done:     {}", d.format("%Y-%m-%dT%H:%M:%S"));
     }
     if let Some(owner) = &task.owner {
-        println!("owner:   {owner}");
+        println!("owner:    {owner}");
+    }
+    if let Some(o) = task.order {
+        println!("order:    {o}");
+    }
+    if let Some(p) = &task.parent_id {
+        println!("parent:   {p}");
     }
     if let Some(desc) = &task.description {
         println!("\n{desc}");
