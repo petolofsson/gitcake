@@ -10,7 +10,7 @@ use ratatui::{
 
 use gitcake_core::models::task::{Priority, Task, TaskStatus, TaskType};
 
-use crate::app::{App, CreateField, Screen, TaskContext};
+use crate::app::{App, CreateField, DetailField, Screen, TaskContext};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -50,8 +50,8 @@ pub fn draw(f: &mut Frame, app: &App) {
                 username,
             })
         }
-        Screen::Detail { task, message } => {
-            draw_detail(f, app.context, task, message.as_deref());
+        Screen::Detail { task, message, selected_field } => {
+            draw_detail(f, app.context, task, message.as_deref(), *selected_field);
         }
         Screen::Create { task_type, assignee, field } => {
             draw_create(f, app.context, task_type, assignee, field)
@@ -382,7 +382,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>) {
+fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField) {
     let area = f.area();
     let block = Block::default()
         .title(Line::from(vec![
@@ -399,107 +399,109 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // blank
-            Constraint::Length(1), // task: {status}
-            Constraint::Length(1), // file: {path}
-            Constraint::Length(1), // created: {timestamp}
-            Constraint::Length(1), // priority / blocked / order / parent
-            Constraint::Length(1), // blank
-            Constraint::Length(1), // title: {title}
-            Constraint::Length(1), // blank
-            Constraint::Fill(1),   // description
-            Constraint::Length(1), // nav bar
-            Constraint::Length(1), // ctrl bar
+            Constraint::Length(1), // rows[0]  blank
+            Constraint::Length(1), // rows[1]  TYPE     (navigable)
+            Constraint::Length(1), // rows[2]  STATUS   (navigable)
+            Constraint::Length(1), // rows[3]  PRIORITY (navigable)
+            Constraint::Length(1), // rows[4]  BLOCKED  (navigable)
+            Constraint::Length(1), // rows[5]  FILE     (read-only)
+            Constraint::Length(1), // rows[6]  CREATED  (read-only)
+            Constraint::Length(1), // rows[7]  blank
+            Constraint::Length(1), // rows[8]  TITLE
+            Constraint::Length(1), // rows[9]  blank
+            Constraint::Fill(1),   // rows[10] description
+            Constraint::Length(1), // rows[11] nav bar
+            Constraint::Length(1), // rows[12] ctrl bar
         ])
         .split(inner);
 
-    let file_path = {
-        let type_folder = match task.task_type {
-            TaskType::Task => "tasks",
-            TaskType::Bug => "bugs",
-            TaskType::Incident => "incidents",
-        };
-        format!("{type_folder}/{}.md", task.id)
-    };
+    let file_path = format!("{}/{}.md", type_label(&task.task_type).to_string() + "s", task.id);
 
     let dim = Style::new().add_modifier(Modifier::DIM);
-    let status_style = match task.status {
-        TaskStatus::InProgress => Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow),
-        TaskStatus::Done => Style::new().add_modifier(Modifier::DIM),
-        TaskStatus::Open => Style::new().add_modifier(Modifier::BOLD),
-    };
     let bold = Style::new().add_modifier(Modifier::BOLD);
-    // rows[0] blank
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format!("{:<10}", format!("{}:", type_label(&task.task_type).to_uppercase())), bold),
-            Span::styled(status_label(&task.status), status_style),
-        ])),
-        rows[1],
-    );
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("FILE:", bold),
-            Span::styled(format!("     {file_path}"), dim),
-        ])),
-        rows[2],
-    );
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("CREATED:", bold),
-            Span::styled(format!("  {}", task.created.format("%Y-%m-%d %H:%M")), dim),
-        ])),
-        rows[3],
-    );
-    // rows[4] — priority / blocked / order / parent meta line
-    let mut meta_spans = vec![Span::raw("  ")];
-    let priority_label = match task.priority {
-        Priority::High => "high",
-        Priority::Normal => "normal",
-        Priority::Low => "low",
+    let cyan = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+
+    let render_field = |f: &mut Frame, row: Rect, field: DetailField, label: &str, value: &str, value_style: Style| {
+        let is_sel = selected == field;
+        let cursor = if is_sel { "▶ " } else { "  " };
+        let cursor_style = if is_sel { cyan } else { Style::new().add_modifier(Modifier::DIM) };
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(cursor, cursor_style),
+                Span::styled(format!("{:<10}", label), bold),
+                Span::styled(value.to_string(), value_style),
+            ])),
+            row,
+        );
+    };
+
+    let status_style = match task.status {
+        TaskStatus::InProgress => Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        TaskStatus::Done => dim,
+        TaskStatus::Open => bold,
     };
     let priority_style = match task.priority {
         Priority::High => Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        Priority::Normal => dim,
+        Priority::Normal => Style::new(),
         Priority::Low => dim,
     };
-    meta_spans.push(Span::styled("PRIORITY:", bold));
-    meta_spans.push(Span::styled(format!(" {priority_label}"), priority_style));
-    if task.blocked {
-        meta_spans.push(Span::styled("  [BLOCKED]", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)));
-    }
-    if let Some(o) = task.order {
-        meta_spans.push(Span::styled(format!("  order:{o}"), dim));
-    }
-    if let Some(p) = &task.parent_id {
-        meta_spans.push(Span::styled(format!("  parent:{p}"), dim));
-    }
-    f.render_widget(Paragraph::new(Line::from(meta_spans)), rows[4]);
-    // rows[5] blank
+    let blocked_style = if task.blocked {
+        Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        dim
+    };
+
+    // rows[0] blank
+    render_field(f, rows[1], DetailField::Type,     "TYPE:",     type_label(&task.task_type), bold);
+    render_field(f, rows[2], DetailField::Status,   "STATUS:",   status_label(&task.status),  status_style);
+    render_field(f, rows[3], DetailField::Priority, "PRIORITY:", priority_label(&task.priority), priority_style);
+    render_field(f, rows[4], DetailField::Blocked,  "BLOCKED:",  if task.blocked { "yes" } else { "no" }, blocked_style);
+
+    // Read-only rows — no cursor column, same label width
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled("TITLE:", bold),
-            Span::raw("    "),
-            Span::styled(task.title.clone(), bold),
+            Span::styled(format!("{:<10}", "FILE:"), bold),
+            Span::styled(file_path, dim),
+        ])),
+        rows[5],
+    );
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("{:<10}", "CREATED:"), bold),
+            Span::styled(task.created.format("%Y-%m-%d %H:%M").to_string(), dim),
         ])),
         rows[6],
     );
     // rows[7] blank
-    let desc = task.description.as_deref().unwrap_or_default();
-    let desc_lines: Vec<Line> = desc.lines()
-        .map(|l| Line::from(vec![Span::raw("            "), Span::raw(l.to_string())]))
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("{:<10}", "TITLE:"), bold),
+            Span::styled(task.title.clone(), bold),
+        ])),
+        rows[8],
+    );
+    // rows[9] blank
+
+    // Show order/parent as inline annotations after description if set
+    let mut desc_text = task.description.as_deref().unwrap_or_default().to_string();
+    if task.order.is_some() || task.parent_id.is_some() {
+        if !desc_text.is_empty() { desc_text.push('\n'); }
+        if let Some(o) = task.order { desc_text.push_str(&format!("order: {o}  ")); }
+        if let Some(p) = &task.parent_id { desc_text.push_str(&format!("parent: {p}")); }
+    }
+    let desc_lines: Vec<Line> = desc_text.lines()
+        .map(|l| Line::from(vec![Span::raw("  "), Span::styled(l.to_string(), dim)]))
         .collect();
     f.render_widget(
         Paragraph::new(desc_lines).wrap(ratatui::widgets::Wrap { trim: false }),
-        rows[8],
+        rows[10],
     );
 
-    f.render_widget(Paragraph::new(nav_bar(context)), rows[9]);
-    f.render_widget(Paragraph::new(ctrl_bar()), rows[10]);
+    f.render_widget(Paragraph::new(detail_nav_bar()), rows[11]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[12]);
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
@@ -859,6 +861,10 @@ fn nav_bar<'a>(context: TaskContext) -> Line<'a> {
     bar_line(items)
 }
 
+fn detail_nav_bar<'a>() -> Line<'a> {
+    bar_line(&[("WS", "navigate"), ("F", "cycle"), ("E", "edit"), ("⇧R", "pull")])
+}
+
 fn ctrl_bar<'a>() -> Line<'a> {
     bar_line(&[("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^Q", "quit")])
 }
@@ -894,6 +900,14 @@ fn status_label(s: &TaskStatus) -> &'static str {
         TaskStatus::Open => "open",
         TaskStatus::InProgress => "in-progress",
         TaskStatus::Done => "done",
+    }
+}
+
+fn priority_label(p: &Priority) -> &'static str {
+    match p {
+        Priority::High => "high",
+        Priority::Normal => "normal",
+        Priority::Low => "low",
     }
 }
 

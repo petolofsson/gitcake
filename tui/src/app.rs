@@ -6,7 +6,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use gitcake_core::{
-    models::task::{NewTask, Task, TaskPatch, TaskStatus, TaskType},
+    models::task::{NewTask, Priority, Task, TaskPatch, TaskStatus, TaskType},
     repo::TaskRepo,
 };
 
@@ -42,6 +42,7 @@ pub enum Screen {
     Detail {
         task: Task,
         message: Option<String>,
+        selected_field: DetailField,
     },
     Create {
         task_type: TaskType,
@@ -78,6 +79,33 @@ pub enum CreateField {
     Type,
     Assignee,
     Confirm,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum DetailField {
+    Type,
+    Status,
+    Priority,
+    Blocked,
+}
+
+impl DetailField {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Type => Self::Status,
+            Self::Status => Self::Priority,
+            Self::Priority => Self::Blocked,
+            Self::Blocked => Self::Type,
+        }
+    }
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Type => Self::Blocked,
+            Self::Status => Self::Type,
+            Self::Priority => Self::Status,
+            Self::Blocked => Self::Priority,
+        }
+    }
 }
 
 // ── app ───────────────────────────────────────────────────────────────────────
@@ -346,7 +374,7 @@ impl App {
             KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 && key.modifiers == KeyModifiers::NONE => {
                 let real_idx = visible.get(*selected).copied();
                 if let Some(task) = real_idx.and_then(|i| tasks.get(i)).cloned() {
-                    self.screen = Screen::Detail { task, message: None };
+                    self.screen = Screen::Detail { task, message: None, selected_field: DetailField::Type };
                 }
             }
             KeyCode::Char(c) if c == km.create.chars().next().unwrap_or('c') && km.create.len() == 1 && key.modifiers == KeyModifiers::NONE => {
@@ -473,22 +501,30 @@ impl App {
             return;
         }
 
-        let Screen::Detail { task, .. } = &self.screen else {
-            return;
-        };
-        let task_id = task.id.clone();
+        // Extract all state before any mutable borrows
+        let (task_id, selected_field, task_type, task_status, task_priority, task_blocked, title, desc) =
+            match &self.screen {
+                Screen::Detail { task, selected_field, .. } => (
+                    task.id.clone(),
+                    *selected_field,
+                    task.task_type.clone(),
+                    task.status.clone(),
+                    task.priority.clone(),
+                    task.blocked,
+                    task.title.clone(),
+                    task.description.clone().unwrap_or_default(),
+                ),
+                _ => return,
+            };
 
         if is_key(&key, &km.back) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
             self.enter_task_list(None, Some(&task_id));
             return;
         }
+
         if is_key(&key, &km.edit) {
-            // Clone task data before releasing borrow on self.screen
-            let (title, desc, ctx) = {
-                let Screen::Detail { task, .. } = &self.screen else { return };
-                (task.title.clone(), task.description.clone().unwrap_or_default(), self.context)
-            };
             if let Some((new_title, new_desc)) = edit_task_in_editor(&title, &desc) {
+                let ctx = self.context;
                 let msg = self.repo.as_ref().map(|r| match ctx {
                     TaskContext::Personal => r.update_task(&task_id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() }),
                     TaskContext::Backlog => r.update_backlog_task(&task_id, TaskPatch { title: Some(new_title), description: new_desc, ..Default::default() }),
@@ -504,13 +540,48 @@ impl App {
             }
             return;
         }
-        if is_key(&key, &km.status_cycle) && self.context == TaskContext::Personal {
-            self.cycle_status(&task_id);
-            if let Some(repo) = &self.repo {
-                if let Ok((tasks, _)) = repo.list_tasks() {
-                    if let Some(updated) = tasks.into_iter().find(|t| t.id == task_id) {
-                        self.screen = Screen::Detail { task: updated, message: None };
-                    }
+
+        // W/S — navigate between fields
+        if matches!(key.code, KeyCode::Char('w') | KeyCode::Up) && key.modifiers == KeyModifiers::NONE {
+            if let Screen::Detail { selected_field, .. } = &mut self.screen {
+                *selected_field = selected_field.prev();
+            }
+            return;
+        }
+        if matches!(key.code, KeyCode::Char('s') | KeyCode::Down) && key.modifiers == KeyModifiers::NONE {
+            if let Screen::Detail { selected_field, .. } = &mut self.screen {
+                *selected_field = selected_field.next();
+            }
+            return;
+        }
+
+        // F — cycle/toggle the focused field
+        if is_key(&key, &km.status_cycle) {
+            let updated = match selected_field {
+                DetailField::Type => {
+                    let next = next_task_type(task_type);
+                    self.repo.as_ref().and_then(|r| r.change_task_type(&task_id, next).ok())
+                }
+                DetailField::Status => {
+                    let ctx = self.context;
+                    self.repo.as_ref().and_then(|r| match (ctx, &task_status) {
+                        (TaskContext::Personal, TaskStatus::Open) => r.set_task_in_progress(&task_id).ok(),
+                        (TaskContext::Personal, TaskStatus::InProgress) => r.mark_task_done(&task_id).ok(),
+                        (TaskContext::Personal, TaskStatus::Done) => r.set_task_in_progress(&task_id).ok(),
+                        _ => None,
+                    })
+                }
+                DetailField::Priority => {
+                    let next = next_priority(task_priority);
+                    self.repo.as_ref().and_then(|r| r.update_task(&task_id, TaskPatch { priority: Some(next), ..Default::default() }).ok())
+                }
+                DetailField::Blocked => {
+                    self.repo.as_ref().and_then(|r| r.update_task(&task_id, TaskPatch { blocked: Some(!task_blocked), ..Default::default() }).ok())
+                }
+            };
+            if let Some(updated_task) = updated {
+                if let Screen::Detail { task, .. } = &mut self.screen {
+                    *task = updated_task;
                 }
             }
         }
@@ -1066,6 +1137,22 @@ fn apply_filter_indices(tasks: &[Task], filter: &str) -> Vec<usize> {
         .filter(|(_, t)| task_matches(t, &f))
         .map(|(i, _)| i)
         .collect()
+}
+
+fn next_task_type(t: TaskType) -> TaskType {
+    match t {
+        TaskType::Task => TaskType::Bug,
+        TaskType::Bug => TaskType::Incident,
+        TaskType::Incident => TaskType::Task,
+    }
+}
+
+fn next_priority(p: Priority) -> Priority {
+    match p {
+        Priority::High => Priority::Normal,
+        Priority::Normal => Priority::Low,
+        Priority::Low => Priority::High,
+    }
 }
 
 fn task_matches(t: &Task, f: &str) -> bool {

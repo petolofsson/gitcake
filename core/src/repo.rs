@@ -333,6 +333,22 @@ impl TaskRepo {
         task_file::read_task(&path, task_type)
     }
 
+    /// Moves a task to a different type folder, preserving all other fields.
+    pub fn change_task_type(&self, id: &str, new_type: TaskType) -> Result<Task, AppError> {
+        let root = Path::new(&self.info.path);
+        let (old_path, old_type) = find_task_path(root, id)?;
+        if old_type == new_type {
+            return task_file::read_task(&old_path, old_type);
+        }
+        let new_folder = type_folder(root, &new_type);
+        fs::create_dir_all(&new_folder)?;
+        let new_path = new_folder.join(format!("{id}.md"));
+        let old_rel = rel_path(root, &old_path);
+        let new_rel = rel_path(root, &new_path);
+        self.git.move_file(Path::new(&old_rel), Path::new(&new_rel))?;
+        task_file::read_task(&new_path, new_type)
+    }
+
     // ── path helpers (for TUI detail view) ───────────────────────────────────
 
     pub fn find_task_file_path(&self, id: &str) -> Option<PathBuf> {
