@@ -117,7 +117,7 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `E` | Edit slice in `$EDITOR` |
 | `F` | Cycle status (open → in-progress → done, wraps) |
 | `B` | Switch to backlog view |
-| `T` | Team view (read-only) |
+| `T` | Team view |
 | `/` | Filter — matches title, hex ID, owner, type, status, `blocked`, `high`, `low`. Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice to any user (including yourself) |
@@ -149,6 +149,19 @@ List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `
 | `Ctrl+Q` | Quit |
 
 Detail view shows four navigable rows (TYPE, STATUS, PRIORITY, BLOCKED) with a `▶` cursor. `F` cycles the focused field. Changing TYPE does a `git mv` to preserve history.
+
+### Team view
+
+| Key | Action |
+|---|---|
+| `W` / `S` | Navigate |
+| `T` / `A` / `Esc` / `Q` | Back to personal view (clears filter) |
+| `/` | Filter — same match rules as personal view. Esc to clear |
+| `Shift+R` | Pull |
+| `Ctrl+R` | Push |
+| `Ctrl+Q` | Quit |
+
+Shows all active (non-done) slices grouped by owner. Read-only — no status changes from this view.
 
 Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 

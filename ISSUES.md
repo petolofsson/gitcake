@@ -44,6 +44,7 @@
 - **Setup screen showed Q instead of ^Q**: label corrected to `^Q`.
 
 ## Resolved — Features
+- **Team view improvements**: `T` exits back to personal view; `/` filter works (hides non-matching tasks and empty user sections); full two-row navbar (nav + ctrl); `Shift+R` pull and `Ctrl+R` push work from team view.
 - **Rename: git-task → gitcake**: binary `gt` → `gitcake`, config dir `~/.config/git-task/` → `~/.config/gitcake/`, repo marker `git-task.toml` → `gitcake.toml`, crate names updated.
 - **CLI subcommands**: `gitcake list/create/start/done/delete/assign/sync` — thin layer on `gitcake-core`, `--json` flag on `list`, no args launches TUI.
 - **MCP server**: `gitcake-mcp` crate — 9 tools over stdio transport.
