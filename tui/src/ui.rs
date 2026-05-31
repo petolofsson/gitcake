@@ -48,7 +48,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::DeleteConfirm { task_title, .. } => draw_delete_confirm(f, task_title, app.context),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context),
         Screen::PushPrompt => draw_push_prompt(f),
-        Screen::TeamView { tasks, selected } => draw_team_view(f, tasks, *selected),
+        Screen::TeamView { tasks, selected } => draw_team_view(f, app, tasks, *selected),
     }
 }
 
@@ -446,45 +446,47 @@ fn draw_create_assign_field(f: &mut Frame, label_row: Rect, val_row: Rect, assig
 
 // ── team view ─────────────────────────────────────────────────────────────────
 
-fn draw_team_view(f: &mut Frame, tasks: &[(String, Task)], selected: usize) {
+fn draw_team_view(f: &mut Frame, app: &App, tasks: &[(String, Task)], selected: usize) {
     let area = f.area();
     let block = padded_block(" gitcake · TEAM ");
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(1), Constraint::Length(1)])
-        .split(inner);
+    let rows = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+    ]).split(inner);
     let inner_width = inner.width as usize;
-    let (items, index_map) = build_team_items(tasks, selected, inner_width);
+    let (items, index_map) = build_team_items(tasks, selected, &app.filter, inner_width);
     if items.is_empty() {
-        f.render_widget(Paragraph::new("No active tasks from any team member.").alignment(Alignment::Center).style(Style::new().add_modifier(Modifier::DIM)), rows[0]);
+        let msg = if app.filter.is_empty() { "No active tasks from any team member." } else { "No tasks match the filter." };
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(Style::new().add_modifier(Modifier::DIM)), rows[0]);
     } else {
         let mut state = ListState::default();
         state.select(index_map.iter().position(|e| *e == Some(selected)));
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
-    f.render_widget(Paragraph::new(Line::from(vec![
-        Span::raw(" "),
-        Span::styled(" WS ", Style::new().bg(Color::White).fg(Color::Black)),
-        Span::styled(" navigate  ", Style::new().fg(Color::DarkGray)),
-        Span::styled(" A ", Style::new().bg(Color::White).fg(Color::Black)),
-        Span::styled(" back  ", Style::new().fg(Color::DarkGray)),
-    ])), rows[1]);
+    f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
+    f.render_widget(Paragraph::new(bar_line(&[("WS", "navigate"), ("T", "back"), ("/", "filter")])), rows[2]);
+    f.render_widget(Paragraph::new(ctrl_bar()), rows[3]);
 }
 
-fn build_team_items(tasks: &[(String, Task)], selected: usize, inner_width: usize) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
+fn build_team_items(tasks: &[(String, Task)], selected: usize, filter: &str, inner_width: usize) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
+    use crate::app::task_matches;
+    let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
+    let is_vis = |t: &Task| f.is_empty() || task_matches(t, &f);
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
     let mut seen_users: Vec<&str> = Vec::new();
-    for (user, _) in tasks {
-        if !seen_users.contains(&user.as_str()) { seen_users.push(user.as_str()); }
+    for (user, task) in tasks {
+        if is_vis(task) && !seen_users.contains(&user.as_str()) { seen_users.push(user.as_str()); }
     }
+    let mut vis_idx = 0usize;
     for user in seen_users {
+        let user_tasks: Vec<_> = tasks.iter().filter(|(u, t)| u.as_str() == user && is_vis(t)).collect();
+        if user_tasks.is_empty() { continue; }
         items.push(ListItem::new(Line::from(Span::styled(format!(" {user}"), Style::new().add_modifier(Modifier::BOLD | Modifier::DIM)))));
         index_map.push(None);
-        for (task_idx, (_, task)) in tasks.iter().enumerate().filter(|(_, (u, _))| u.as_str() == user) {
-            let is_sel = task_idx == selected;
+        for (_, task) in user_tasks {
+            let is_sel = vis_idx == selected;
             let base = if task.status == TaskStatus::InProgress { Style::new().add_modifier(Modifier::BOLD).fg(Color::Yellow) } else { Style::new() };
             let cursor_style = if is_sel { Style::new().add_modifier(Modifier::BOLD).fg(Color::Cyan) } else { Style::new().add_modifier(Modifier::DIM) };
             let row_style = if is_sel { base.add_modifier(Modifier::REVERSED) } else { base };
@@ -494,7 +496,8 @@ fn build_team_items(tasks: &[(String, Task)], selected: usize, inner_width: usiz
                 Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_style.add_modifier(Modifier::DIM)),
                 Span::styled(truncate_title(&task.title, inner_width.saturating_sub(22)), row_style),
             ])));
-            index_map.push(Some(task_idx));
+            index_map.push(Some(vis_idx));
+            vis_idx += 1;
         }
         items.push(ListItem::new(Line::from("")));
         index_map.push(None);

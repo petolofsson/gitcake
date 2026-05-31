@@ -865,16 +865,41 @@ impl App {
 
     fn handle_team_view(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.try_quit(); return; }
+        if is_key(&key, &self.config.keys.push) { self.screen = Screen::SyncConfirm; return; }
+        if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.handle_list_pull(); return;
+        }
+        if self.filter_active {
+            let Screen::TeamView { selected, .. } = &mut self.screen else { return };
+            match key.code {
+                KeyCode::Esc      => { if self.filter.is_empty() { self.filter_active = false; } else { self.filter.clear(); *selected = 0; } }
+                KeyCode::Enter    => { self.filter_active = false; }
+                KeyCode::Backspace => { self.filter.pop(); *selected = 0; }
+                KeyCode::Char(c)  => { self.filter.push(c); *selected = 0; }
+                _ => {}
+            }
+            return;
+        }
+        if key.code == KeyCode::Esc && !self.filter.is_empty() {
+            self.filter.clear();
+            if let Screen::TeamView { selected, .. } = &mut self.screen { *selected = 0; }
+            return;
+        }
         let Screen::TeamView { tasks, selected } = &mut self.screen else { return };
-        let count = tasks.len();
+        let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
+        let visible_count = tasks.iter().filter(|(_, t)| f.is_empty() || task_matches(t, &f)).count();
         match key.code {
             KeyCode::Char('w') | KeyCode::Up => {
-                if count > 0 { *selected = selected.checked_sub(1).unwrap_or(count - 1); }
+                if visible_count > 0 { *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); }
             }
             KeyCode::Char('s') | KeyCode::Down => {
-                if count > 0 { *selected = (*selected + 1) % count; }
+                if visible_count > 0 { *selected = (*selected + 1) % visible_count; }
             }
-            KeyCode::Char('a') | KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Char('/') if key.modifiers == KeyModifiers::NONE => {
+                self.filter_active = true; self.filter.clear(); *selected = 0;
+            }
+            KeyCode::Char('t') | KeyCode::Char('a') | KeyCode::Esc | KeyCode::Char('q') => {
+                self.filter.clear(); self.filter_active = false;
                 self.enter_task_list(None, None);
             }
             _ => {}
