@@ -22,7 +22,6 @@
 - **No mid-session pull**: `Ctrl+P` pulls and reloads, cursor preserved, same error classifier as startup.
 - **Small terminal garbles UI**: `draw()` checks `width < 60 || height < 20`, shows centred "Terminal too small" message.
 
-## Resolved — Medium
 - **Wrong DONE label**: `done_local` (not synced) vs `done_synced` (`is_completed`). Section headers include counts.
 - **No team view**: `T` opens read-only view grouped by user folder (active tasks only).
 - **No in-app repo change**: `Ctrl+O` opens setup screen with current path pre-filled; Esc returns.
@@ -42,6 +41,12 @@
 - **`render_help` used by 2 screens**: setup/init-repo now use `action_bar()`, `render_help` deleted.
 - **Concurrent instances stale state**: documented as known limitation; lock file warns on next open.
 - **Setup screen showed Q instead of ^Q**: label corrected to `^Q`.
+
+## Resolved — Code Quality
+- **O1 — KeyMap clone per keypress**: `handle_task_list` and `handle_detail` now borrow `&self.config.keys` instead of cloning; 9 String allocations eliminated per keypress.
+- **O2 — Vec allocations in render path (CODERULE 4)**: `draw_task_list` replaced four `collect()` calls (visible, in-progress, open, done groups) with a single filtered iterator pass and per-status counters. Item building extracted to `task_row` helper.
+- **O3 — Spurious Vec in `enter_task_list`**: cursor position search replaced with a direct iterator `position()` call; no Vec allocated for filter application.
+- **O4 — CODERULE 3 function length**: all functions in `tui/src/app.rs` and `tui/src/ui.rs` reduced to ≤50 non-blank lines by extracting: `handle_filter_input`, `handle_list_pull`, `do_task_list_edit`, `do_claim_backlog`, `handle_list_action_keys`, `do_detail_edit`, `do_detail_field_cycle`, `task_list_block`, `build_task_items`, `filter_line_widget`, `render_detail_fields`, `render_detail_desc`, `task_list_params`, `draw_create_type_field`, `draw_create_assign_field`, `user_picker_items`, `build_team_items`.
 
 ## Resolved — Features
 - **Team view improvements**: `T` exits back to personal view; `/` filter works (hides non-matching tasks and empty user sections); full two-row navbar (nav + ctrl); `Shift+R` pull and `Ctrl+R` push work from team view.
