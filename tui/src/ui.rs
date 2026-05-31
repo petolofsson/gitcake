@@ -467,7 +467,7 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
         Priority::Low => dim,
     };
     meta_spans.push(Span::styled("PRIORITY:", bold));
-    meta_spans.push(Span::styled(format!("  {priority_label}"), priority_style));
+    meta_spans.push(Span::styled(format!(" {priority_label}"), priority_style));
     if task.blocked {
         meta_spans.push(Span::styled("  [BLOCKED]", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)));
     }
