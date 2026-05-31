@@ -338,6 +338,13 @@ impl TaskRepo {
         Ok(sorted)
     }
 
+    /// Fetches a single task by ID.
+    pub fn get_task(&self, id: &str) -> Result<Task, AppError> {
+        let root = Path::new(&self.info.path);
+        let (path, task_type) = find_task_path(root, id)?;
+        task_file::read_task(&path, task_type)
+    }
+
     // ── path helpers (for TUI detail view) ───────────────────────────────────
 
     pub fn find_task_file_path(&self, id: &str) -> Option<PathBuf> {

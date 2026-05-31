@@ -67,6 +67,18 @@ struct CreateSliceArgs {
     r#type: Option<String>,
     /// Assign to this username
     assignee: Option<String>,
+    /// Optional markdown description / plan body
+    description: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct EditSliceArgs {
+    /// 8-character hex slice ID
+    id: String,
+    /// New title — omit to leave unchanged
+    title: Option<String>,
+    /// New description body — omit to leave unchanged
+    description: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -115,7 +127,7 @@ impl GitcakeMcp {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(description = "Create a new slice. Returns the created slice ID.")]
+    #[tool(description = "Create a new slice. Returns the created slice as JSON.")]
     fn create_slice(&self, Parameters(args): Parameters<CreateSliceArgs>) -> Result<CallToolResult, McpError> {
         let task_type = match args.r#type.as_deref().unwrap_or("task") {
             "task" => TaskType::Task,
@@ -123,11 +135,26 @@ impl GitcakeMcp {
             "incident" => TaskType::Incident,
             t => return Err(McpError::invalid_params(format!("unknown type: {t}"), None)),
         };
-        let task = self.repo.create_task(args.title, task_type, None).map_err(mcp_err)?;
+        let mut task = self.repo.create_task(args.title, task_type, args.description).map_err(mcp_err)?;
         if let Some(username) = args.assignee {
-            self.repo.assign_task(&task.id, Some(username)).map_err(mcp_err)?;
+            task = self.repo.assign_task(&task.id, Some(username)).map_err(mcp_err)?;
         }
-        Ok(CallToolResult::success(vec![Content::text(format!("created {}", task.id))]))
+        let json = serde_json::to_string_pretty(&task).map_err(|e| mcp_err_str(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    #[tool(description = "Get a single slice by ID. Returns full slice JSON including description body.")]
+    fn get_slice(&self, Parameters(args): Parameters<IdArg>) -> Result<CallToolResult, McpError> {
+        let task = self.repo.get_task(&args.id).map_err(mcp_err)?;
+        let json = serde_json::to_string_pretty(&task).map_err(|e| mcp_err_str(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    #[tool(description = "Edit a slice title and/or description body. Omit a field to leave it unchanged.")]
+    fn edit_slice(&self, Parameters(args): Parameters<EditSliceArgs>) -> Result<CallToolResult, McpError> {
+        let task = self.repo.update_task(&args.id, args.title, args.description).map_err(mcp_err)?;
+        let json = serde_json::to_string_pretty(&task).map_err(|e| mcp_err_str(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
     #[tool(description = "Set a slice in-progress.")]
