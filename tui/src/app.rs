@@ -473,7 +473,6 @@ impl App {
         &mut self, task_id: String, field: DetailField,
         task_type: TaskType, task_status: TaskStatus, task_priority: Priority, task_blocked: bool,
     ) {
-        use gitcake_core::models::task::Priority;
         let updated = match field {
             DetailField::Type => {
                 self.repo.as_ref().and_then(|r| r.change_task_type(&task_id, next_task_type(task_type)).ok())
@@ -1055,16 +1054,6 @@ fn sort_for_display(mut tasks: Vec<Task>) -> Vec<Task> {
         (status_rank, priority_rank)
     });
     tasks
-}
-
-/// Returns tasks matching the filter string (all fields, case-insensitive).
-/// Empty filter returns all tasks.
-pub fn apply_filter<'a>(tasks: &'a [Task], filter: &str) -> Vec<&'a Task> {
-    if filter.is_empty() {
-        return tasks.iter().collect();
-    }
-    let f = filter.to_lowercase();
-    tasks.iter().filter(|t| task_matches(t, &f)).collect()
 }
 
 /// Returns the indices of tasks matching the filter. Empty filter returns all indices.
