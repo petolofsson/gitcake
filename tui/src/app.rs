@@ -92,12 +92,31 @@ pub enum Screen {
     },
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum CreateField {
     Type,
     Assignee,
     Cake,
     Confirm,
+}
+
+impl CreateField {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Type     => Self::Assignee,
+            Self::Assignee => Self::Cake,
+            Self::Cake     => Self::Confirm,
+            Self::Confirm  => Self::Type,
+        }
+    }
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Type     => Self::Confirm,
+            Self::Assignee => Self::Type,
+            Self::Cake     => Self::Assignee,
+            Self::Confirm  => Self::Cake,
+        }
+    }
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -553,48 +572,58 @@ impl App {
 
     fn handle_create(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.should_quit = true; return; }
+        if key.code == KeyCode::Esc { self.enter_task_list(None, None); return; }
 
-        // Ctrl+S or Enter on Confirm → open editor and create
-        let trigger = key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL);
-        let on_confirm = matches!(&self.screen, Screen::Create { field: CreateField::Confirm, .. })
-            && key.code == KeyCode::Enter
-            && key.modifiers == KeyModifiers::NONE;
-        if trigger || on_confirm {
-            self.create_via_editor();
+        let ctrl_s = key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL);
+        if ctrl_s { self.create_via_editor(); return; }
+
+        let no_mod = key.modifiers == KeyModifiers::NONE;
+
+        // Read field as Copy before any mutable borrow.
+        let field = match &self.screen {
+            Screen::Create { field, .. } => *field,
+            _ => return,
+        };
+
+        if matches!(key.code, KeyCode::Char('w') | KeyCode::Up) && no_mod {
+            if let Screen::Create { field: f, .. } = &mut self.screen { *f = f.prev(); }
+            return;
+        }
+        if matches!(key.code, KeyCode::Char('s') | KeyCode::Down) && no_mod {
+            if let Screen::Create { field: f, .. } = &mut self.screen { *f = f.next(); }
             return;
         }
 
-        let Screen::Create { task_type, assignee, cake_id, field } = &mut self.screen else { return };
+        let activate = (key.code == KeyCode::Char('f') || key.code == KeyCode::Enter) && no_mod;
+        if !activate { return; }
 
-        match key.code {
-            KeyCode::Esc => self.enter_task_list(None, None),
-            KeyCode::Tab => {
-                *field = match field {
-                    CreateField::Type     => CreateField::Assignee,
-                    CreateField::Assignee => CreateField::Cake,
-                    CreateField::Cake     => CreateField::Confirm,
-                    CreateField::Confirm  => CreateField::Type,
+        match field {
+            CreateField::Confirm => self.create_via_editor(),
+            CreateField::Type => {
+                if let Screen::Create { task_type, .. } = &mut self.screen {
+                    *task_type = match task_type {
+                        TaskType::Task     => TaskType::Bug,
+                        TaskType::Bug      => TaskType::Incident,
+                        TaskType::Incident => TaskType::Task,
+                    };
+                }
+            }
+            CreateField::Assignee => {
+                let (tt, asgn) = match &self.screen {
+                    Screen::Create { task_type, assignee, .. } => (task_type.clone(), assignee.clone()),
+                    _ => return,
                 };
-            }
-            KeyCode::Enter if *field == CreateField::Type && key.modifiers == KeyModifiers::NONE => {
-                *field = CreateField::Assignee;
-            }
-            KeyCode::Enter if *field == CreateField::Assignee && key.modifiers == KeyModifiers::NONE => {
-                let tt = task_type.clone();
-                let asgn = assignee.clone();
-                let cid = cake_id.clone();
                 let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
                 self.screen = Screen::PickAssignee {
                     task_type: tt, prev_assignee: asgn,
                     users, selected: 0, filter: String::new(),
                 };
-                // restore cake_id after screen change (set below via PickAssignee return)
-                let _ = cid;
             }
-            KeyCode::Enter if *field == CreateField::Cake && key.modifiers == KeyModifiers::NONE => {
-                let tt = task_type.clone();
-                let asgn = assignee.clone();
-                let cid = cake_id.clone();
+            CreateField::Cake => {
+                let (tt, asgn) = match &self.screen {
+                    Screen::Create { task_type, assignee, .. } => (task_type.clone(), assignee.clone()),
+                    _ => return,
+                };
                 let cakes = self.cached_cakes.clone();
                 self.screen = Screen::PickCake {
                     task_id: String::new(), cakes, selected: 0, filter: String::new(),
@@ -602,16 +631,7 @@ impl App {
                     create_task_type: Some(tt),
                     create_assignee: Some(asgn),
                 };
-                let _ = cid;
             }
-            KeyCode::Char(' ') if *field == CreateField::Type && key.modifiers == KeyModifiers::NONE => {
-                *task_type = match task_type {
-                    TaskType::Task => TaskType::Bug,
-                    TaskType::Bug => TaskType::Incident,
-                    TaskType::Incident => TaskType::Task,
-                };
-            }
-            _ => {}
         }
     }
 

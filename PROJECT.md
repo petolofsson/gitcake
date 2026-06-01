@@ -193,6 +193,18 @@ List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `
 | `Ctrl+D` | Permanently delete slice |
 | `B` | Switch to personal view |
 
+### Create slice view
+
+| Key | Action |
+|---|---|
+| `W` / `↑`  `S` / `↓` | Move cursor between fields (TYPE → ASSIGN TO → CAKE → CONFIRM) |
+| `F` | Activate focused field: cycle TYPE; open picker on ASSIGNEE / CAKE; open editor on CONFIRM |
+| `Enter` | Same as `F` |
+| `Ctrl+S` | Open editor immediately (from any field) |
+| `Esc` | Cancel and return to personal view |
+
+Fields show a `▶` cursor and highlight when focused, matching the detail view convention.
+
 ### Detail view
 
 | Key | Action |
@@ -274,6 +286,62 @@ Configure in `~/.claude/.mcp.json` (use full binary path):
   }
 }
 ```
+
+---
+
+## Configuration
+
+Config file: `~/.config/gitcake/config.toml` (created on first save; all keys optional — omitted keys use defaults).
+
+### Key remapping
+
+```toml
+[keys]
+up           = "w"
+down         = "s"
+detail       = "d"
+back         = "a"
+create       = "c"
+edit         = "e"
+status_cycle = "f"
+push         = "ctrl+r"
+quit         = "ctrl+q"
+```
+
+### Theme
+
+Style strings follow [Starship](https://starship.rs/config/#style-strings) format: space-separated tokens — `bold`, `dim`, `italic`, `underline`, `fg:color`, `bg:color`, or a bare color name (treated as fg). Colors accept ANSI names (`blue`, `cyan` …), hex (`#268bd2`), ANSI 256-index (`21`), or palette aliases.
+
+```toml
+[theme.palette]         # optional named colors — reference them anywhere
+brand   = "#268bd2"
+surface = "#073642"
+
+[theme]
+# Interaction
+highlight = "bold bg:blue fg:white"   # selected row bg + fg
+accent    = "cyan"                     # cursor ▶ color
+warning   = "yellow"                   # in-progress / high priority
+danger    = "red"                      # blocked indicator
+
+# Base palette
+text   = "reset"   # primary text; drives navbar chip background
+bg     = "reset"   # background; drives navbar chip foreground
+border = "reset"   # border characters + view title color
+
+# Symbols (single display-cell characters)
+cursor       = "▶"
+sym_high     = "^"
+sym_low      = "v"
+sym_blocked  = "!"
+sym_done     = "✓"
+sym_open     = "○"
+sym_progress = "●"
+sym_arrow    = "→"
+sym_dot      = "·"
+```
+
+Navbar key chips automatically invert relative to `text`/`bg`: chip background = `text`, chip foreground = `bg`. Setting `text = "white"` + `bg = "black"` gives the classic white chip on a dark terminal.
 
 ---
 
