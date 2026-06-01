@@ -210,35 +210,51 @@ fn task_list_params<'a>(app: &'a App, tasks: &'a [Task], selected: usize, messag
     }
 }
 
+const LOGO: &str = r#"           o8o      .                       oooo
+            `"'    .o8                       `888
+ .oooooooo oooo  .o888oo  .ooooo.   .oooo.    888  oooo   .ooooo.
+888' `88b  `888    888   d88' `"Y8 `P  )88b   888 .8P'   d88' `88b
+888   888   888    888   888        .oP"888   888888.    888ooo888
+`88bod8P'   888    888 . 888   .o8 d8(  888   888 `88b.  888    .o
+`8oooooo.  o888o   "888" `Y8bod8P' `Y888""8o o888o o888o `Y8bod8P'
+d"     YD
+"Y88888P'                                                          "#;
+
 fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool, theme: &Theme) {
     let area = f.area();
     let block = theme.padded_block("gitcake");
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
+        Constraint::Fill(1),
+        Constraint::Length(9), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Fill(1),
         Constraint::Length(1),
     ]).split(inner);
-    f.render_widget(Paragraph::new("Enter the path to your gitcake repo:").alignment(Alignment::Center), rows[1]);
+    f.render_widget(Paragraph::new(LOGO).alignment(Alignment::Center).style(theme.dim()), rows[1]);
+    f.render_widget(Paragraph::new("Everyone deserves a cake.").alignment(Alignment::Center).style(theme.dim()), rows[2]);
+    // rows[3] gap
+    f.render_widget(Paragraph::new("Enter the path to your gitcake repo:").alignment(Alignment::Center), rows[4]);
     let input_line = Line::from(vec![
         Span::raw("> "),
         Span::styled(input, theme.bold_style()),
         Span::styled("_", theme.bold_style()),
     ]);
-    f.render_widget(Paragraph::new(input_line).alignment(Alignment::Center), rows[2]);
+    f.render_widget(Paragraph::new(input_line).alignment(Alignment::Center), rows[5]);
     f.render_widget(
         Paragraph::new("Local path to a cloned git repo — e.g. ~/tasks or /home/you/my-tasks")
             .alignment(Alignment::Center).style(theme.dim()),
-        rows[3],
+        rows[6],
     );
-    draw_error_line(f, rows[4], error, theme);
+    draw_error_line(f, rows[7], error, theme);
     let bar = if can_cancel {
         theme.bar_line(&[("Enter", "connect"), ("Esc", "cancel")])
     } else {
         theme.bar_line(&[("Enter", "connect"), ("^Q", "quit")])
     };
-    f.render_widget(Paragraph::new(bar), rows[6]);
+    f.render_widget(Paragraph::new(bar), rows[9]);
 }
 
 // ── init repo ─────────────────────────────────────────────────────────────────

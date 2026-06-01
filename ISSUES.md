@@ -49,6 +49,7 @@
 - **O4 — CODERULE 3 function length**: all functions in `tui/src/app.rs` and `tui/src/ui.rs` reduced to ≤50 non-blank lines by extracting: `handle_filter_input`, `handle_list_pull`, `do_task_list_edit`, `do_claim_backlog`, `handle_list_action_keys`, `do_detail_edit`, `do_detail_field_cycle`, `task_list_block`, `build_task_items`, `filter_line_widget`, `render_detail_fields`, `render_detail_desc`, `task_list_params`, `draw_create_type_field`, `draw_create_assign_field`, `user_picker_items`, `build_team_items`.
 
 ## Resolved — Features (post-v0.1.0, session 2026-06-01)
+- **Setup screen logo**: Roman-font ASCII art + "Everyone deserves a cake." subtitle on the connect screen.
 - **Borderless UI**: all view borders removed. View titles render as plain header rows (ratatui reserves the row without a border line). Fixes mouse selection copying.
 - **Create screen WASD navigation**: W/S navigate between fields (TYPE → ASSIGN TO → CAKE → CONFIRM); F activates the focused field (cycles TYPE, opens picker on ASSIGNEE/CAKE, opens editor on CONFIRM); Enter is secondary activation; Tab and Space removed. `CreateField` derives `Copy`; `next()`/`prev()` helpers added.
 - **Uniform highlight style**: All navigable views (task list, planner, detail, create, pickers) use explicit `bg(highlight_bg).fg(highlight_fg)` for the selected row — replacing `Modifier::REVERSED` which produced inconsistent colors across differently-styled cells and empty spaces.
