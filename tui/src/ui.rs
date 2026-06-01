@@ -222,29 +222,32 @@ d"     YD
 
 fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool, theme: &Theme) {
     let area = f.area();
-    let block = theme.padded_block("gitcake");
+    let block = theme.padded_block("gitcake - created by peter olofsson");
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Fill(1),
         Constraint::Length(9), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1),
         Constraint::Fill(1),
         Constraint::Length(1),
     ]).split(inner);
-    f.render_widget(Paragraph::new(LOGO).alignment(Alignment::Center).style(theme.dim()), rows[1]);
-    f.render_widget(Paragraph::new("Everyone deserves a cake.").alignment(Alignment::Center).style(theme.dim()), rows[2]);
-    // rows[3] gap
-    f.render_widget(Paragraph::new("Enter the path to your gitcake repo:").alignment(Alignment::Center), rows[4]);
+    let logo_col = Layout::default().direction(Direction::Horizontal).constraints([
+        Constraint::Fill(1), Constraint::Length(67), Constraint::Fill(1),
+    ]).split(rows[1]);
+    f.render_widget(Paragraph::new(LOGO).style(theme.dim()), logo_col[1]);
+    // rows[2] blank between logo and slogan
+    f.render_widget(Paragraph::new("——————————— Everyone Deserves Cake ———————————").alignment(Alignment::Center).style(Style::new().fg(theme.warning)), rows[3]);
+    // rows[4] blank between slogan and form
     let input_line = Line::from(vec![
-        Span::raw("> "),
+        Span::raw("Connect your task repo ⇒ "),
         Span::styled(input, theme.bold_style()),
-        Span::styled("_", theme.bold_style()),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
     ]);
     f.render_widget(Paragraph::new(input_line).alignment(Alignment::Center), rows[5]);
     f.render_widget(
-        Paragraph::new("Local path to a cloned git repo — e.g. ~/tasks or /home/you/my-tasks")
+        Paragraph::new("(e.g. ~/tasks or /home/user/your-folder)")
             .alignment(Alignment::Center).style(theme.dim()),
         rows[6],
     );
@@ -277,7 +280,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>, th
     let name_line = Line::from(vec![
         Span::raw("Repo name: "),
         Span::styled(name, theme.bold_style()),
-        Span::styled("_", theme.bold_style()),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
     ]);
     f.render_widget(Paragraph::new(name_line).alignment(Alignment::Center), rows[3]);
     draw_error_line(f, rows[4], error, theme);
@@ -402,7 +405,7 @@ fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a>
             Span::raw("  "),
             Span::styled("/ ", Style::new().add_modifier(Modifier::DIM)),
             Span::styled(filter, Style::new().add_modifier(Modifier::BOLD)),
-            Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+            Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
         ]))
     } else if !filter.is_empty() {
         Paragraph::new(Line::from(vec![
@@ -627,7 +630,7 @@ fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {
     f.render_widget(Paragraph::new(Line::from(Span::styled("TITLE:", theme.bold_style()))), rows[0]);
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::raw(title),
-        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
     ])), rows[1]);
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::styled("  Enter: create  ", theme.dim()),
@@ -667,7 +670,7 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::styled("/ ", theme.dim()),
         Span::styled(filter, theme.bold_style()),
-        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
     ])), rows[0]);
     if filtered.is_empty() {
         f.render_widget(Paragraph::new("No matching users.").style(theme.dim()), rows[2]);
