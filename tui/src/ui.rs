@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph},
+    widgets::{Block, Clear, List, ListItem, ListState, Padding, Paragraph},
     Frame,
 };
 
@@ -129,9 +129,6 @@ impl Theme {
         let sty = self.border_style();
         Block::default()
             .title(Span::styled(format!(" {title} "), sty))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(sty)
     }
 
     fn padded_block(&self, title: &str) -> Block<'static> {
@@ -468,8 +465,7 @@ fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Opti
             Span::styled(task.id.clone(), sty.add_modifier(Modifier::BOLD)),
             Span::styled(" ", sty),
         ]))
-        .borders(Borders::ALL).border_type(BorderType::Rounded)
-        .border_style(sty).padding(Padding::new(1, 1, 1, 1));
+        .padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
