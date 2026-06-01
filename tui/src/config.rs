@@ -103,7 +103,11 @@ impl Config {
         let Ok(text) = fs::read_to_string(&path) else {
             return Self::default();
         };
-        toml::from_str(&text).unwrap_or_default()
+        let c: Self = toml::from_str(&text).unwrap_or_default();
+        if !text.contains("[theme]") {
+            c.save();
+        }
+        c
     }
 
     pub fn save(&self) {
