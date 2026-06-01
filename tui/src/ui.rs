@@ -243,7 +243,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool,
     let input_line = Line::from(vec![
         Span::raw("Connect your task repo ⇒ "),
         Span::styled(input, theme.bold_style()),
-        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
     ]);
     f.render_widget(Paragraph::new(input_line).alignment(Alignment::Center), rows[5]);
     f.render_widget(
@@ -280,7 +280,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>, th
     let name_line = Line::from(vec![
         Span::raw("Repo name: "),
         Span::styled(name, theme.bold_style()),
-        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
     ]);
     f.render_widget(Paragraph::new(name_line).alignment(Alignment::Center), rows[3]);
     draw_error_line(f, rows[4], error, theme);
@@ -308,16 +308,16 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
                          filter, filter_active, repo_name, username, theme } = p;
     let area = f.area();
     let inner_width = theme.padded_block("").inner(area).width as usize;
-    let block = task_list_block(context, repo_name, username, message, filter, filter_active, pull_error, lock_warning, theme);
+    let block = task_list_block(context, message, filter, filter_active, pull_error, lock_warning, theme);
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
     let (items, index_map, safe_sel) = build_task_items(tasks, filter, selected, inner_width, theme);
     if items.is_empty() {
-        let msg = if filter.is_empty() { "No tasks yet. Press c to create one." } else { "No tasks match the filter." };
+        let msg = if filter.is_empty() { "No tasks yet. ^C to create one." } else { "No tasks match the filter." };
         f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
     } else {
         let mut state = ListState::default();
@@ -325,21 +325,25 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(filter, filter_active), rows[1]);
-    f.render_widget(Paragraph::new(nav_bar(context, theme)), rows[3]);
-    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[4]);
+    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[3]);
+    f.render_widget(Paragraph::new(nav_bar(context, theme)), rows[4]);
+    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[5]);
 }
 
 fn task_list_block(
-    context: TaskContext, repo_name: &str, username: &str,
+    context: TaskContext,
     message: Option<&str>, filter: &str, filter_active: bool,
     pull_error: Option<&str>, lock_warning: Option<&str>,
     theme: &Theme,
 ) -> Block<'static> {
-    let app_title = match context {
-        TaskContext::Personal => format!(" gitcake · {repo_name} · {username} "),
-        TaskContext::Backlog  => format!(" gitcake · {repo_name} · {username} · BACKLOG "),
+    let title = match context {
+        TaskContext::Personal => " gitcake · PERSONAL VIEW ",
+        TaskContext::Backlog  => " gitcake · BACKLOG VIEW ",
     };
-    let mut block = theme.padded_block(&app_title);
+    let title_sty = Style::new().fg(theme.warning).add_modifier(Modifier::BOLD);
+    let mut block = Block::default()
+        .title(Span::styled(title, title_sty))
+        .padding(Padding::new(1, 1, 1, 1));
     if let Some(msg) = message {
         block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
     }
@@ -405,7 +409,7 @@ fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a>
             Span::raw("  "),
             Span::styled("/ ", Style::new().add_modifier(Modifier::DIM)),
             Span::styled(filter, Style::new().add_modifier(Modifier::BOLD)),
-            Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
+            Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
         ]))
     } else if !filter.is_empty() {
         Paragraph::new(Line::from(vec![
@@ -424,31 +428,33 @@ fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a>
 // ── task row ──────────────────────────────────────────────────────────────────
 
 fn task_row(task: &Task, vis_idx: usize, safe_sel: usize, inner_width: usize, theme: &Theme) -> (ListItem<'static>, usize) {
-    let is_sel   = vis_idx == safe_sel;
-    let cursor   = if is_sel { format!("{} ", theme.cursor) } else { "  ".to_string() };
-    let id_str   = format!("{}  ", task.id);
-    let type_str = format!("{:<8}  ", type_label(&task.task_type));
-    let bite_prog  = bite_progress(&task.bites);
-    let prog_width = bite_prog.as_ref().map(|s| s.len() + 2).unwrap_or(0);
-    let title_str  = truncate_title(&task.title, inner_width.saturating_sub(24 + prog_width));
+    let is_sel  = vis_idx == safe_sel;
     let base = match task.status {
         TaskStatus::Done       => Style::new().add_modifier(Modifier::DIM),
         TaskStatus::InProgress => Style::new().add_modifier(Modifier::BOLD).fg(theme.warning),
         TaskStatus::Open       => Style::new(),
     };
-    let cursor_sty = if is_sel { theme.cursor_style() } else { Style::new().add_modifier(Modifier::DIM) };
     let row_sty    = if is_sel { theme.highlight } else { base };
+    let sp         = Style::new();
+    let cursor_sty = if is_sel { Style::new().fg(theme.accent).add_modifier(Modifier::BOLD) } else { sp.add_modifier(Modifier::DIM) };
     let (flag_str, flag_sty) = task_flag(task, theme);
-    let flag_sty = if is_sel { theme.highlight } else { flag_sty };
+    let bite_prog  = bite_progress(&task.bites);
+    let prog_width = bite_prog.as_ref().map(|s| s.len() + 2).unwrap_or(0);
+    let title_str  = truncate_title(&task.title, inner_width.saturating_sub(24 + prog_width));
+    let cursor_char = if is_sel { theme.cursor.clone() } else { " ".to_string() };
     let mut spans = vec![
-        Span::styled(cursor,   cursor_sty),
-        Span::styled(flag_str, flag_sty),
-        Span::styled(id_str,   row_sty.add_modifier(Modifier::DIM)),
-        Span::styled(type_str, row_sty.add_modifier(Modifier::DIM)),
-        Span::styled(title_str, row_sty),
+        Span::styled(cursor_char,                              cursor_sty),
+        Span::styled(" ",                                      sp),
+        Span::styled(flag_str,                                 flag_sty),
+        Span::styled(task.id.clone(),                          row_sty.add_modifier(Modifier::DIM)),
+        Span::styled("  ",                                     sp),
+        Span::styled(format!("{:<8}", type_label(&task.task_type)), row_sty.add_modifier(Modifier::DIM)),
+        Span::styled("  ",                                     sp),
+        Span::styled(title_str,                                row_sty),
     ];
     if let Some(p) = bite_prog {
-        spans.push(Span::styled(format!("  {p}"), Style::new().add_modifier(Modifier::DIM)));
+        spans.push(Span::styled("  ", sp));
+        spans.push(Span::styled(p, Style::new().add_modifier(Modifier::DIM)));
     }
     (ListItem::new(Line::from(spans)), vis_idx)
 }
@@ -630,7 +636,7 @@ fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {
     f.render_widget(Paragraph::new(Line::from(Span::styled("TITLE:", theme.bold_style()))), rows[0]);
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::raw(title),
-        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
     ])), rows[1]);
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::styled("  Enter: create  ", theme.dim()),
@@ -670,7 +676,7 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::styled("/ ", theme.dim()),
         Span::styled(filter, theme.bold_style()),
-        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK | Modifier::UNDERLINED)),
+        Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
     ])), rows[0]);
     if filtered.is_empty() {
         f.render_widget(Paragraph::new("No matching users.").style(theme.dim()), rows[2]);
@@ -706,17 +712,23 @@ fn user_picker_items(filtered: &[&String], selected: usize, theme: &Theme) -> Ve
 
 fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String, Task)], selected: usize, theme: &Theme) {
     let area = f.area();
-    let block = theme.padded_block("gitcake · PLANNER ");
+    let (repo_name, username) = app.repo.as_ref()
+        .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
+        .unwrap_or(("", ""));
+    let title_sty = Style::new().fg(theme.warning).add_modifier(Modifier::BOLD);
+    let block = Block::default()
+        .title(Span::styled(" gitcake · PLANNER VIEW ", title_sty))
+        .padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
     let inner_width = inner.width as usize;
     let (items, index_map) = build_planner_items(cakes, tasks, selected, &app.filter, inner_width, theme);
     if items.is_empty() {
-        let msg = if app.filter.is_empty() { "No active tasks. Create a cake with C." } else { "No tasks match the filter." };
+        let msg = if app.filter.is_empty() { "No active tasks. ^C to create one." } else { "No tasks match the filter." };
         f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
     } else {
         let mut state = ListState::default();
@@ -724,8 +736,9 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
-    f.render_widget(Paragraph::new(theme.bar_line(&[("WASD", "navigate"), ("C", "cake"), ("P", "back")])), rows[3]);
-    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[4]);
+    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[3]);
+    f.render_widget(Paragraph::new(theme.bar_line(&[("WASD", "navigate"), ("Tab", "cycle view"), ("C", "cake"), ("^C", "create")])), rows[4]);
+    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[5]);
 }
 
 fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, inner_width: usize, theme: &Theme) -> ListItem<'static> {
@@ -846,14 +859,22 @@ fn draw_push_prompt(f: &mut Frame, theme: &Theme) {
     );
 }
 
-// ── command bars ──────────────────────────────────────────────────────────────
+// ── command bars / info bar ───────────────────────────────────────────────────
+
+fn info_bar<'a>(repo_name: &'a str, username: &'a str, theme: &Theme) -> Line<'a> {
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled(repo_name, theme.dim()),
+        Span::styled(" · ", theme.dim()),
+        Span::styled(username, theme.dim()),
+    ])
+}
 
 fn nav_bar<'a>(context: TaskContext, theme: &Theme) -> Line<'a> {
     let f_label = if context == TaskContext::Backlog { "claim" } else { "cycle" };
-    let b_label = if context == TaskContext::Backlog { "personal" } else { "backlog" };
     theme.bar_line(&[
-        ("WASD", "navigate"), ("C", "create"), ("E", "edit"),
-        ("F", f_label), ("B", b_label), ("P", "planner"),
+        ("WASD", "navigate"), ("Tab", "cycle view"), ("E", "edit"),
+        ("F", f_label), ("^C", "create"),
     ])
 }
 

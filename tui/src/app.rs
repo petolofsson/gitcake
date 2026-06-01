@@ -229,6 +229,21 @@ impl App {
 
     pub fn handle_event(&mut self, event: Event) {
         let Event::Key(key) = event else { return };
+        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+            let input_screen = matches!(&self.screen,
+                Screen::Setup { .. } | Screen::InitRepo { .. } | Screen::Create { .. }
+                | Screen::CreateCake { .. } | Screen::AssignTask { .. }
+                | Screen::PickAssignee { .. } | Screen::DeleteConfirm { .. }
+                | Screen::SyncConfirm | Screen::PushPrompt | Screen::PickCake { .. }
+            );
+            if !input_screen {
+                if let Some(r) = &self.repo {
+                    let assignee = r.info.username.clone();
+                    self.screen = Screen::Create { task_type: TaskType::Task, assignee, cake_id: None, field: CreateField::Type };
+                }
+                return;
+            }
+        }
         match &self.screen {
             Screen::Setup { .. } => self.handle_setup(key),
             Screen::InitRepo { .. } => self.handle_init_repo(key),
@@ -360,10 +375,6 @@ impl App {
             KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 && no_mod => {
                 if let Some(t) = sel_task { self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: false }; }
             }
-            KeyCode::Char(c) if c == km.create.chars().next().unwrap_or('c') && km.create.len() == 1 && no_mod => {
-                let assignee = self.repo.as_ref().map(|r| r.info.username.clone()).unwrap_or_default();
-                self.screen = Screen::Create { task_type: TaskType::Task, assignee, cake_id: None, field: CreateField::Type };
-            }
             KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 && no_mod => {
                 if let Some(t) = sel_task { self.do_task_list_edit(t.id, t.title, t.description.unwrap_or_default()); }
             }
@@ -373,12 +384,20 @@ impl App {
             KeyCode::Char('f') if no_mod && self.context == TaskContext::Backlog => {
                 if let Some(t) = sel_task { self.do_claim_backlog(t.id); }
             }
-            KeyCode::Char('b') if no_mod => {
-                self.context = match self.context { TaskContext::Personal => TaskContext::Backlog, TaskContext::Backlog => TaskContext::Personal };
+            KeyCode::Tab => {
                 self.filter.clear(); self.filter_active = false;
-                self.enter_task_list(None, None);
+                match self.context {
+                    TaskContext::Personal => self.enter_planner_view(),
+                    TaskContext::Backlog  => { self.context = TaskContext::Personal; self.enter_task_list(None, None); }
+                }
             }
-            KeyCode::Char('p') if no_mod => { self.enter_planner_view(); }
+            KeyCode::BackTab => {
+                self.filter.clear(); self.filter_active = false;
+                match self.context {
+                    TaskContext::Personal => { self.context = TaskContext::Backlog; self.enter_task_list(None, None); }
+                    TaskContext::Backlog  => self.enter_planner_view(),
+                }
+            }
             KeyCode::Char('a') if ctrl => {
                 if let Some(t) = sel_task {
                     let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
@@ -994,9 +1013,13 @@ impl App {
             KeyCode::Char('/') if key.modifiers == KeyModifiers::NONE => {
                 self.filter_active = true; self.filter.clear(); *selected = 0;
             }
-            KeyCode::Char('p') => {
+            KeyCode::Tab => {
                 self.filter.clear(); self.filter_active = false;
-                self.enter_task_list(None, None);
+                self.context = TaskContext::Backlog; self.enter_task_list(None, None);
+            }
+            KeyCode::BackTab => {
+                self.filter.clear(); self.filter_active = false;
+                self.context = TaskContext::Personal; self.enter_task_list(None, None);
             }
             _ => {}
         }

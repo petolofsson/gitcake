@@ -170,11 +170,11 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `W` / `↑`  `S` / `↓` | Navigate |
 | `D` | View slice detail |
 | `A` | Back |
-| `C` | Create new slice |
+| `Ctrl+C` | Create new slice (global — works from any non-input view) |
 | `E` | Edit slice in `$EDITOR` |
 | `F` | Cycle status (open → in-progress → done, wraps) |
-| `B` | Switch to backlog view |
-| `P` | Planner view |
+| `Tab` | Cycle view: Personal → Planner → Backlog → Personal |
+| `Shift+Tab` | Cycle view in reverse |
 | `/` | Filter — matches title, hex ID, owner, type, status, `blocked`, `high`, `low`. Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice to any user (including yourself) |
@@ -191,7 +191,8 @@ List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `
 | `F` | Claim slice for yourself |
 | `Ctrl+A` | Assign slice to any user (opens picker) |
 | `Ctrl+D` | Permanently delete slice |
-| `B` | Switch to personal view |
+| `Tab` | Cycle view: Backlog → Personal → Planner |
+| `Shift+Tab` | Cycle view in reverse |
 
 ### Create slice view
 
@@ -226,13 +227,15 @@ Detail view shows five navigable rows (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) wi
 | `W` / `S` | Navigate |
 | `D` | View slice detail |
 | `C` | Create new cake |
-| `P` | Back to personal view (clears filter) |
+| `Ctrl+C` | Create new slice |
+| `Tab` | Cycle view: Planner → Backlog → Personal |
+| `Shift+Tab` | Cycle view in reverse |
 | `/` | Filter — same match rules as personal view. Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+R` | Push |
 | `Ctrl+Q` | Quit |
 
-Shows all active (non-done) slices grouped by cake. Each cake header shows open/total slice count. Unattached slices appear in a STANDALONE section. Each slice row shows owner + status indicator (`→` in-progress, `·` open) + type + title. C creates a new cake (inline title input). D opens detail view for the selected slice.
+Shows all active (non-done) slices grouped by cake. Each cake header shows open/total slice count. Unattached slices appear in a STANDALONE section. Each slice row shows owner + status indicator (`→` in-progress, `·` open) + type + title. `C` creates a new cake (inline title input). `Ctrl+C` creates a new slice. `D` opens detail view for the selected slice.
 
 Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 
