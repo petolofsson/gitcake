@@ -781,14 +781,18 @@ fn build_planner_items(cakes: &[Cake], tasks: &[(String, Task)], selected: usize
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
     let mut vis_idx = 0usize;
-    let hdr_sty = Style::new().add_modifier(Modifier::BOLD | Modifier::DIM);
-    let section_hdr = |title: &str| ListItem::new(Line::from(Span::styled(format!(" {title}"), hdr_sty)));
+    let cake_hdr_sty = Style::new().add_modifier(Modifier::BOLD).fg(theme.accent);
+    let section_hdr_sty = Style::new().add_modifier(Modifier::BOLD).fg(theme.muted);
+    let section_hdr = |title: &str| ListItem::new(Line::from(Span::styled(format!(" {title}"), section_hdr_sty)));
     for cake in cakes {
         let cake_tasks: Vec<_> = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && is_vis(t)).collect();
         let total = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id)).count();
         let done  = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && t.status == TaskStatus::Done).count();
         let progress = if total > 0 { format!("  {}/{}", total - done, total) } else { String::new() };
-        items.push(ListItem::new(Line::from(Span::styled(format!(" {}{}", cake.title, progress), hdr_sty))));
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(format!(" {}", cake.title), cake_hdr_sty),
+            Span::styled(progress, Style::new().fg(theme.muted)),
+        ])));
         index_map.push(None);
         for (owner, task) in &cake_tasks {
             items.push(planner_task_row(task, owner, vis_idx, selected, inner_width, theme));
