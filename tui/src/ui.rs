@@ -933,11 +933,17 @@ fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str
 }
 
 fn hint_bar(context: TaskContext, theme: &Theme) -> Line<'static> {
-    let f_label = if context == TaskContext::Backlog { "claim" } else { "cycle" };
-    theme.bar_line(&[
-        ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", f_label),
-        ("^C", "create"), ("^A", "assign"), ("^D", "delete"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
-    ])
+    if context == TaskContext::Backlog {
+        theme.bar_line(&[
+            ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", "claim"),
+            ("^C", "create"), ("^A", "assign"), ("^D", "delete"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+        ])
+    } else {
+        theme.bar_line(&[
+            ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", "cycle"),
+            ("^C", "create"), ("^A", "assign"), ("^B", "backlog"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+        ])
+    }
 }
 
 fn planner_hint_bar(theme: &Theme) -> Line<'static> {
@@ -948,7 +954,7 @@ fn planner_hint_bar(theme: &Theme) -> Line<'static> {
 }
 
 fn detail_nav_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[("WS", "nav"), ("F", "cycle"), ("E", "edit"), ("A", "back"), ("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit")])
+    theme.bar_line(&[("WS", "nav"), ("F", "cycle"), ("E", "edit"), ("A/Q", "back"), ("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit")])
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────

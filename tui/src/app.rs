@@ -411,7 +411,10 @@ impl App {
                     self.screen = Screen::AssignTask { task_id: t.id, users, selected: 0, filter: String::new() };
                 }
             }
-            KeyCode::Char('d') if ctrl => {
+            KeyCode::Char('b') if ctrl && self.context == TaskContext::Personal => {
+                if let Some(t) = sel_task { self.screen = Screen::DeleteConfirm { task_id: t.id, task_title: t.title }; }
+            }
+            KeyCode::Char('d') if ctrl && self.context == TaskContext::Backlog => {
                 if let Some(t) = sel_task { self.screen = Screen::DeleteConfirm { task_id: t.id, task_title: t.title }; }
             }
             _ => {}
@@ -515,7 +518,7 @@ impl App {
                 ),
                 _ => return,
             };
-        if is_key(&key, &km.back) || matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+        if is_key(&key, &km.back) || key.code == KeyCode::Char('q') {
             if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, Some(&task_id)); }
             return;
         }
@@ -610,8 +613,7 @@ impl App {
         if is_ctrl_q(&key) { self.should_quit = true; return; }
         if key.code == KeyCode::Esc { self.enter_task_list(None, None); return; }
 
-        let ctrl_s = key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL);
-        if ctrl_s { self.create_via_editor(); return; }
+
 
         let no_mod = key.modifiers == KeyModifiers::NONE;
 
