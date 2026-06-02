@@ -16,7 +16,7 @@ use gitcake_core::{
 use crate::config::Config;
 
 const DESCRIPTION_MAX_CHARS: usize = 850;
-const DESC_TOO_LONG_MSG: &str = "Whoa there buddy, this is a task tracker, not The Lord of The Rings! Trim it to ≤250 characters and keep only the actual work.";
+const DESC_TOO_LONG_MSG: &str = "Whoa there buddy, this is a task tracker, not The Lord of The Rings! Keep it under 850 characters.";
 
 fn desc_too_long(len: usize) -> String {
     format!("{DESC_TOO_LONG_MSG} ({len}/{DESCRIPTION_MAX_CHARS})")
