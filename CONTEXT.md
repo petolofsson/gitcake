@@ -2,6 +2,8 @@
 
 **Practitioner**: Target user. Anyone doing hands-on technical work with git daily — developers, DevOps, SREs, data engineers, security engineers. Not management or product owners.
 
+**Design doc**: `doc/DESIGN.md` — visual identity, color semantics, typography, navigation patterns, and ratatui implementation notes for the TUI.
+
 **Slice**: A discrete unit of work. Has type, title, status, optional description, optional owner. Not: task, ticket, issue, card.
 
 **Type**: Classification label on a slice — `task`, `bug`, or `incident`. Determines which type folder the file lives in. Visual only, no lifecycle effect.

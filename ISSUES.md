@@ -48,6 +48,25 @@
 - **O3 — Spurious Vec in `enter_task_list`**: cursor position search replaced with a direct iterator `position()` call; no Vec allocated for filter application.
 - **O4 — CODERULE 3 function length**: all functions in `tui/src/app.rs` and `tui/src/ui.rs` reduced to ≤50 non-blank lines by extracting: `handle_filter_input`, `handle_list_pull`, `do_task_list_edit`, `do_claim_backlog`, `handle_list_action_keys`, `do_detail_edit`, `do_detail_field_cycle`, `task_list_block`, `build_task_items`, `filter_line_widget`, `render_detail_fields`, `render_detail_desc`, `task_list_params`, `draw_create_type_field`, `draw_create_assign_field`, `user_picker_items`, `build_team_items`.
 
+## Resolved — Features (post-v0.1.0, session 2026-06-03)
+- **DESIGN.md**: visual design guide written — `doc/DESIGN.md` covers color palette (semantic slots, Catppuccin Mocha + Gruvbox references), typography hierarchy, selection/focus patterns, layout conventions, nav chrome spec, setup screen, hint bar rules, anti-patterns, and ratatui implementation notes.
+- **Theme — new semantic slots**: `muted` (explicit fg color, replaces unreliable `Modifier::DIM`), `success` (done badges), `bg_personal`/`bg_planner`/`bg_backlog` (per-view background shading). `dim()` and `label_style()` now use `muted` fg.
+- **Full-width white top bar**: single row at the top of every list/planner view. Active tab shown as `> LABEL <` in bold dark navy `rgb(0,31,96)`; inactive tabs in `DarkGray`. Right-aligned `repo · username`. Replaces the old bold-yellow block title.
+- **Tab chip strip**: `PERSONAL  PLANNER  BACKLOG` — replaced the view title text. Active tab highlighted. Tab/Shift+Tab cycle remains; the strip makes it self-evident.
+- **Single compressed hint bar**: two-row nav+ctrl bars replaced with one line. Context-sensitive (claim vs cycle, ^B vs ^D).
+- **Per-view background shading**: `bg_personal=#141414`, `bg_planner=#141820` (cool tint), `bg_backlog=#1a1414` (warm tint). All configurable in `[theme]`.
+- **Planner cake headers**: changed from `BOLD|DIM` to `bold+accent`. Progress count `[N/M]` in muted. Section headers (STANDALONE) in `bold+muted`.
+- **Setup logo in accent color**: was dim, now rendered in `theme.accent` (cyan default).
+- **Detail/create field label styles**: inactive labels = `bold+muted`; active (cursor on) = `bold+accent`. No bg bleed on the label — only the value row gets the highlight wash.
+- **Semantic type tags in planner**: `[T]` muted, `[B]` danger, `[I]` danger+bold. Selected rows keep plain label to avoid highlight clash.
+- **DONE section header in success color**: was `BOLD|DIM`; now `bold+success` (green). OPEN header uses `bold+muted`.
+- **Navbar chip white background**: `chip_style()` falls back to `Color::White` when `theme.text=Reset`, restoring the nano-style key highlight.
+- **Description limit**: 850-character hard limit on descriptions. Rejected on save (all three edit paths) with message: "Whoa there buddy, this is a task tracker, not The Lord of The Rings! Keep it under 850 characters. (N/850)". Detail view shows live `N/850 chars` counter above description body; muted <70%, warning 70–100%, danger+bold when over limit.
+- **Claiming stays in backlog**: `do_claim_backlog` no longer forces `context = Personal`; user stays in backlog view to claim multiple items.
+- **Keybinding cleanup**: Detail back = `A`/`Q` only (Esc removed). `Ctrl+S` removed from create screen. Personal `Ctrl+D` → `Ctrl+B` (move to backlog). Backlog `Ctrl+D` = permanent delete (unchanged). PROJECT.md updated.
+- **Blank line below top bar**: top padding restored on all list/planner blocks.
+- **Hint bars completed**: `⇧R pull` restored to all views; `A/Q back` shown in detail; `^D delete` restored after compression.
+
 ## Resolved — Features (post-v0.1.0, session 2026-06-01)
 - **Tab view cycling**: Tab cycles Personal → Planner → Backlog → Personal; Shift+Tab reverses. B and P key handlers removed. Navbar shows `Tab  cycle view` after WASD in all three views.
 - **Global ^C create**: Ctrl+C opens the create screen from any non-input view (TaskList, Detail, PlannerView). Bare `C` removed from task list; planner's `C` still creates a cake. Navbar shows `^C  create`.
