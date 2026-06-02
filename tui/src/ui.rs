@@ -340,8 +340,9 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     }
     f.render_widget(filter_line_widget(filter, filter_active), rows[1]);
     f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[3]);
-    f.render_widget(Paragraph::new(nav_bar(context, theme)), rows[4]);
-    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[5]);
+    let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
+    f.render_widget(Paragraph::new(tab_strip(active, theme)), rows[4]);
+    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[5]);
 }
 
 fn task_list_block(
@@ -512,12 +513,11 @@ fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Opti
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
-        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1),
     ]).split(inner);
     render_detail_fields(f, &rows, task, selected, cakes, theme);
     render_detail_desc(f, rows[11], task, theme);
     f.render_widget(Paragraph::new(detail_nav_bar(theme)), rows[12]);
-    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[13]);
 }
 
 fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField, cakes: &[Cake], theme: &Theme) {
@@ -607,7 +607,7 @@ fn draw_create(f: &mut Frame, context: TaskContext, task_type: &TaskType, assign
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
-        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1),
     ]).split(inner);
     draw_create_type_field(f, rows[0], rows[1], task_type, *field == CreateField::Type, theme);
     draw_create_assign_field(f, rows[3], rows[4], assignee, *field == CreateField::Assignee, theme);
@@ -619,8 +619,7 @@ fn draw_create(f: &mut Frame, context: TaskContext, task_type: &TaskType, assign
         "↵ CREATE TASK  (S to reach, F or Enter to open editor)"
     };
     draw_field_label(f, rows[7], confirm_label, confirm_active, theme);
-    f.render_widget(Paragraph::new(nav_bar(context, theme)), rows[9]);
-    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[10]);
+    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[9]);
 }
 
 fn draw_create_type_field(f: &mut Frame, label_row: Rect, val_row: Rect, task_type: &TaskType, active: bool, theme: &Theme) {
@@ -759,8 +758,8 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
     }
     f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
     f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[3]);
-    f.render_widget(Paragraph::new(theme.bar_line(&[("WASD", "navigate"), ("Tab", "cycle view"), ("C", "cake"), ("^C", "create")])), rows[4]);
-    f.render_widget(Paragraph::new(ctrl_bar(theme)), rows[5]);
+    f.render_widget(Paragraph::new(tab_strip(ActiveView::Planner, theme)), rows[4]);
+    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[5]);
 }
 
 fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, inner_width: usize, theme: &Theme) -> ListItem<'static> {
@@ -887,6 +886,9 @@ fn draw_push_prompt(f: &mut Frame, theme: &Theme) {
 
 // ── command bars / info bar ───────────────────────────────────────────────────
 
+#[derive(Clone, Copy, PartialEq)]
+enum ActiveView { Personal, Planner, Backlog }
+
 fn info_bar<'a>(repo_name: &'a str, username: &'a str, theme: &Theme) -> Line<'a> {
     Line::from(vec![
         Span::raw(" "),
@@ -896,20 +898,41 @@ fn info_bar<'a>(repo_name: &'a str, username: &'a str, theme: &Theme) -> Line<'a
     ])
 }
 
-fn nav_bar<'a>(context: TaskContext, theme: &Theme) -> Line<'a> {
+fn tab_strip(active: ActiveView, theme: &Theme) -> Line<'static> {
+    let tabs = [
+        (ActiveView::Personal, "PERSONAL"),
+        (ActiveView::Planner,  "PLANNER"),
+        (ActiveView::Backlog,  "BACKLOG"),
+    ];
+    let fg = if theme.bg == Color::Reset { Color::Black } else { theme.bg };
+    let inactive = Style::new().bg(theme.text).fg(fg);
+    let active_sty = Style::new().bg(theme.accent).fg(fg).add_modifier(Modifier::BOLD);
+    let mut spans = vec![Span::raw(" ")];
+    for (view, label) in &tabs {
+        let sty = if *view == active { active_sty } else { inactive };
+        spans.push(Span::styled(format!(" {label} "), sty));
+        spans.push(Span::raw(" "));
+    }
+    Line::from(spans)
+}
+
+fn hint_bar(context: TaskContext, theme: &Theme) -> Line<'static> {
     let f_label = if context == TaskContext::Backlog { "claim" } else { "cycle" };
     theme.bar_line(&[
-        ("WASD", "navigate"), ("Tab", "cycle view"), ("E", "edit"),
-        ("F", f_label), ("^C", "create"),
+        ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", f_label),
+        ("^C", "create"), ("^A", "assign"), ("^R", "push"), ("^Q", "quit"),
+    ])
+}
+
+fn planner_hint_bar(theme: &Theme) -> Line<'static> {
+    theme.bar_line(&[
+        ("WASD", "nav"), ("D", "detail"), ("C", "cake"),
+        ("^C", "create"), ("^R", "push"), ("^Q", "quit"),
     ])
 }
 
 fn detail_nav_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[("WS", "navigate"), ("F", "cycle"), ("E", "edit"), ("⇧R", "pull")])
-}
-
-fn ctrl_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^D", "delete"), ("^Q", "quit")])
+    theme.bar_line(&[("WS", "nav"), ("F", "cycle"), ("E", "edit"), ("^A", "assign"), ("^R", "push"), ("^Q", "quit")])
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
