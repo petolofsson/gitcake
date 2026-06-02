@@ -399,13 +399,10 @@ fn build_task_items(tasks: &[Task], filter: &str, selected: usize, inner_width: 
             if prev_status.is_some() { items.push(ListItem::new(Line::from(""))); index_map.push(usize::MAX); }
             let (sym, label, count, color) = match task.status {
                 TaskStatus::InProgress => (theme.sym_progress.as_str(), "IN PROGRESS", ip, Some(theme.warning)),
-                TaskStatus::Open       => (theme.sym_open.as_str(),     "OPEN",        op, None),
-                TaskStatus::Done       => (theme.sym_done.as_str(),     "DONE",        dn, None),
+                TaskStatus::Open       => (theme.sym_open.as_str(),     "OPEN",        op, Some(theme.muted)),
+                TaskStatus::Done       => (theme.sym_done.as_str(),     "DONE",        dn, Some(theme.success)),
             };
-            let hdr = color.map_or_else(
-                || Style::new().add_modifier(Modifier::BOLD | Modifier::DIM),
-                |c| Style::new().add_modifier(Modifier::BOLD).fg(c),
-            );
+            let hdr = Style::new().add_modifier(Modifier::BOLD).fg(color.unwrap());
             items.push(ListItem::new(Line::from(Span::styled(format!(" {sym} {label} ({count})"), hdr))));
             index_map.push(usize::MAX);
             prev_status = Some(task.status.clone());
@@ -911,7 +908,7 @@ fn tab_strip(active: ActiveView, theme: &Theme) -> Line<'static> {
     ];
     let fg = if theme.bg == Color::Reset { Color::Black } else { theme.bg };
     let inactive = Style::new().bg(theme.text).fg(fg);
-    let active_sty = Style::new().bg(theme.accent).fg(fg).add_modifier(Modifier::BOLD);
+    let active_sty = Style::new().bg(theme.border_focused).fg(fg).add_modifier(Modifier::BOLD);
     let mut spans = vec![Span::raw(" ")];
     for (view, label) in &tabs {
         let sty = if *view == active { active_sty } else { inactive };
