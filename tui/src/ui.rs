@@ -881,7 +881,6 @@ enum ActiveView { Personal, Planner, Backlog }
 
 fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str, username: &str, theme: &Theme) {
     let bar_bg = if theme.text == Color::Reset { Color::White } else { theme.text };
-    let bar_fg = if theme.bg   == Color::Reset { Color::Black } else { theme.bg   };
     // Fill the row with the bar background
     f.render_widget(Block::default().style(Style::new().bg(bar_bg)), area);
     // Tabs — left-aligned
