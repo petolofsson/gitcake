@@ -61,6 +61,9 @@ pub struct Theme {
     pub border:         Color,
     pub border_focused: Color,
     pub muted:          Color,
+    pub bg_personal:    Color,
+    pub bg_planner:     Color,
+    pub bg_backlog:     Color,
     pub cursor:       String,
     pub sym_high:     String,
     pub sym_low:      String,
@@ -88,6 +91,9 @@ impl Theme {
             border:         c(&tc.border,         Color::Reset),
             border_focused: c(&tc.border_focused, Color::Cyan),
             muted:          c(&tc.muted,          Color::DarkGray),
+            bg_personal:    c(&tc.bg_personal,    Color::Reset),
+            bg_planner:     c(&tc.bg_planner,     Color::Reset),
+            bg_backlog:     c(&tc.bg_backlog,     Color::Reset),
             cursor:       tc.cursor.clone(),
             sym_high:     tc.sym_high.clone(),
             sym_low:      tc.sym_low.clone(),
@@ -320,8 +326,10 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         .areas(area);
     let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
     render_top_bar(f, top_row, active, repo_name, username, theme);
+    let view_bg = if context == TaskContext::Backlog { theme.bg_backlog } else { theme.bg_personal };
     let inner_width = theme.padded_block("").inner(rest).width as usize;
-    let block = task_list_block(message, filter, filter_active, pull_error, lock_warning, theme);
+    let block = task_list_block(message, filter, filter_active, pull_error, lock_warning, theme)
+        .style(Style::new().bg(view_bg));
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
@@ -347,7 +355,7 @@ fn task_list_block(
     theme: &Theme,
 ) -> Block<'static> {
     let mut block = Block::default()
-        .padding(Padding::new(1, 1, 0, 1));
+        .padding(Padding::new(1, 1, 1, 1));
     if let Some(msg) = message {
         block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
     }
@@ -726,7 +734,8 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
         .constraints([Constraint::Length(1), Constraint::Fill(1)])
         .areas(area);
     render_top_bar(f, top_row, ActiveView::Planner, repo_name, username, theme);
-    let block = Block::default().padding(Padding::new(1, 1, 1, 1));
+    let block = Block::default().padding(Padding::new(1, 1, 1, 1))
+        .style(Style::new().bg(theme.bg_planner));
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
