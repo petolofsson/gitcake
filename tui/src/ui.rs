@@ -120,10 +120,11 @@ impl Theme {
     }
 
 
-    // navbar chip: bg=text color, fg=bg color (falls back to Black when bg=Reset)
+    // navbar chip: bg=text color (falls back to White), fg=bg color (falls back to Black)
     fn chip_style(&self) -> Style {
-        let fg = if self.bg == Color::Reset { Color::Black } else { self.bg };
-        Style::new().bg(self.text).fg(fg)
+        let bg = if self.text == Color::Reset { Color::White } else { self.text };
+        let fg = if self.bg  == Color::Reset { Color::Black } else { self.bg  };
+        Style::new().bg(bg).fg(fg)
     }
 
     fn label_style(&self) -> Style {
@@ -314,31 +315,30 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let TaskListParams { context, tasks, selected, message, pull_error, lock_warning,
                          filter, filter_active, repo_name, username, theme } = p;
     let area = f.area();
-    let inner_width = theme.padded_block("").inner(area).width as usize;
-    let block = task_list_block(message, filter, filter_active, pull_error, lock_warning, theme);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let [top_row, rest] = Layout::default().direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Fill(1)])
+        .areas(area);
     let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
+    render_top_bar(f, top_row, active, repo_name, username, theme);
+    let inner_width = theme.padded_block("").inner(rest).width as usize;
+    let block = task_list_block(message, filter, filter_active, pull_error, lock_warning, theme);
+    let inner = block.inner(rest);
+    f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
-    f.render_widget(Paragraph::new(tab_strip(active, theme)), rows[0]);
     let (items, index_map, safe_sel) = build_task_items(tasks, filter, selected, inner_width, theme);
     if items.is_empty() {
         let msg = if filter.is_empty() { "No tasks yet. ^C to create one." } else { "No tasks match the filter." };
-        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[1]);
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
     } else {
         let mut state = ListState::default();
         state.select(index_map.iter().position(|&i| i == safe_sel));
-        f.render_stateful_widget(List::new(items), rows[1], &mut state);
+        f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
-    f.render_widget(filter_line_widget(filter, filter_active), rows[2]);
-    // rows[3] blank — padding between filter and navbar
-    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[4]);
-    // rows[5] blank — padding between navbar and info bar
-    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[6]);
+    f.render_widget(filter_line_widget(filter, filter_active), rows[1]);
+    // rows[2] blank — padding between filter and navbar
+    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[3]);
 }
 
 fn task_list_block(
@@ -722,31 +722,29 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
     let (repo_name, username) = app.repo.as_ref()
         .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
         .unwrap_or(("", ""));
-    let block = Block::default()
-        .padding(Padding::new(1, 1, 0, 1));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let [top_row, rest] = Layout::default().direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Fill(1)])
+        .areas(area);
+    render_top_bar(f, top_row, ActiveView::Planner, repo_name, username, theme);
+    let block = Block::default().padding(Padding::new(1, 1, 1, 1));
+    let inner = block.inner(rest);
+    f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
-    f.render_widget(Paragraph::new(tab_strip(ActiveView::Planner, theme)), rows[0]);
     let inner_width = inner.width as usize;
     let (items, index_map) = build_planner_items(cakes, tasks, selected, &app.filter, inner_width, theme);
     if items.is_empty() {
         let msg = if app.filter.is_empty() { "No active tasks. ^C to create one." } else { "No tasks match the filter." };
-        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[1]);
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
     } else {
         let mut state = ListState::default();
         state.select(index_map.iter().position(|e| *e == Some(selected)));
-        f.render_stateful_widget(List::new(items), rows[1], &mut state);
+        f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
-    f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[2]);
-    // rows[3] blank — padding between filter and navbar
-    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[4]);
-    // rows[5] blank — padding between navbar and info bar
-    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[6]);
+    f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
+    // rows[2] blank — padding between filter and navbar
+    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[3]);
 }
 
 fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, inner_width: usize, theme: &Theme) -> ListItem<'static> {
@@ -881,31 +879,33 @@ fn draw_push_prompt(f: &mut Frame, theme: &Theme) {
 #[derive(Clone, Copy, PartialEq)]
 enum ActiveView { Personal, Planner, Backlog }
 
-fn info_bar<'a>(repo_name: &'a str, username: &'a str, theme: &Theme) -> Line<'a> {
-    Line::from(vec![
-        Span::raw("  "),
-        Span::styled(repo_name, theme.dim()),
-        Span::styled(" · ", theme.dim()),
-        Span::styled(username, theme.dim()),
-    ])
-}
-
-fn tab_strip(active: ActiveView, theme: &Theme) -> Line<'static> {
+fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str, username: &str, theme: &Theme) {
+    let bar_bg = if theme.text == Color::Reset { Color::White } else { theme.text };
+    let bar_fg = if theme.bg   == Color::Reset { Color::Black } else { theme.bg   };
+    // Fill the row with the bar background
+    f.render_widget(Block::default().style(Style::new().bg(bar_bg)), area);
+    // Tabs — left-aligned
     let tabs = [
         (ActiveView::Personal, "PERSONAL"),
         (ActiveView::Planner,  "PLANNER"),
         (ActiveView::Backlog,  "BACKLOG"),
     ];
-    let fg = if theme.bg == Color::Reset { Color::Black } else { theme.bg };
-    let inactive = Style::new().bg(theme.text).fg(fg);
-    let active_sty = Style::new().bg(theme.border_focused).fg(fg).add_modifier(Modifier::BOLD);
+    let inactive_sty = Style::new().bg(bar_bg).fg(Color::DarkGray);
+    let active_sty   = Style::new().bg(bar_fg).fg(bar_bg).add_modifier(Modifier::BOLD);
     let mut spans = vec![Span::raw(" ")];
     for (view, label) in &tabs {
-        let sty = if *view == active { active_sty } else { inactive };
+        let sty = if *view == active { active_sty } else { inactive_sty };
         spans.push(Span::styled(format!(" {label} "), sty));
         spans.push(Span::raw(" "));
     }
-    Line::from(spans)
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
+    // Repo · username — right-aligned
+    let info = format!(" {} · {} ", repo_name, username);
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(info, Style::new().bg(bar_bg).fg(Color::DarkGray))))
+            .alignment(Alignment::Right),
+        area,
+    );
 }
 
 fn hint_bar(context: TaskContext, theme: &Theme) -> Line<'static> {
