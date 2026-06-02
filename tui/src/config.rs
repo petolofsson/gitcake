@@ -12,14 +12,17 @@ pub type Palette = HashMap<String, String>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeConfig {
     // interaction — style strings
-    pub highlight: String,   // e.g. "bold bg:blue fg:white"
-    pub accent:    String,   // e.g. "cyan"  (fg only — used for cursor)
-    pub warning:   String,   // e.g. "yellow"
-    pub danger:    String,   // e.g. "red"
+    pub highlight:      String,   // e.g. "bold bg:blue fg:white"
+    pub accent:         String,   // e.g. "cyan"  (fg only — used for cursor)
+    pub warning:        String,   // e.g. "yellow"
+    pub danger:         String,   // e.g. "red"
+    pub success:        String,   // e.g. "green" — done badges, confirmed actions
     // base palette — style strings (fg = text color)
-    pub text:      String,   // e.g. "reset" or "white"
-    pub bg:        String,   // e.g. "reset" or "black"  (drives navbar chip fg)
-    pub border:    String,   // e.g. "reset" or "cyan"
+    pub text:           String,   // e.g. "reset" or "white"
+    pub bg:             String,   // e.g. "reset" or "black"  (drives navbar chip fg)
+    pub border:         String,   // e.g. "reset" or "dim"
+    pub border_focused: String,   // e.g. "cyan" — border/title of the active pane
+    pub muted:          String,   // e.g. "dark_gray" — secondary text, done items, chrome
     // symbols — single display-cell characters
     pub cursor:       String,
     pub sym_high:     String,
@@ -38,13 +41,16 @@ pub struct ThemeConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            highlight: "bold bg:blue fg:white".into(),
-            accent:    "cyan".into(),
-            warning:   "yellow".into(),
-            danger:    "red".into(),
-            text:      "reset".into(),
-            bg:        "reset".into(),
-            border:    "reset".into(),
+            highlight:      "bold bg:blue fg:white".into(),
+            accent:         "cyan".into(),
+            warning:        "yellow".into(),
+            danger:         "red".into(),
+            success:        "green".into(),
+            text:           "reset".into(),
+            bg:             "reset".into(),
+            border:         "reset".into(),
+            border_focused: "cyan".into(),
+            muted:          "dark_gray".into(),
             cursor:       "▶".into(),
             sym_high:     "^".into(),
             sym_low:      "v".into(),

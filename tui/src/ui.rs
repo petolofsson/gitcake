@@ -50,14 +50,17 @@ fn parse_style(s: &str, palette: &HashMap<String, String>) -> Style {
 
 pub struct Theme {
     /// Full parsed style for selected rows (bg + fg + optional modifiers).
-    pub highlight: Style,
+    pub highlight:      Style,
     /// Foreground color for the cursor symbol and active indicators.
-    pub accent:    Color,
-    pub warning:   Color,
-    pub danger:    Color,
-    pub text:      Color,
-    pub bg:        Color,
-    pub border:    Color,
+    pub accent:         Color,
+    pub warning:        Color,
+    pub danger:         Color,
+    pub success:        Color,
+    pub text:           Color,
+    pub bg:             Color,
+    pub border:         Color,
+    pub border_focused: Color,
+    pub muted:          Color,
     pub cursor:       String,
     pub sym_high:     String,
     pub sym_low:      String,
@@ -75,13 +78,16 @@ impl Theme {
         let s   = |src: &str| parse_style(src, pal);
         let c   = |src: &str, fb: Color| s(src).fg.unwrap_or(fb);
         Self {
-            highlight: s(&tc.highlight),
-            accent:    c(&tc.accent,  Color::Cyan),
-            warning:   c(&tc.warning, Color::Yellow),
-            danger:    c(&tc.danger,  Color::Red),
-            text:      c(&tc.text,    Color::Reset),
-            bg:        c(&tc.bg,      Color::Reset),
-            border:    c(&tc.border,  Color::Reset),
+            highlight:      s(&tc.highlight),
+            accent:         c(&tc.accent,         Color::Cyan),
+            warning:        c(&tc.warning,        Color::Yellow),
+            danger:         c(&tc.danger,         Color::Red),
+            success:        c(&tc.success,        Color::Green),
+            text:           c(&tc.text,           Color::Reset),
+            bg:             c(&tc.bg,             Color::Reset),
+            border:         c(&tc.border,         Color::Reset),
+            border_focused: c(&tc.border_focused, Color::Cyan),
+            muted:          c(&tc.muted,          Color::DarkGray),
             cursor:       tc.cursor.clone(),
             sym_high:     tc.sym_high.clone(),
             sym_low:      tc.sym_low.clone(),
@@ -102,7 +108,7 @@ impl Theme {
     }
 
     fn dim(&self) -> Style {
-        Style::new().add_modifier(Modifier::DIM).fg(self.text)
+        Style::new().fg(self.muted)
     }
 
     fn bold_style(&self) -> Style {
@@ -113,6 +119,14 @@ impl Theme {
         Style::new().fg(self.border)
     }
 
+    fn border_focused_style(&self) -> Style {
+        Style::new().fg(self.border_focused)
+    }
+
+    fn success_style(&self) -> Style {
+        Style::new().fg(self.success)
+    }
+
     // navbar chip: bg=text color, fg=bg color (falls back to Black when bg=Reset)
     fn chip_style(&self) -> Style {
         let fg = if self.bg == Color::Reset { Color::Black } else { self.bg };
@@ -120,7 +134,7 @@ impl Theme {
     }
 
     fn label_style(&self) -> Style {
-        Style::new().add_modifier(Modifier::DIM).fg(self.text)
+        Style::new().fg(self.muted)
     }
 
     // ── block factories ───────────────────────────────────────────────────────
