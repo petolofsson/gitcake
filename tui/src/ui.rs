@@ -250,7 +250,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool,
     let logo_col = Layout::default().direction(Direction::Horizontal).constraints([
         Constraint::Fill(1), Constraint::Length(67), Constraint::Fill(1),
     ]).split(rows[1]);
-    f.render_widget(Paragraph::new(LOGO).style(theme.dim()), logo_col[1]);
+    f.render_widget(Paragraph::new(LOGO).style(Style::new().fg(theme.accent)), logo_col[1]);
     // rows[2] blank between logo and slogan
     f.render_widget(Paragraph::new("——————————— Everyone Deserves Cake ———————————").alignment(Alignment::Center).style(Style::new().fg(theme.warning)), rows[3]);
     // rows[4] blank between slogan and form
