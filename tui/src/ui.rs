@@ -899,12 +899,15 @@ fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str
         (ActiveView::Backlog,  "BACKLOG"),
     ];
     let inactive_sty = Style::new().bg(bar_bg).fg(Color::DarkGray);
-    let active_sty   = Style::new().bg(bar_bg).fg(Color::Black).add_modifier(Modifier::BOLD);
-    let mut spans = vec![Span::raw(" ")];
+    let active_sty   = Style::new().bg(bar_bg).fg(Color::Blue).add_modifier(Modifier::BOLD);
+    let mut spans = vec![Span::raw("  ")];
     for (view, label) in &tabs {
-        let sty = if *view == active { active_sty } else { inactive_sty };
-        spans.push(Span::styled(format!(" {label} "), sty));
-        spans.push(Span::raw(" "));
+        if *view == active {
+            spans.push(Span::styled(format!("> {label} <"), active_sty));
+        } else {
+            spans.push(Span::styled(format!("  {label}  "), inactive_sty));
+        }
+        spans.push(Span::raw("   "));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
     // Repo · username — right-aligned
