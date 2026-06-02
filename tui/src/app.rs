@@ -15,6 +15,13 @@ use gitcake_core::{
 
 use crate::config::Config;
 
+const DESCRIPTION_MAX_CHARS: usize = 850;
+const DESC_TOO_LONG_MSG: &str = "Whoa there buddy, this is a task tracker, not The Lord of The Rings! Trim it to ≤100 characters and keep only the actual work.";
+
+fn desc_too_long(len: usize) -> String {
+    format!("{DESC_TOO_LONG_MSG} ({len}/{DESCRIPTION_MAX_CHARS})")
+}
+
 // ── context ───────────────────────────────────────────────────────────────────
 
 #[derive(PartialEq, Clone, Copy)]
@@ -447,6 +454,11 @@ impl App {
         let edited = edit_task_in_editor(&title, &desc);
         self.needs_clear = true;
         if let Some((new_title, new_desc)) = edited {
+            let char_count = new_desc.as_deref().unwrap_or("").chars().count();
+            if char_count > DESCRIPTION_MAX_CHARS {
+                self.enter_task_list(Some(desc_too_long(char_count)), Some(&id));
+                return;
+            }
             let msg = self.repo.as_ref().map(|r| {
                 r.update_task(&id, TaskPatch { title: Some(new_title), description: Some(new_desc), ..Default::default() })
             }).map(|res| match res {
@@ -528,6 +540,12 @@ impl App {
         let edited = edit_task_in_editor(&title, &desc);
         self.needs_clear = true;
         if let Some((new_title, new_desc)) = edited {
+            let char_count = new_desc.as_deref().unwrap_or("").chars().count();
+            if char_count > DESCRIPTION_MAX_CHARS {
+                let msg = Some(desc_too_long(char_count));
+                if from_planner { self.enter_planner_view(); } else { self.enter_task_list(msg, Some(&id)); }
+                return;
+            }
             let patch = TaskPatch { title: Some(new_title), description: Some(new_desc), ..Default::default() };
             let msg = self.repo.as_ref().map(|r| match ctx {
                 TaskContext::Personal => r.update_task(&id, patch),
@@ -667,6 +685,11 @@ impl App {
 
         let Some(content) = edited else { return };
         let Some((title, desc)) = parse_editor_content(&content) else { return };
+        let char_count = desc.as_deref().unwrap_or("").chars().count();
+        if char_count > DESCRIPTION_MAX_CHARS {
+            self.enter_task_list(Some(desc_too_long(char_count)), None);
+            return;
+        }
         let asgn_opt = Some(asgn).filter(|s| !s.is_empty());
 
         if let Some(repo) = &self.repo {

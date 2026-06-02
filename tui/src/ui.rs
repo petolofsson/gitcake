@@ -558,8 +558,21 @@ fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: Det
 }
 
 fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task, theme: &Theme) {
-    let mut lines: Vec<Line> = task.description.as_deref().unwrap_or_default()
-        .lines().map(|l| desc_line_render(l, theme)).collect();
+    const MAX: usize = 850;
+    let desc_str = task.description.as_deref().unwrap_or_default();
+    let count = desc_str.chars().count();
+    let counter_sty = if count > MAX {
+        Style::new().fg(theme.danger).add_modifier(Modifier::BOLD)
+    } else if count > MAX * 7 / 10 {
+        Style::new().fg(theme.warning)
+    } else {
+        theme.dim()
+    };
+    let mut lines: Vec<Line> = Vec::new();
+    if !desc_str.is_empty() {
+        lines.push(Line::from(Span::styled(format!("  {count}/{MAX} chars"), counter_sty)));
+    }
+    lines.extend(desc_str.lines().map(|l| desc_line_render(l, theme)));
     if task.order.is_some() || task.parent_id.is_some() {
         let mut meta = String::new();
         if let Some(o) = task.order      { meta.push_str(&format!("order: {o}  ")); }
