@@ -464,7 +464,6 @@ impl App {
             Ok(t)  => format!("Claimed — now #{} in your personal slices.", t.id),
             Err(e) => e.to_string(),
         });
-        self.context = TaskContext::Personal;
         self.enter_task_list(msg, Some(&task_id));
     }
 
