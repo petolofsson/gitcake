@@ -30,13 +30,23 @@ pub enum TaskStatus {
     Done,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
 pub enum Priority {
+    Urgent,
     High,
     #[default]
     Normal,
-    Low,
+}
+
+impl<'de> serde::Deserialize<'de> for Priority {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        match String::deserialize(d)?.as_str() {
+            "urgent"         => Ok(Priority::Urgent),
+            "high"           => Ok(Priority::High),
+            "low"            => Ok(Priority::Normal), // migrate old repos
+            _                => Ok(Priority::Normal),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

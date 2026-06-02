@@ -1284,9 +1284,9 @@ fn sort_for_display(mut tasks: Vec<Task>) -> Vec<Task> {
             TaskStatus::Done => 2,
         };
         let priority_rank = match &t.priority {
-            Priority::High => 0u8,
-            Priority::Normal => 1,
-            Priority::Low => 2,
+            Priority::Urgent => 0u8,
+            Priority::High   => 1,
+            Priority::Normal => 2,
         };
         (status_rank, priority_rank)
     });
@@ -1315,9 +1315,9 @@ fn next_task_type(t: TaskType) -> TaskType {
 
 fn next_priority(p: Priority) -> Priority {
     match p {
-        Priority::High => Priority::Normal,
-        Priority::Normal => Priority::Low,
-        Priority::Low => Priority::High,
+        Priority::Urgent => Priority::Normal,
+        Priority::High   => Priority::Urgent,
+        Priority::Normal => Priority::High,
     }
 }
 
@@ -1329,8 +1329,8 @@ pub(crate) fn task_matches(t: &Task, f: &str) -> bool {
         || type_str(&t.task_type).contains(f)
         || status_str(&t.status).contains(f)
         || (f == "ai_flagged" && t.ai_flagged)
-        || (f == "high" && t.priority == Priority::High)
-        || (f == "low" && t.priority == Priority::Low)
+        || (f == "urgent" && t.priority == Priority::Urgent)
+        || (f == "high"   && t.priority == Priority::High)
 }
 
 fn type_str(t: &gitcake_core::models::task::TaskType) -> &'static str {

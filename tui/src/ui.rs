@@ -66,7 +66,7 @@ pub struct Theme {
     pub bg_backlog:     Color,
     pub cursor:       String,
     pub sym_high:     String,
-    pub sym_low:      String,
+    pub sym_urgent:   String,
     pub sym_blocked:  String,
     pub sym_done:     String,
     pub sym_open:     String,
@@ -96,7 +96,7 @@ impl Theme {
             bg_backlog:     c(&tc.bg_backlog,     Color::Reset),
             cursor:       tc.cursor.clone(),
             sym_high:     tc.sym_high.clone(),
-            sym_low:      tc.sym_low.clone(),
+            sym_urgent:   tc.sym_urgent.clone(),
             sym_blocked:  tc.sym_blocked.clone(),
             sym_done:     tc.sym_done.clone(),
             sym_open:     tc.sym_open.clone(),
@@ -470,15 +470,15 @@ fn task_row(task: &Task, vis_idx: usize, safe_sel: usize, inner_width: usize, th
 
 fn task_flag(task: &Task, theme: &Theme) -> (String, Style) {
     if task.status == TaskStatus::Done {
-        return ("  ".to_string(), Style::new());
+        return ("   ".to_string(), Style::new());
     }
     if task.ai_flagged {
         return (format!("{} ", theme.sym_blocked), Style::new().fg(theme.danger).add_modifier(Modifier::BOLD));
     }
     match task.priority {
-        Priority::High   => (format!("{} ", theme.sym_high),    Style::new().fg(theme.warning).add_modifier(Modifier::BOLD)),
-        Priority::Low    => (format!("{} ", theme.sym_low),     Style::new().add_modifier(Modifier::DIM)),
-        Priority::Normal => ("  ".to_string(),                  Style::new()),
+        Priority::Urgent => (format!("{} ", theme.sym_urgent), Style::new().fg(theme.danger).add_modifier(Modifier::BOLD)),
+        Priority::High   => (format!("{}  ", theme.sym_high),  Style::new().fg(theme.warning).add_modifier(Modifier::BOLD)),
+        Priority::Normal => ("   ".to_string(),                Style::new()),
     }
 }
 
@@ -1020,7 +1020,7 @@ fn status_label(s: &TaskStatus) -> &'static str {
 }
 
 fn priority_label(p: &Priority) -> &'static str {
-    match p { Priority::High => "high", Priority::Normal => "normal", Priority::Low => "low" }
+    match p { Priority::Urgent => "urgent", Priority::High => "high", Priority::Normal => "normal" }
 }
 
 // ── unicode title truncation ──────────────────────────────────────────────────

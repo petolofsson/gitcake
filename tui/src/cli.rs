@@ -45,7 +45,7 @@ pub enum Command {
         /// Assign to this username
         #[arg(long)]
         assign: Option<String>,
-        /// Priority: high, normal, or low
+        /// Priority: urgent, high, or normal
         #[arg(long, default_value = "normal")]
         priority: CliPriority,
         /// Sequence number for ordering within a plan
@@ -83,7 +83,7 @@ pub enum Command {
         /// New description body
         #[arg(long)]
         description: Option<String>,
-        /// New priority: high, normal, or low
+        /// New priority: urgent, high, or normal
         #[arg(long)]
         priority: Option<CliPriority>,
         /// ai_flagged (needs human input)
@@ -122,7 +122,7 @@ pub enum CliType {
 pub enum CliPriority {
     High,
     Normal,
-    Low,
+    Urgent,
 }
 
 impl From<CliType> for TaskType {
@@ -140,7 +140,7 @@ impl From<CliPriority> for Priority {
         match p {
             CliPriority::High => Priority::High,
             CliPriority::Normal => Priority::Normal,
-            CliPriority::Low => Priority::Low,
+            CliPriority::Urgent => Priority::Urgent,
         }
     }
 }
@@ -281,9 +281,9 @@ fn print_task_detail(task: &Task) {
         TaskType::Incident => "incident",
     };
     let priority_str = match task.priority {
-        Priority::High => "high",
+        Priority::Urgent => "urgent",
+        Priority::High   => "high",
         Priority::Normal => "normal",
-        Priority::Low => "low",
     };
     println!("id:       {}", task.id);
     println!("type:     {type_str}");

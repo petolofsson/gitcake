@@ -69,7 +69,7 @@ struct CreateSliceArgs {
     assignee: Option<String>,
     /// Optional markdown description / plan body
     description: Option<String>,
-    /// Priority: high, normal, or low (default: normal)
+    /// Priority: urgent, high, or normal (default: normal)
     priority: Option<String>,
     /// Sequence number for ordering within a plan
     order: Option<u32>,
@@ -85,7 +85,7 @@ struct EditSliceArgs {
     title: Option<String>,
     /// New description body — omit to leave unchanged, pass "" to clear
     description: Option<String>,
-    /// New priority: high, normal, or low — omit to leave unchanged
+    /// New priority: urgent, high, or normal — omit to leave unchanged
     priority: Option<String>,
     /// Set to true to ai_flagged (needs human input), false to unblock — omit to leave unchanged
     ai_flagged: Option<bool>,
@@ -248,9 +248,10 @@ fn mcp_err_str(s: String) -> McpError {
 
 fn parse_priority(s: &str) -> Result<Priority, McpError> {
     match s {
-        "high" => Ok(Priority::High),
-        "normal" => Ok(Priority::Normal),
-        "low" => Ok(Priority::Low),
+        "urgent"         => Ok(Priority::Urgent),
+        "high"           => Ok(Priority::High),
+        "normal"         => Ok(Priority::Normal),
+        "low"            => Ok(Priority::Normal), // migrate old value
         p => Err(McpError::invalid_params(format!("unknown priority: {p}"), None)),
     }
 }

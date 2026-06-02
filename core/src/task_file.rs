@@ -174,8 +174,8 @@ fn serialize_task(task: &Task) -> String {
         .unwrap_or_default();
     let priority_line = match task.priority {
         Priority::Normal => String::new(),
-        Priority::High => "priority: high\n".to_string(),
-        Priority::Low => "priority: low\n".to_string(),
+        Priority::High   => "priority: high\n".to_string(),
+        Priority::Urgent => "priority: urgent\n".to_string(),
     };
     let blocked_line = if task.ai_flagged { "ai_flagged: true\n".to_string() } else { String::new() };
     let order_line = task.order.map(|o| format!("order: {o}\n")).unwrap_or_default();
