@@ -315,7 +315,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
                          filter, filter_active, repo_name, username, theme } = p;
     let area = f.area();
     let inner_width = theme.padded_block("").inner(area).width as usize;
-    let block = task_list_block(context, message, filter, filter_active, pull_error, lock_warning, theme);
+    let block = task_list_block(message, filter, filter_active, pull_error, lock_warning, theme);
     let inner = block.inner(area);
     f.render_widget(block, area);
     let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
@@ -339,7 +339,6 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
 }
 
 fn task_list_block(
-    context: TaskContext,
     message: Option<&str>, filter: &str, filter_active: bool,
     pull_error: Option<&str>, lock_warning: Option<&str>,
     theme: &Theme,
