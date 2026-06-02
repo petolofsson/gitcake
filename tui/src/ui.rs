@@ -936,7 +936,7 @@ fn hint_bar(context: TaskContext, theme: &Theme) -> Line<'static> {
     let f_label = if context == TaskContext::Backlog { "claim" } else { "cycle" };
     theme.bar_line(&[
         ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", f_label),
-        ("^C", "create"), ("^A", "assign"), ("^R", "push"), ("^Q", "quit"),
+        ("^C", "create"), ("^A", "assign"), ("^D", "delete"), ("^R", "push"), ("^Q", "quit"),
     ])
 }
 
