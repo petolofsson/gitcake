@@ -86,10 +86,10 @@ pub enum Command {
         /// New priority: high, normal, or low
         #[arg(long)]
         priority: Option<CliPriority>,
-        /// Mark the slice as blocked (needs human input)
+        /// ai_flagged (needs human input)
         #[arg(long)]
         block: bool,
-        /// Clear the blocked flag
+        /// ai_flagged
         #[arg(long)]
         unblock: bool,
         /// Sequence number for ordering within a plan
@@ -230,7 +230,7 @@ pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
             if block && unblock {
                 return Err("--block and --unblock are mutually exclusive".into());
             }
-            let blocked = if block { Some(true) } else if unblock { Some(false) } else { None };
+            let ai_flagged = if block { Some(true) } else if unblock { Some(false) } else { None };
             let description = description.map(|d| if d.is_empty() { None } else { Some(d) });
             let order = order.map(Some);
             let parent_id = parent.map(|p| if p.is_empty() { None } else { Some(p) });
@@ -239,7 +239,7 @@ pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
                     title,
                     description,
                     priority: priority.map(Into::into),
-                    blocked,
+                    ai_flagged,
                     order,
                     parent_id,
                     cake_id: None,
@@ -289,7 +289,7 @@ fn print_task_detail(task: &Task) {
     println!("type:     {type_str}");
     println!("status:   {status}");
     println!("priority: {priority_str}");
-    if task.blocked { println!("blocked:  yes"); }
+    if task.ai_flagged { println!("ai_flagged: yes"); }
     println!("title:    {}", task.title);
     println!("created:  {}", task.created.format("%Y-%m-%dT%H:%M:%S"));
     if let Some(d) = task.done {

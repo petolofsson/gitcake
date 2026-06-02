@@ -131,7 +131,7 @@ pub enum DetailField {
     Type,
     Status,
     Priority,
-    Blocked,
+    AiFlagged,
     Cake,
 }
 
@@ -140,8 +140,8 @@ impl DetailField {
         match self {
             Self::Type     => Self::Status,
             Self::Status   => Self::Priority,
-            Self::Priority => Self::Blocked,
-            Self::Blocked  => Self::Cake,
+            Self::Priority => Self::AiFlagged,
+            Self::AiFlagged  => Self::Cake,
             Self::Cake     => Self::Type,
         }
     }
@@ -150,8 +150,8 @@ impl DetailField {
             Self::Type     => Self::Cake,
             Self::Status   => Self::Type,
             Self::Priority => Self::Status,
-            Self::Blocked  => Self::Priority,
-            Self::Cake     => Self::Blocked,
+            Self::AiFlagged  => Self::Priority,
+            Self::Cake     => Self::AiFlagged,
         }
     }
 }
@@ -507,12 +507,12 @@ impl App {
             if from_planner { self.enter_planner_view(); } else { self.enter_task_list(pull_msg, Some(&task_id)); }
             return;
         }
-        let (task_id, field, task_type, task_status, task_priority, task_blocked, title, desc, from_planner) =
+        let (task_id, field, task_type, task_status, task_priority, task_ai_flagged, title, desc, from_planner) =
             match &self.screen {
                 Screen::Detail { task, selected_field, from_planner, .. } => (
                     task.id.clone(), *selected_field,
                     task.task_type.clone(), task.status.clone(),
-                    task.priority.clone(), task.blocked,
+                    task.priority.clone(), task.ai_flagged,
                     task.title.clone(), task.description.clone().unwrap_or_default(),
                     *from_planner,
                 ),
@@ -534,7 +534,7 @@ impl App {
             return;
         }
         if is_key(&key, &km.status_cycle) {
-            self.do_detail_field_cycle(task_id, field, task_type, task_status, task_priority, task_blocked);
+            self.do_detail_field_cycle(task_id, field, task_type, task_status, task_priority, task_ai_flagged);
         }
     }
 
@@ -567,7 +567,7 @@ impl App {
 
     fn do_detail_field_cycle(
         &mut self, task_id: String, field: DetailField,
-        task_type: TaskType, task_status: TaskStatus, task_priority: Priority, task_blocked: bool,
+        task_type: TaskType, task_status: TaskStatus, task_priority: Priority, task_ai_flagged: bool,
     ) {
         let updated = match field {
             DetailField::Type => {
@@ -586,8 +586,8 @@ impl App {
                 let next = next_priority(task_priority);
                 self.repo.as_ref().and_then(|r| r.update_task(&task_id, TaskPatch { priority: Some(next), ..Default::default() }).ok())
             }
-            DetailField::Blocked => {
-                self.repo.as_ref().and_then(|r| r.update_task(&task_id, TaskPatch { blocked: Some(!task_blocked), ..Default::default() }).ok())
+            DetailField::AiFlagged => {
+                self.repo.as_ref().and_then(|r| r.update_task(&task_id, TaskPatch { ai_flagged: Some(!task_ai_flagged), ..Default::default() }).ok())
             }
             DetailField::Cake => {
                 let cakes = self.cached_cakes.clone();
@@ -1328,7 +1328,7 @@ pub(crate) fn task_matches(t: &Task, f: &str) -> bool {
         || t.owner.as_deref().map(|o| o.to_lowercase().contains(f)).unwrap_or(false)
         || type_str(&t.task_type).contains(f)
         || status_str(&t.status).contains(f)
-        || (f == "blocked" && t.blocked)
+        || (f == "ai_flagged" && t.ai_flagged)
         || (f == "high" && t.priority == Priority::High)
         || (f == "low" && t.priority == Priority::Low)
 }

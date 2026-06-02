@@ -25,8 +25,8 @@ struct Frontmatter {
     owner: Option<String>,
     #[serde(default)]
     priority: Priority,
-    #[serde(default)]
-    blocked: bool,
+    #[serde(default, alias = "blocked")]
+    ai_flagged: bool,
     #[serde(default)]
     order: Option<u32>,
     #[serde(default)]
@@ -124,7 +124,7 @@ fn parse_task_content(content: &str, task_type: TaskType) -> Result<Task, AppErr
         description,
         owner: fm.owner,
         priority: fm.priority,
-        blocked: fm.blocked,
+        ai_flagged: fm.ai_flagged,
         order: fm.order,
         parent_id: fm.parent,
         cake_id: fm.cake_id,
@@ -177,7 +177,7 @@ fn serialize_task(task: &Task) -> String {
         Priority::High => "priority: high\n".to_string(),
         Priority::Low => "priority: low\n".to_string(),
     };
-    let blocked_line = if task.blocked { "blocked: true\n".to_string() } else { String::new() };
+    let blocked_line = if task.ai_flagged { "ai_flagged: true\n".to_string() } else { String::new() };
     let order_line = task.order.map(|o| format!("order: {o}\n")).unwrap_or_default();
     let parent_line = task.parent_id.as_deref()
         .map(|p| format!("parent: {}\n", yaml_str(p)))

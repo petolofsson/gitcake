@@ -472,7 +472,7 @@ fn task_flag(task: &Task, theme: &Theme) -> (String, Style) {
     if task.status == TaskStatus::Done {
         return ("  ".to_string(), Style::new());
     }
-    if task.blocked {
+    if task.ai_flagged {
         return (format!("{} ", theme.sym_blocked), Style::new().fg(theme.danger).add_modifier(Modifier::BOLD));
     }
     match task.priority {
@@ -544,7 +544,7 @@ fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: Det
     render_field(f, rows[1], DetailField::Type,     "TYPE:",     type_label(&task.task_type));
     render_field(f, rows[2], DetailField::Status,   "STATUS:",   status_label(&task.status));
     render_field(f, rows[3], DetailField::Priority, "PRIORITY:", priority_label(&task.priority));
-    render_field(f, rows[4], DetailField::Blocked,  "BLOCKED:",  if task.blocked { "yes" } else { "no" });
+    render_field(f, rows[4], DetailField::AiFlagged,  "AI FLAGGED:",  if task.ai_flagged { "yes" } else { "no" });
     render_field(f, rows[5], DetailField::Cake,     "CAKE:",     cake_title);
     let file_path = format!("{}s/{}.md", type_label(&task.task_type), task.id);
     let ro = |label: &str, value: String| Paragraph::new(Line::from(vec![

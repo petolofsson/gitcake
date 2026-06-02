@@ -87,8 +87,8 @@ struct EditSliceArgs {
     description: Option<String>,
     /// New priority: high, normal, or low — omit to leave unchanged
     priority: Option<String>,
-    /// Set to true to mark blocked (needs human input), false to unblock — omit to leave unchanged
-    blocked: Option<bool>,
+    /// Set to true to ai_flagged (needs human input), false to unblock — omit to leave unchanged
+    ai_flagged: Option<bool>,
     /// Sequence number — omit to leave unchanged
     order: Option<u32>,
     /// Parent slice ID — omit to leave unchanged, pass "" to clear
@@ -173,7 +173,7 @@ impl GitcakeMcp {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(description = "Edit a slice. Omit any field to leave it unchanged. Set blocked=true when human input is needed, false to unblock.")]
+    #[tool(description = "Edit a slice. Omit any field to leave it unchanged. Set ai_flagged=true when human input is needed, false to unblock.")]
     fn edit_slice(&self, Parameters(args): Parameters<EditSliceArgs>) -> Result<CallToolResult, McpError> {
         let priority = args.priority.as_deref().map(parse_priority).transpose()?;
         let description = args.description.map(|d| if d.is_empty() { None } else { Some(d) });
@@ -183,7 +183,7 @@ impl GitcakeMcp {
             title: args.title,
             description,
             priority,
-            blocked: args.blocked,
+            ai_flagged: args.ai_flagged,
             order,
             parent_id,
             cake_id: None,

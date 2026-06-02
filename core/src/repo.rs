@@ -126,7 +126,7 @@ impl TaskRepo {
             description: args.description,
             owner: Some(self.info.username.clone()),
             priority: args.priority,
-            blocked: false,
+            ai_flagged: false,
             order: args.order,
             parent_id: args.parent_id,
             cake_id: args.cake_id,
@@ -153,7 +153,7 @@ impl TaskRepo {
             description: args.description,
             owner: None,
             priority: args.priority,
-            blocked: false,
+            ai_flagged: false,
             order: args.order,
             parent_id: args.parent_id,
             cake_id: args.cake_id,
@@ -172,7 +172,7 @@ impl TaskRepo {
         if let Some(t) = patch.title       { task.title       = t; }
         if let Some(d) = patch.description { task.description = d; }
         if let Some(p) = patch.priority    { task.priority    = p; }
-        if let Some(b) = patch.blocked     { task.blocked     = b; }
+        if let Some(b) = patch.ai_flagged     { task.ai_flagged = b; }
         if let Some(o) = patch.order       { task.order       = o; }
         if let Some(p) = patch.parent_id   { task.parent_id   = p; }
         if let Some(c) = patch.cake_id     { task.cake_id     = c; }
@@ -558,7 +558,7 @@ fn migrate_folder(
             description,
             owner: owner.map(|s| s.to_string()),
             priority: Default::default(),
-            blocked: false,
+            ai_flagged: false,
             order: None,
             parent_id: None,
             cake_id: None,

@@ -55,7 +55,7 @@ pub struct Task {
     pub owner: Option<String>,
     pub priority: Priority,
     /// Set by AI when it needs human input to continue.
-    pub blocked: bool,
+    pub ai_flagged: bool,
     /// Optional sequence number for AI-planned work ordering.
     pub order: Option<u32>,
     /// ID of a parent slice; used to group subtasks under a parent.
@@ -90,7 +90,7 @@ pub struct TaskPatch {
     pub title: Option<String>,
     pub description: Option<Option<String>>,
     pub priority: Option<Priority>,
-    pub blocked: Option<bool>,
+    pub ai_flagged: Option<bool>,
     pub order: Option<Option<u32>>,
     pub parent_id: Option<Option<String>>,
     pub cake_id: Option<Option<String>>,
