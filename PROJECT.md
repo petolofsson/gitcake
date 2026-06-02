@@ -169,7 +169,6 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 |---|---|
 | `W` / `↑`  `S` / `↓` | Navigate |
 | `D` | View slice detail |
-| `A` | Back |
 | `Ctrl+C` | Create new slice (global — works from any non-input view) |
 | `E` | Edit slice in `$EDITOR` |
 | `F` | Cycle status (open → in-progress → done, wraps) |
@@ -179,7 +178,7 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice to any user (including yourself) |
 | `Ctrl+R` | Push (commit + push) |
-| `Ctrl+D` | Move to backlog (clears owner, resets status) |
+| `Ctrl+B` | Move to backlog (clears owner, resets status) |
 | `Ctrl+Q` | Quit |
 
 List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `v` (low, dim), `!` (blocked, red). Tasks are sorted in-progress → open → done, then high → normal → low within each group.
@@ -188,11 +187,18 @@ List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `
 
 | Key | Action |
 |---|---|
+| `W` / `↑`  `S` / `↓` | Navigate |
+| `D` | View slice detail |
+| `E` | Edit slice in `$EDITOR` |
 | `F` | Claim slice for yourself |
-| `Ctrl+A` | Assign slice to any user (opens picker) |
-| `Ctrl+D` | Permanently delete slice |
 | `Tab` | Cycle view: Backlog → Personal → Planner |
 | `Shift+Tab` | Cycle view in reverse |
+| `/` | Filter. Esc to clear |
+| `Shift+R` | Pull |
+| `Ctrl+A` | Assign slice to any user (opens picker) |
+| `Ctrl+D` | Permanently delete slice |
+| `Ctrl+R` | Push |
+| `Ctrl+Q` | Quit |
 
 ### Create slice view
 
@@ -201,8 +207,7 @@ List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `
 | `W` / `↑`  `S` / `↓` | Move cursor between fields (TYPE → ASSIGN TO → CAKE → CONFIRM) |
 | `F` | Activate focused field: cycle TYPE; open picker on ASSIGNEE / CAKE; open editor on CONFIRM |
 | `Enter` | Same as `F` |
-| `Ctrl+S` | Open editor immediately (from any field) |
-| `Esc` | Cancel and return to personal view |
+| `Esc` | Cancel and return to previous view |
 
 Fields show a `▶` cursor and highlight when focused, matching the detail view convention.
 
@@ -213,8 +218,9 @@ Fields show a `▶` cursor and highlight when focused, matching the detail view 
 | `W` / `S` | Move cursor between navigable fields (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) |
 | `F` | Cycle or toggle the focused field; on CAKE opens cake picker |
 | `E` | Edit title + description in `$EDITOR` |
-| `A` / `Esc` / `Q` | Back to list |
+| `A` / `Q` | Back to list |
 | `Shift+R` | Pull |
+| `Ctrl+A` | Assign |
 | `Ctrl+R` | Push |
 | `Ctrl+Q` | Quit |
 
@@ -232,6 +238,7 @@ Detail view shows five navigable rows (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) wi
 | `Shift+Tab` | Cycle view in reverse |
 | `/` | Filter — same match rules as personal view. Esc to clear |
 | `Shift+R` | Pull |
+| `Ctrl+A` | Assign |
 | `Ctrl+R` | Push |
 | `Ctrl+Q` | Quit |
 
