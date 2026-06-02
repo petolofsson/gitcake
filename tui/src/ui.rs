@@ -318,23 +318,23 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let block = task_list_block(context, message, filter, filter_active, pull_error, lock_warning, theme);
     let inner = block.inner(area);
     f.render_widget(block, area);
+    let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
+    f.render_widget(Paragraph::new(tab_strip(active, theme)), rows[0]);
     let (items, index_map, safe_sel) = build_task_items(tasks, filter, selected, inner_width, theme);
     if items.is_empty() {
         let msg = if filter.is_empty() { "No tasks yet. ^C to create one." } else { "No tasks match the filter." };
-        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[1]);
     } else {
         let mut state = ListState::default();
         state.select(index_map.iter().position(|&i| i == safe_sel));
-        f.render_stateful_widget(List::new(items), rows[0], &mut state);
+        f.render_stateful_widget(List::new(items), rows[1], &mut state);
     }
-    f.render_widget(filter_line_widget(filter, filter_active), rows[1]);
-    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[3]);
-    let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
-    f.render_widget(Paragraph::new(tab_strip(active, theme)), rows[4]);
+    f.render_widget(filter_line_widget(filter, filter_active), rows[2]);
+    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[4]);
     f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[5]);
 }
 
@@ -344,14 +344,8 @@ fn task_list_block(
     pull_error: Option<&str>, lock_warning: Option<&str>,
     theme: &Theme,
 ) -> Block<'static> {
-    let title = match context {
-        TaskContext::Personal => " gitcake · PERSONAL VIEW ",
-        TaskContext::Backlog  => " gitcake · BACKLOG VIEW ",
-    };
-    let title_sty = Style::new().fg(theme.warning).add_modifier(Modifier::BOLD);
     let mut block = Block::default()
-        .title(Span::styled(title, title_sty))
-        .padding(Padding::new(1, 1, 1, 1));
+        .padding(Padding::new(1, 1, 0, 1));
     if let Some(msg) = message {
         block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
     }
@@ -726,29 +720,27 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
     let (repo_name, username) = app.repo.as_ref()
         .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
         .unwrap_or(("", ""));
-    let title_sty = Style::new().fg(theme.warning).add_modifier(Modifier::BOLD);
     let block = Block::default()
-        .title(Span::styled(" gitcake · PLANNER VIEW ", title_sty))
-        .padding(Padding::new(1, 1, 1, 1));
+        .padding(Padding::new(1, 1, 0, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
+    f.render_widget(Paragraph::new(tab_strip(ActiveView::Planner, theme)), rows[0]);
     let inner_width = inner.width as usize;
     let (items, index_map) = build_planner_items(cakes, tasks, selected, &app.filter, inner_width, theme);
     if items.is_empty() {
         let msg = if app.filter.is_empty() { "No active tasks. ^C to create one." } else { "No tasks match the filter." };
-        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[1]);
     } else {
         let mut state = ListState::default();
         state.select(index_map.iter().position(|e| *e == Some(selected)));
-        f.render_stateful_widget(List::new(items), rows[0], &mut state);
+        f.render_stateful_widget(List::new(items), rows[1], &mut state);
     }
-    f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
-    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[3]);
-    f.render_widget(Paragraph::new(tab_strip(ActiveView::Planner, theme)), rows[4]);
+    f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[2]);
+    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[4]);
     f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[5]);
 }
 
