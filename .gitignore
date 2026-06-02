@@ -3,3 +3,10 @@ build/
 .svelte-kit/
 target/
 src-tauri/gen/
+doc/static.files/
+doc/search.index/
+doc/src/
+doc/x/
+doc/*.js
+doc/*.html
+doc/.lock
