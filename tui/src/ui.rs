@@ -119,13 +119,6 @@ impl Theme {
         Style::new().fg(self.border)
     }
 
-    fn border_focused_style(&self) -> Style {
-        Style::new().fg(self.border_focused)
-    }
-
-    fn success_style(&self) -> Style {
-        Style::new().fg(self.success)
-    }
 
     // navbar chip: bg=text color, fg=bg color (falls back to Black when bg=Reset)
     fn chip_style(&self) -> Style {
