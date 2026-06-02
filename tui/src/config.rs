@@ -58,7 +58,7 @@ impl Default for ThemeConfig {
             bg_personal:    "#141414".into(),
             bg_planner:     "#141820".into(),
             bg_backlog:     "#1a1414".into(),
-            cursor:       "▶".into(),
+            cursor:       "⇒".into(),
             sym_high:     "^".into(),
             sym_low:      "v".into(),
             sym_blocked:  "!".into(),
