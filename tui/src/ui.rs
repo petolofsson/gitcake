@@ -912,7 +912,7 @@ fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str
         (ActiveView::Backlog,  "BACKLOG"),
     ];
     let inactive_sty = Style::new().bg(bar_bg).fg(Color::DarkGray);
-    let active_sty   = Style::new().bg(bar_bg).fg(Color::Rgb(0, 0, 180)).add_modifier(Modifier::BOLD);
+    let active_sty   = Style::new().bg(bar_bg).fg(Color::Rgb(0, 31, 96)).add_modifier(Modifier::BOLD);
     let mut spans = vec![Span::raw("  ")];
     for (view, label) in &tabs {
         if *view == active {
