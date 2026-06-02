@@ -936,19 +936,19 @@ fn hint_bar(context: TaskContext, theme: &Theme) -> Line<'static> {
     let f_label = if context == TaskContext::Backlog { "claim" } else { "cycle" };
     theme.bar_line(&[
         ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", f_label),
-        ("^C", "create"), ("^A", "assign"), ("^D", "delete"), ("^R", "push"), ("^Q", "quit"),
+        ("^C", "create"), ("^A", "assign"), ("^D", "delete"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
     ])
 }
 
 fn planner_hint_bar(theme: &Theme) -> Line<'static> {
     theme.bar_line(&[
         ("WASD", "nav"), ("D", "detail"), ("C", "cake"),
-        ("^C", "create"), ("^R", "push"), ("^Q", "quit"),
+        ("^C", "create"), ("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
     ])
 }
 
 fn detail_nav_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[("WS", "nav"), ("F", "cycle"), ("E", "edit"), ("^A", "assign"), ("^R", "push"), ("^Q", "quit")])
+    theme.bar_line(&[("WS", "nav"), ("F", "cycle"), ("E", "edit"), ("A", "back"), ("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit")])
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
