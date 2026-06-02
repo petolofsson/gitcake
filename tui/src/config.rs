@@ -61,7 +61,7 @@ impl Default for ThemeConfig {
             cursor:       "⇒".into(),
             sym_high:     "^".into(),
             sym_low:      "v".into(),
-            sym_blocked:  "!".into(),
+            sym_blocked:  "⚑".into(),
             sym_done:     "✓".into(),
             sym_open:     "○".into(),
             sym_progress: "●".into(),
