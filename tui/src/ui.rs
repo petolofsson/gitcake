@@ -59,7 +59,7 @@ pub struct Theme {
     pub text:           Color,
     pub bg:             Color,
     pub border:         Color,
-    pub border_focused: Color,
+
     pub muted:          Color,
     pub bg_personal:    Color,
     pub bg_planner:     Color,
@@ -89,7 +89,7 @@ impl Theme {
             text:           c(&tc.text,           Color::Reset),
             bg:             c(&tc.bg,             Color::Reset),
             border:         c(&tc.border,         Color::Reset),
-            border_focused: c(&tc.border_focused, Color::Cyan),
+
             muted:          c(&tc.muted,          Color::DarkGray),
             bg_personal:    c(&tc.bg_personal,    Color::Reset),
             bg_planner:     c(&tc.bg_planner,     Color::Reset),

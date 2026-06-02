@@ -21,7 +21,7 @@ pub struct ThemeConfig {
     pub text:           String,   // e.g. "reset" or "white"
     pub bg:             String,   // e.g. "reset" or "black"  (drives navbar chip fg)
     pub border:         String,   // e.g. "reset" or "dim"
-    pub border_focused: String,   // e.g. "cyan" — border/title of the active pane
+
     pub muted:          String,   // e.g. "dark_gray" — secondary text, done items, chrome
     // per-view backgrounds — subtle shading to orient the user
     pub bg_personal:    String,
@@ -53,7 +53,7 @@ impl Default for ThemeConfig {
             text:           "reset".into(),
             bg:             "reset".into(),
             border:         "reset".into(),
-            border_focused: "cyan".into(),
+
             muted:          "dark_gray".into(),
             bg_personal:    "#141414".into(),
             bg_planner:     "#141820".into(),
