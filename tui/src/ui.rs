@@ -525,9 +525,17 @@ fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: Det
         let is_sel = selected == field;
         let cur = if is_sel { format!("{} ", theme.cursor) } else { "  ".to_string() };
         let (cur_sty, lbl_sty, val_sty) = if is_sel {
-            (theme.cursor_style(), theme.highlight.add_modifier(Modifier::BOLD), theme.highlight)
+            (
+                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+                theme.highlight,
+            )
         } else {
-            (theme.dim(), theme.bold_style(), theme.dim())
+            (
+                theme.dim(),
+                Style::new().fg(theme.muted).add_modifier(Modifier::BOLD),
+                theme.dim(),
+            )
         };
         f.render_widget(Paragraph::new(Line::from(vec![
             Span::styled(cur, cur_sty),
@@ -909,13 +917,13 @@ fn ctrl_bar(theme: &Theme) -> Line<'static> {
 fn draw_field_label(f: &mut Frame, area: Rect, label: &str, active: bool, theme: &Theme) {
     if active {
         f.render_widget(Paragraph::new(Line::from(vec![
-            Span::styled(format!("{} ", theme.cursor), theme.cursor_style()),
-            Span::styled(label.to_string(), theme.highlight.add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{} ", theme.cursor), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(label.to_string(), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
         ])), area);
     } else {
         f.render_widget(Paragraph::new(Line::from(vec![
-            Span::styled("  ", theme.dim()),
-            Span::styled(label.to_string(), theme.dim()),
+            Span::raw("  "),
+            Span::styled(label.to_string(), Style::new().fg(theme.muted).add_modifier(Modifier::BOLD)),
         ])), area);
     }
 }
