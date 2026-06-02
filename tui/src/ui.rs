@@ -772,11 +772,16 @@ fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, i
     let status_ind = if in_prog { format!("{} ", theme.sym_arrow) } else { format!("{} ", theme.sym_dot) };
     let owner_str  = format!("{:<12}  ", truncate_title(owner, 12));
     let title_bud  = inner_width.saturating_sub(2 + 14 + 2 + 10 + 2);
+    let type_span = if is_sel {
+        Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_sty.add_modifier(Modifier::DIM))
+    } else {
+        type_tag_span(&task.task_type, theme)
+    };
     ListItem::new(Line::from(vec![
         Span::styled(if is_sel { format!("{} ", theme.cursor) } else { "  ".to_string() }, cur_sty),
         Span::styled(owner_str, row_sty.add_modifier(Modifier::DIM)),
         Span::styled(status_ind, if is_sel { row_sty } else { status_sty }),
-        Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_sty.add_modifier(Modifier::DIM)),
+        type_span,
         Span::styled(truncate_title(&task.title, title_bud), row_sty),
     ]))
 }
@@ -983,6 +988,14 @@ fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
 
 fn type_label(t: &TaskType) -> &'static str {
     match t { TaskType::Task => "task", TaskType::Bug => "bug", TaskType::Incident => "incident" }
+}
+
+fn type_tag_span(t: &TaskType, theme: &Theme) -> Span<'static> {
+    match t {
+        TaskType::Task     => Span::styled("[T]     ", Style::new().fg(theme.muted)),
+        TaskType::Bug      => Span::styled("[B]     ", Style::new().fg(theme.danger)),
+        TaskType::Incident => Span::styled("[I]     ", Style::new().fg(theme.danger).add_modifier(Modifier::BOLD)),
+    }
 }
 
 fn status_label(s: &TaskStatus) -> &'static str {
