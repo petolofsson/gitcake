@@ -322,6 +322,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1),
     ]).split(inner);
     f.render_widget(Paragraph::new(tab_strip(active, theme)), rows[0]);
     let (items, index_map, safe_sel) = build_task_items(tasks, filter, selected, inner_width, theme);
@@ -334,8 +335,10 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         f.render_stateful_widget(List::new(items), rows[1], &mut state);
     }
     f.render_widget(filter_line_widget(filter, filter_active), rows[2]);
-    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[4]);
-    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[5]);
+    // rows[3] blank — padding between filter and navbar
+    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[4]);
+    // rows[5] blank — padding between navbar and info bar
+    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[6]);
 }
 
 fn task_list_block(
@@ -726,6 +729,7 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1),
     ]).split(inner);
     f.render_widget(Paragraph::new(tab_strip(ActiveView::Planner, theme)), rows[0]);
     let inner_width = inner.width as usize;
@@ -739,8 +743,10 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
         f.render_stateful_widget(List::new(items), rows[1], &mut state);
     }
     f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[2]);
-    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[4]);
-    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[5]);
+    // rows[3] blank — padding between filter and navbar
+    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[4]);
+    // rows[5] blank — padding between navbar and info bar
+    f.render_widget(Paragraph::new(info_bar(repo_name, username, theme)), rows[6]);
 }
 
 fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, inner_width: usize, theme: &Theme) -> ListItem<'static> {
@@ -877,7 +883,7 @@ enum ActiveView { Personal, Planner, Backlog }
 
 fn info_bar<'a>(repo_name: &'a str, username: &'a str, theme: &Theme) -> Line<'a> {
     Line::from(vec![
-        Span::raw(" "),
+        Span::raw("  "),
         Span::styled(repo_name, theme.dim()),
         Span::styled(" · ", theme.dim()),
         Span::styled(username, theme.dim()),
