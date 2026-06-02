@@ -48,6 +48,11 @@
 - **O3 — Spurious Vec in `enter_task_list`**: cursor position search replaced with a direct iterator `position()` call; no Vec allocated for filter application.
 - **O4 — CODERULE 3 function length**: all functions in `tui/src/app.rs` and `tui/src/ui.rs` reduced to ≤50 non-blank lines by extracting: `handle_filter_input`, `handle_list_pull`, `do_task_list_edit`, `do_claim_backlog`, `handle_list_action_keys`, `do_detail_edit`, `do_detail_field_cycle`, `task_list_block`, `build_task_items`, `filter_line_widget`, `render_detail_fields`, `render_detail_desc`, `task_list_params`, `draw_create_type_field`, `draw_create_assign_field`, `user_picker_items`, `build_team_items`.
 
+## Resolved — Features (post-v0.1.0, session 2026-06-03 continued)
+- **Priority system overhaul**: `low` removed; `urgent` added above `high`. Indicators: `++` (urgent, danger+bold), `+` (high, warning+bold), blank (normal). Old repos with `priority: low` silently migrate to normal via serde. Cycle: normal→+→++→normal. Filter keywords: `urgent`, `high`.
+- **`blocked` → `ai_flagged`**: field renamed throughout (model, YAML, TUI label `AI FLAGGED:`, CLI, MCP). YAML reads both `ai_flagged:` and `blocked:` (serde alias for backward compat). Writes `ai_flagged:` going forward.
+- **`⚑` for ai_flagged**: red flag symbol replaces `!`. Cursor changed to `⇒` (double arrow, matches setup screen).
+
 ## Resolved — Features (post-v0.1.0, session 2026-06-03)
 - **DESIGN.md**: visual design guide written — `doc/DESIGN.md` covers color palette (semantic slots, Catppuccin Mocha + Gruvbox references), typography hierarchy, selection/focus patterns, layout conventions, nav chrome spec, setup screen, hint bar rules, anti-patterns, and ratatui implementation notes.
 - **Theme — new semantic slots**: `muted` (explicit fg color, replaces unreliable `Modifier::DIM`), `success` (done badges), `bg_personal`/`bg_planner`/`bg_backlog` (per-view background shading). `dim()` and `label_style()` now use `muted` fg.

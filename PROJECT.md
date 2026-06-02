@@ -89,7 +89,7 @@ created: 2026-05-29T09:14:00
 done:
 owner: alice-smith
 priority: high
-blocked: true
+ai_flagged: true
 order: 2
 parent: b5c0f3a1
 cake_id: e4f1a2b3
@@ -110,8 +110,8 @@ Some context about this slice.
 | `created` | Timestamp when created |
 | `done` | Timestamp when marked done (empty until then) |
 | `owner` | Optional. Git username of the person responsible. Empty = unowned (backlog) |
-| `priority` | Optional. `high`, `normal` (default, omitted from file), or `low` |
-| `blocked` | Optional. `true` when AI or human needs external input to continue. Omitted when false |
+| `priority` | Optional. `urgent`, `high`, or `normal` (default, omitted from file) |
+| `ai_flagged` | Optional. `true` when AI needs human input to continue. Omitted when false |
 | `order` | Optional. Sequence number for AI-planned work ordering |
 | `parent` | Optional. ID of a parent slice for grouping subtasks |
 | `cake_id` | Optional. ID of the cake (epic) this slice belongs to |
@@ -174,14 +174,14 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `F` | Cycle status (open → in-progress → done, wraps) |
 | `Tab` | Cycle view: Personal → Planner → Backlog → Personal |
 | `Shift+Tab` | Cycle view in reverse |
-| `/` | Filter — matches title, hex ID, owner, type, status, `blocked`, `high`, `low`. Esc to clear |
+| `/` | Filter — matches title, hex ID, owner, type, status, `ai_flagged`, `urgent`, `high`. Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice to any user (including yourself) |
 | `Ctrl+R` | Push (commit + push) |
 | `Ctrl+B` | Move to backlog (clears owner, resets status) |
 | `Ctrl+Q` | Quit |
 
-List displays a priority/blocked indicator left of the ID: `^` (high, yellow), `v` (low, dim), `!` (blocked, red). Tasks are sorted in-progress → open → done, then high → normal → low within each group.
+List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` (high, yellow), `⚑` (ai_flagged, red). Tasks are sorted in-progress → open → done, then urgent → high → normal within each group.
 
 ### Backlog view
 
@@ -259,9 +259,9 @@ gitcake --new                    # launch TUI with fresh setup screen
 
 gitcake list [--json] [--status open|in-progress|done] [--backlog]
 gitcake create "title" [--type task|bug|incident] [--assign username]
-             [--priority high|normal|low] [--order N] [--parent <id>]
+             [--priority urgent|high|normal] [--order N] [--parent <id>]
 gitcake show <id> [--json]
-gitcake set <id> [--title "..."] [--description "..."] [--priority high|normal|low]
+gitcake set <id> [--title "..."] [--description "..."] [--priority urgent|high|normal]
           [--block] [--unblock] [--order N] [--parent <id>]
           # pass "" to --description or --parent to clear the field
 gitcake done <id>
@@ -332,18 +332,25 @@ surface = "#073642"
 highlight = "bold bg:blue fg:white"   # selected row bg + fg
 accent    = "cyan"                     # cursor ▶ color
 warning   = "yellow"                   # in-progress / high priority
-danger    = "red"                      # blocked indicator
+danger    = "red"                      # urgent priority + ai_flagged indicator
+success   = "green"                    # done section header
+muted     = "dark_gray"               # secondary text, done items
 
 # Base palette
 text   = "reset"   # primary text; drives navbar chip background
 bg     = "reset"   # background; drives navbar chip foreground
 border = "reset"   # border characters + view title color
 
-# Symbols (single display-cell characters)
-cursor       = "▶"
-sym_high     = "^"
-sym_low      = "v"
-sym_blocked  = "!"
+# Per-view background shading
+bg_personal = "#141414"
+bg_planner  = "#141820"
+bg_backlog  = "#1a1414"
+
+# Symbols
+cursor       = "⇒"
+sym_urgent   = "++"
+sym_high     = "+"
+sym_blocked  = "⚑"
 sym_done     = "✓"
 sym_open     = "○"
 sym_progress = "●"
