@@ -13,6 +13,8 @@ use gitcake_core::{
     repo::TaskRepo,
 };
 
+use tui_input::Input;
+
 use crate::config::Config;
 
 const DESCRIPTION_MAX_CHARS: usize = 850;
@@ -56,10 +58,15 @@ pub enum Screen {
         from_planner: bool,
     },
     Create {
-        task_type: TaskType,
-        assignee: String,
-        cake_id: Option<String>,
-        field: CreateField,
+        title:       Input,
+        focus:       CreateFocus,
+        task_type:   TaskType,
+        users:       Vec<String>,
+        user_filter: String,
+        user_sel:    usize,
+        cakes:       Vec<Cake>,
+        cake_filter: String,
+        cake_sel:    usize,
     },
     CreateCake {
         title: String,
@@ -69,19 +76,9 @@ pub enum Screen {
         cakes: Vec<Cake>,
         selected: usize,
         filter: String,
-        from_create: bool,
-        create_task_type: Option<TaskType>,
-        create_assignee: Option<String>,
     },
     AssignTask {
         task_id: String,
-        users: Vec<String>,
-        selected: usize,
-        filter: String,
-    },
-    PickAssignee {
-        task_type: TaskType,
-        prev_assignee: String,
         users: Vec<String>,
         selected: usize,
         filter: String,
@@ -100,28 +97,28 @@ pub enum Screen {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-pub enum CreateField {
+pub enum CreateFocus {
+    Title,
     Type,
     Assignee,
     Cake,
-    Confirm,
 }
 
-impl CreateField {
+impl CreateFocus {
     pub fn next(self) -> Self {
         match self {
+            Self::Title    => Self::Type,
             Self::Type     => Self::Assignee,
             Self::Assignee => Self::Cake,
-            Self::Cake     => Self::Confirm,
-            Self::Confirm  => Self::Type,
+            Self::Cake     => Self::Title,
         }
     }
     pub fn prev(self) -> Self {
         match self {
-            Self::Type     => Self::Confirm,
+            Self::Title    => Self::Cake,
+            Self::Type     => Self::Title,
             Self::Assignee => Self::Type,
             Self::Cake     => Self::Assignee,
-            Self::Confirm  => Self::Cake,
         }
     }
 }
@@ -240,13 +237,24 @@ impl App {
             let input_screen = matches!(&self.screen,
                 Screen::Setup { .. } | Screen::InitRepo { .. } | Screen::Create { .. }
                 | Screen::CreateCake { .. } | Screen::AssignTask { .. }
-                | Screen::PickAssignee { .. } | Screen::DeleteConfirm { .. }
-                | Screen::SyncConfirm | Screen::PushPrompt | Screen::PickCake { .. }
+                | Screen::DeleteConfirm { .. } | Screen::SyncConfirm | Screen::PushPrompt
+                | Screen::PickCake { .. }
             );
             if !input_screen {
-                if let Some(r) = &self.repo {
-                    let assignee = r.info.username.clone();
-                    self.screen = Screen::Create { task_type: TaskType::Task, assignee, cake_id: None, field: CreateField::Type };
+                let info = self.repo.as_ref().map(|r| {
+                    let username = r.info.username.clone();
+                    let mut users = r.list_users().ok().unwrap_or_default();
+                    if !users.contains(&username) { users.insert(0, username.clone()); }
+                    let user_sel = users.iter().position(|u| u == &username).unwrap_or(0);
+                    (users, user_sel)
+                });
+                if let Some((users, user_sel)) = info {
+                    let cakes = self.cached_cakes.clone();
+                    self.screen = Screen::Create {
+                        title: Input::default(), focus: CreateFocus::Title,
+                        task_type: TaskType::Task, users, user_filter: String::new(),
+                        user_sel, cakes, cake_filter: String::new(), cake_sel: 0,
+                    };
                 }
                 return;
             }
@@ -258,7 +266,6 @@ impl App {
             Screen::Detail { .. } => self.handle_detail(key),
             Screen::Create { .. } => self.handle_create(key),
             Screen::AssignTask { .. } => self.handle_assign_task(key),
-            Screen::PickAssignee { .. } => self.handle_pick_assignee(key),
             Screen::DeleteConfirm { .. } => self.handle_delete_confirm(key),
             Screen::SyncConfirm => self.handle_sync_confirm(key),
             Screen::PushPrompt => self.handle_push_prompt(key),
@@ -595,10 +602,7 @@ impl App {
                     self.cached_cakes = self.repo.as_ref().and_then(|r| r.list_cakes().ok()).unwrap_or_default();
                 }
                 let cakes = self.cached_cakes.clone();
-                self.screen = Screen::PickCake {
-                    task_id, cakes, selected: 0, filter: String::new(),
-                    from_create: false, create_task_type: None, create_assignee: None,
-                };
+                self.screen = Screen::PickCake { task_id, cakes, selected: 0, filter: String::new() };
                 return;
             }
         };
@@ -612,108 +616,114 @@ impl App {
     fn handle_create(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.should_quit = true; return; }
         if key.code == KeyCode::Esc { self.enter_task_list(None, None); return; }
-
-
-
-        let no_mod = key.modifiers == KeyModifiers::NONE;
-
-        // Read field as Copy before any mutable borrow.
-        let field = match &self.screen {
-            Screen::Create { field, .. } => *field,
+        let focus = match &self.screen {
+            Screen::Create { focus, .. } => *focus,
             _ => return,
         };
-
-        if matches!(key.code, KeyCode::Char('w') | KeyCode::Up) && no_mod {
-            if let Screen::Create { field: f, .. } = &mut self.screen { *f = f.prev(); }
-            return;
+        if key.code == KeyCode::Tab    { self.create_next_field(false); return; }
+        if key.code == KeyCode::BackTab { self.create_next_field(true); return; }
+        if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE {
+            self.submit_create(); return;
         }
-        if matches!(key.code, KeyCode::Char('s') | KeyCode::Down) && no_mod {
-            if let Screen::Create { field: f, .. } = &mut self.screen { *f = f.next(); }
-            return;
-        }
-
-        let activate = (key.code == KeyCode::Char('f') || key.code == KeyCode::Enter) && no_mod;
-        if !activate { return; }
-
-        match field {
-            CreateField::Confirm => self.create_via_editor(),
-            CreateField::Type => {
-                if let Screen::Create { task_type, .. } = &mut self.screen {
-                    *task_type = match task_type {
-                        TaskType::Task     => TaskType::Bug,
-                        TaskType::Bug      => TaskType::Incident,
-                        TaskType::Incident => TaskType::Task,
-                    };
-                }
-            }
-            CreateField::Assignee => {
-                let (tt, asgn) = match &self.screen {
-                    Screen::Create { task_type, assignee, .. } => (task_type.clone(), assignee.clone()),
-                    _ => return,
-                };
-                let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
-                self.screen = Screen::PickAssignee {
-                    task_type: tt, prev_assignee: asgn,
-                    users, selected: 0, filter: String::new(),
-                };
-            }
-            CreateField::Cake => {
-                let (tt, asgn) = match &self.screen {
-                    Screen::Create { task_type, assignee, .. } => (task_type.clone(), assignee.clone()),
-                    _ => return,
-                };
-                let cakes = self.cached_cakes.clone();
-                self.screen = Screen::PickCake {
-                    task_id: String::new(), cakes, selected: 0, filter: String::new(),
-                    from_create: true,
-                    create_task_type: Some(tt),
-                    create_assignee: Some(asgn),
-                };
-            }
+        match focus {
+            CreateFocus::Title    => self.create_title_key(key),
+            CreateFocus::Type     => self.create_type_key(key),
+            CreateFocus::Assignee => self.create_assignee_key(key),
+            CreateFocus::Cake     => self.create_cake_key(key),
         }
     }
 
-    /// Opens `$EDITOR` with a `# ` template, parses the result, and creates the task.
-    /// Returns to the Create screen silently if the editor is cancelled or no title is entered.
-    fn create_via_editor(&mut self) {
-        let Screen::Create { task_type, assignee, cake_id, .. } = &self.screen else { return };
-        let tt = task_type.clone();
-        let asgn = assignee.trim().to_string();
-        let cid = cake_id.clone();
-        let ctx = self.context;
-
-        let edited = open_in_editor("# \n\n");
-        self.needs_clear = true;
-
-        let Some(content) = edited else { return };
-        let Some((title, desc)) = parse_editor_content(&content) else { return };
-        let char_count = desc.as_deref().unwrap_or("").chars().count();
-        if char_count > DESCRIPTION_MAX_CHARS {
-            self.enter_task_list(Some(desc_too_long(char_count)), None);
-            return;
+    fn create_next_field(&mut self, backward: bool) {
+        if let Screen::Create { focus, user_filter, cake_filter, .. } = &mut self.screen {
+            user_filter.clear();
+            cake_filter.clear();
+            *focus = if backward { focus.prev() } else { focus.next() };
         }
-        let asgn_opt = Some(asgn).filter(|s| !s.is_empty());
+    }
 
-        if let Some(repo) = &self.repo {
-            let result = match ctx {
-                TaskContext::Personal => repo.create_task(NewTask { title, task_type: tt, description: desc, cake_id: cid, ..Default::default() }),
-                TaskContext::Backlog => repo.create_backlog_task(NewTask { title, task_type: tt, description: desc, cake_id: cid, ..Default::default() }),
-            };
-            match result {
-                Ok(task) => {
-                    let msg = if let Some(a) = asgn_opt {
-                        match repo.assign_task(&task.id, Some(a)) {
-                            Ok(_) => "Task created.".to_string(),
-                            Err(e) => format!("Task created but assign failed: {e}"),
-                        }
-                    } else {
-                        "Task created.".to_string()
-                    };
-                    self.enter_task_list(Some(msg), None);
-                }
-                Err(e) => self.enter_task_list(Some(e.to_string()), None),
+    fn create_title_key(&mut self, key: KeyEvent) {
+        use tui_input::backend::crossterm::EventHandler;
+        if let Screen::Create { title, .. } = &mut self.screen {
+            title.handle_event(&crossterm::event::Event::Key(key));
+        }
+    }
+
+    fn create_type_key(&mut self, key: KeyEvent) {
+        if key.modifiers != KeyModifiers::NONE { return; }
+        let Screen::Create { task_type, .. } = &mut self.screen else { return };
+        match key.code {
+            KeyCode::Left | KeyCode::Right => {
+                *task_type = match (&task_type, key.code == KeyCode::Right) {
+                    (TaskType::Task,     true)  => TaskType::Bug,
+                    (TaskType::Task,     false) => TaskType::Incident,
+                    (TaskType::Bug,      true)  => TaskType::Incident,
+                    (TaskType::Bug,      false) => TaskType::Task,
+                    (TaskType::Incident, true)  => TaskType::Task,
+                    (TaskType::Incident, false) => TaskType::Bug,
+                };
             }
+            _ => {}
         }
+    }
+
+    fn create_assignee_key(&mut self, key: KeyEvent) {
+        let no_mod = key.modifiers == KeyModifiers::NONE;
+        let Screen::Create { users, user_filter, user_sel, .. } = &mut self.screen else { return };
+        let f = user_filter.to_lowercase();
+        let fc = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).count();
+        match key.code {
+            KeyCode::Up    if no_mod => { *user_sel = user_sel.checked_sub(1).unwrap_or(fc.saturating_sub(1)); }
+            KeyCode::Down  if no_mod => { if fc > 0 { *user_sel = (*user_sel + 1) % fc; } }
+            KeyCode::Backspace       => { user_filter.pop(); *user_sel = 0; }
+            KeyCode::Char(c) if no_mod => { user_filter.push(c); *user_sel = 0; }
+            _ => {}
+        }
+    }
+
+    fn create_cake_key(&mut self, key: KeyEvent) {
+        let no_mod = key.modifiers == KeyModifiers::NONE;
+        let Screen::Create { cakes, cake_filter, cake_sel, .. } = &mut self.screen else { return };
+        let cf = cake_filter.to_lowercase();
+        let fc = 1 + cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).count();
+        match key.code {
+            KeyCode::Up    if no_mod => { *cake_sel = cake_sel.checked_sub(1).unwrap_or(fc - 1); }
+            KeyCode::Down  if no_mod => { *cake_sel = (*cake_sel + 1) % fc; }
+            KeyCode::Backspace       => { cake_filter.pop(); *cake_sel = 0; }
+            KeyCode::Char(c) if no_mod => { cake_filter.push(c); *cake_sel = 0; }
+            _ => {}
+        }
+    }
+
+    fn submit_create(&mut self) {
+        let (title_str, tt, users, user_filter, user_sel, cakes, cake_sel, cake_filter) = match &self.screen {
+            Screen::Create { title, task_type, users, user_filter, user_sel, cakes, cake_sel, cake_filter, .. } => {
+                let ts = title.value().trim().to_string();
+                if ts.is_empty() { return; }
+                (ts, task_type.clone(), users.clone(), user_filter.clone(), *user_sel, cakes.clone(), *cake_sel, cake_filter.clone())
+            }
+            _ => return,
+        };
+        let ctx = self.context;
+        let f = user_filter.to_lowercase();
+        let filt_u: Vec<&String> = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).collect();
+        let assignee = filt_u.get(user_sel).map(|u| (*u).clone());
+        let cf = cake_filter.to_lowercase();
+        let filt_c: Vec<&Cake> = cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).collect();
+        let cake_id = if cake_sel == 0 { None } else { filt_c.get(cake_sel - 1).map(|c| c.id.clone()) };
+        let new_task = NewTask { title: title_str, task_type: tt, cake_id, ..Default::default() };
+        let result = match ctx {
+            TaskContext::Personal => self.repo.as_ref().map(|r| r.create_task(new_task)),
+            TaskContext::Backlog  => self.repo.as_ref().map(|r| r.create_backlog_task(new_task)),
+        };
+        let msg = match result {
+            Some(Ok(task)) => match assignee.and_then(|a| self.repo.as_ref().map(|r| r.assign_task(&task.id, Some(a)))) {
+                Some(Ok(_)) | None => "Task created.".to_string(),
+                Some(Err(e))       => format!("Task created but assign failed: {e}"),
+            },
+            Some(Err(e)) => e.to_string(),
+            None         => "No repo.".to_string(),
+        };
+        self.enter_task_list(Some(msg), None);
     }
 
     // ── sync confirm ──────────────────────────────────────────────────────────
@@ -869,45 +879,6 @@ impl App {
 
         if let Screen::TaskList { .. } = &self.screen {
             self.enter_task_list(msg, Some(task_id));
-        }
-    }
-
-    fn handle_pick_assignee(&mut self, key: KeyEvent) {
-        let Screen::PickAssignee { task_type, prev_assignee, users, selected, filter } = &mut self.screen else { return };
-
-        let filtered_len = users.iter().filter(|u| u.to_lowercase().starts_with(&filter.to_lowercase())).count();
-
-        match key.code {
-            KeyCode::Up => {
-                if *selected > 0 { *selected -= 1; }
-            }
-            KeyCode::Down => {
-                if filtered_len > 0 && *selected < filtered_len - 1 { *selected += 1; }
-            }
-            KeyCode::Backspace => {
-                filter.pop();
-                *selected = 0;
-            }
-            KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => {
-                filter.push(c);
-                *selected = 0;
-            }
-            KeyCode::Enter => {
-                let f = filter.to_lowercase();
-                let assignee = users.iter()
-                    .filter(|u| u.to_lowercase().starts_with(&f))
-                    .nth(*selected)
-                    .cloned()
-                    .unwrap_or_default();
-                let tt = task_type.clone();
-                self.screen = Screen::Create { task_type: tt, assignee, cake_id: None, field: CreateField::Assignee };
-            }
-            KeyCode::Esc => {
-                let tt = task_type.clone();
-                let asgn = prev_assignee.clone();
-                self.screen = Screen::Create { task_type: tt, assignee: asgn, cake_id: None, field: CreateField::Assignee };
-            }
-            _ => {}
         }
     }
 
@@ -1071,7 +1042,7 @@ impl App {
     }
 
     fn handle_pick_cake(&mut self, key: KeyEvent) {
-        let Screen::PickCake { task_id, cakes, selected, filter, from_create, create_task_type, create_assignee } = &mut self.screen else { return };
+        let Screen::PickCake { task_id, cakes, selected, filter } = &mut self.screen else { return };
         let fl = filter.to_lowercase();
         let filtered: Vec<_> = std::iter::once(None)
             .chain(cakes.iter().map(Some))
@@ -1085,33 +1056,21 @@ impl App {
             KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => { filter.push(c); *selected = 0; }
             KeyCode::Enter => {
                 let chosen = filtered.get(*selected).and_then(|c| *c).map(|c| c.id.clone());
-                if *from_create {
-                    let tt = create_task_type.clone().unwrap_or(TaskType::Task);
-                    let asgn = create_assignee.clone().unwrap_or_default();
-                    self.screen = Screen::Create { task_type: tt, assignee: asgn, cake_id: chosen, field: CreateField::Cake };
+                let id = task_id.clone();
+                let patch = TaskPatch { cake_id: Some(chosen), ..Default::default() };
+                if let Some(t) = self.repo.as_ref().and_then(|r| r.update_task(&id, patch).ok()) {
+                    self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
                 } else {
-                    let id = task_id.clone();
-                    let patch = TaskPatch { cake_id: Some(chosen), ..Default::default() };
-                    if let Some(t) = self.repo.as_ref().and_then(|r| r.update_task(&id, patch).ok()) {
-                        self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
-                    } else {
-                        self.enter_task_list(None, None);
-                    }
+                    self.enter_task_list(None, None);
                 }
             }
             KeyCode::Esc => {
-                if *from_create {
-                    let tt = create_task_type.clone().unwrap_or(TaskType::Task);
-                    let asgn = create_assignee.clone().unwrap_or_default();
-                    self.screen = Screen::Create { task_type: tt, assignee: asgn, cake_id: None, field: CreateField::Cake };
+                let id = task_id.clone();
+                let task = self.repo.as_ref().and_then(|r| r.get_task(&id).ok());
+                if let Some(t) = task {
+                    self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
                 } else {
-                    let id = task_id.clone();
-                    let task = self.repo.as_ref().and_then(|r| r.get_task(&id).ok());
-                    if let Some(t) = task {
-                        self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
-                    } else {
-                        self.enter_task_list(None, None);
-                    }
+                    self.enter_task_list(None, None);
                 }
             }
             _ => {}

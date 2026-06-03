@@ -204,12 +204,14 @@ List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` 
 
 | Key | Action |
 |---|---|
-| `W` / `↑`  `S` / `↓` | Move cursor between fields (TYPE → ASSIGN TO → CAKE → CONFIRM) |
-| `F` | Activate focused field: cycle TYPE; open picker on ASSIGNEE / CAKE; open editor on CONFIRM |
-| `Enter` | Same as `F` |
+| `Tab` / `Shift+Tab` | Move between fields (TITLE → TYPE → ASSIGN → CAKE → TITLE) |
+| `←` / `→` | Cycle TYPE value |
+| `↑` / `↓` | Navigate ASSIGN / CAKE list |
+| Any char / `Backspace` | Type to filter ASSIGN / CAKE list; edit TITLE |
+| `Enter` | Create task (from any field) |
 | `Esc` | Cancel and return to previous view |
 
-Fields show a `▶` cursor and highlight when focused, matching the detail view convention.
+Centered popup overlay. TITLE has a live text cursor. TYPE shows inline chips with the selected one `[bracketed]`. ASSIGN and CAKE expand to a filterable list when focused.
 
 ### Detail view
 

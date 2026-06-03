@@ -12,7 +12,9 @@ use ratatui::{
 
 use gitcake_core::models::{cake::Cake, task::{Priority, Task, TaskStatus, TaskType}};
 
-use crate::app::{App, CreateField, DetailField, Screen, TaskContext};
+use tui_input::Input;
+
+use crate::app::{App, CreateFocus, DetailField, Screen, TaskContext};
 use crate::config::ThemeConfig;
 
 // ── style string parser ───────────────────────────────────────────────────────
@@ -197,15 +199,14 @@ pub fn draw(f: &mut Frame, app: &App) {
                 .unwrap_or(("", ""));
             draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, &t);
         }
-        Screen::Create { task_type, assignee, cake_id, field } =>
-            draw_create(f, app.context, task_type, assignee, cake_id.as_deref(), &app.cached_cakes, field, &t),
+        Screen::Create { title, focus, task_type, users, user_filter, user_sel, cakes, cake_filter, cake_sel } =>
+            draw_create(f, app.context, title, *focus, task_type, users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t),
         Screen::CreateCake { title } => draw_create_cake(f, title, &t),
         Screen::PickCake { cakes, selected, filter, .. } =>
             draw_pick_cake(f, cakes, *selected, filter, &t),
+
         Screen::AssignTask { users, selected, filter, .. } =>
             draw_assign_task(f, users, *selected, filter, &t),
-        Screen::PickAssignee { users, selected, filter, .. } =>
-            draw_pick_assignee(f, users, *selected, filter, &t),
         Screen::DeleteConfirm { task_title, .. } =>
             draw_delete_confirm(f, task_title, app.context, &t),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context, &t),
@@ -636,52 +637,139 @@ fn desc_line_render(line: &str, theme: &Theme) -> Line<'static> {
 
 // ── create ────────────────────────────────────────────────────────────────────
 
-fn draw_create(f: &mut Frame, context: TaskContext, task_type: &TaskType, assignee: &str, cake_id: Option<&str>, cakes: &[Cake], field: &CreateField, theme: &Theme) {
+fn create_field_label(active: bool, theme: &Theme) -> Style {
+    if active { Style::new().fg(theme.accent).add_modifier(Modifier::BOLD) }
+    else       { Style::new().fg(theme.muted).add_modifier(Modifier::BOLD) }
+}
+
+fn draw_create(f: &mut Frame, _ctx: TaskContext, title: &Input, focus: CreateFocus, task_type: &TaskType, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
     let area = f.area();
-    let block = theme.padded_block("New task");
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let assign_h: u16 = if focus == CreateFocus::Assignee { 4 } else { 1 };
+    let cake_h:   u16 = if focus == CreateFocus::Cake     { 4 } else { 1 };
+    let popup_h = 10 + assign_h + cake_h;
+    let popup = centered_rect(65, popup_h, area);
+    f.render_widget(Clear, popup);
+    let block = theme.padded_block("New Task");
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
-        Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(1), Constraint::Length(assign_h),
+        Constraint::Length(1), Constraint::Length(cake_h),
+        Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
-    draw_create_type_field(f, rows[0], rows[1], task_type, *field == CreateField::Type, theme);
-    draw_create_assign_field(f, rows[3], rows[4], assignee, *field == CreateField::Assignee, theme);
-    draw_create_cake_field(f, rows[5], rows[6], cake_id, cakes, *field == CreateField::Cake, theme);
-    let confirm_active = *field == CreateField::Confirm;
-    let confirm_label = if confirm_active {
-        "↵ CREATE TASK  F or Enter: open editor — write '# Title' on the first line"
-    } else {
-        "↵ CREATE TASK  (S to reach, F or Enter to open editor)"
-    };
-    draw_field_label(f, rows[7], confirm_label, confirm_active, theme);
-    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[9]);
+    draw_create_title(f, rows[1], title, focus == CreateFocus::Title, theme);
+    draw_create_type_chips(f, rows[3], task_type, focus == CreateFocus::Type, theme);
+    draw_create_assign(f, rows[5], users, user_filter, user_sel, focus == CreateFocus::Assignee, theme);
+    draw_create_cake_field(f, rows[7], cakes, cake_filter, cake_sel, focus == CreateFocus::Cake, theme);
+    f.render_widget(Paragraph::new(create_hint_bar(theme)), rows[9]);
 }
 
-fn draw_create_type_field(f: &mut Frame, label_row: Rect, val_row: Rect, task_type: &TaskType, active: bool, theme: &Theme) {
-    draw_field_label(f, label_row, "TYPE:", active, theme);
-    let style = if active { theme.highlight.add_modifier(Modifier::BOLD) } else { theme.dim() };
-    f.render_widget(Paragraph::new(format!("  [ {} ]  F to cycle", type_label(task_type))).style(style), val_row);
+fn draw_create_title(f: &mut Frame, area: Rect, input: &Input, active: bool, theme: &Theme) {
+    let label_sty = create_field_label(active, theme);
+    let prefix = "  TITLE   ";
+    let pw = prefix.len() as u16;
+    let iw = area.width.saturating_sub(pw + 2) as usize;
+    let scroll = input.visual_scroll(iw);
+    let display: String = input.value().chars().skip(scroll).take(iw).collect();
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled(prefix, label_sty),
+        Span::styled(display, if active { Style::new() } else { theme.dim() }),
+    ])), area);
+    if active {
+        let col = (input.visual_cursor().max(scroll) - scroll) as u16;
+        f.set_cursor_position((area.x + pw + col, area.y));
+    }
 }
 
-fn draw_create_assign_field(f: &mut Frame, label_row: Rect, val_row: Rect, assignee: &str, active: bool, theme: &Theme) {
-    draw_field_label(f, label_row, "ASSIGN TO:", active, theme);
-    let text = if active { format!("  {assignee}  ← F or Enter to pick") } else { format!("  {assignee}") };
-    let style = if active { theme.highlight } else { theme.dim() };
-    f.render_widget(Paragraph::new(text).style(style), val_row);
+fn draw_create_type_chips(f: &mut Frame, area: Rect, task_type: &TaskType, active: bool, theme: &Theme) {
+    let label_sty = create_field_label(active, theme);
+    let types = [TaskType::Task, TaskType::Bug, TaskType::Incident];
+    let mut spans = vec![Span::styled("  TYPE    ", label_sty)];
+    for t in &types {
+        if t == task_type {
+            spans.push(Span::styled(format!("[{}]", type_label(t)), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
+        } else {
+            spans.push(Span::styled(format!(" {} ", type_label(t)), theme.dim()));
+        }
+        spans.push(Span::raw("  "));
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_create_cake_field(f: &mut Frame, label_row: Rect, val_row: Rect, cake_id: Option<&str>, cakes: &[Cake], active: bool, theme: &Theme) {
-    draw_field_label(f, label_row, "CAKE:", active, theme);
-    let title = cake_id
-        .and_then(|id| cakes.iter().find(|c| c.id == id))
-        .map(|c| c.title.as_str())
-        .unwrap_or("none");
-    let text  = if active { format!("  {title}  ← F or Enter to pick") } else { format!("  {title}") };
-    let style = if active { theme.highlight } else { theme.dim() };
-    f.render_widget(Paragraph::new(text).style(style), val_row);
+fn draw_create_assign(f: &mut Frame, area: Rect, users: &[String], filter: &str, sel: usize, active: bool, theme: &Theme) {
+    let label_sty = create_field_label(active, theme);
+    let f_lower = filter.to_lowercase();
+    let filtered: Vec<&str> = users.iter()
+        .filter(|u| f_lower.is_empty() || u.to_lowercase().contains(&f_lower))
+        .map(|s| s.as_str()).collect();
+    if !active {
+        let val = filtered.get(sel).copied().unwrap_or("none");
+        f.render_widget(Paragraph::new(Line::from(vec![
+            Span::styled("  ASSIGN  ", label_sty), Span::styled(val.to_string(), theme.dim()),
+        ])), area);
+        return;
+    }
+    let sub = Layout::default().direction(Direction::Vertical)
+        .constraints(vec![Constraint::Length(1); area.height as usize]).split(area);
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled("  ASSIGN  ", label_sty), Span::styled(filter.to_string(), Style::new()),
+    ])), sub[0]);
+    let pw = "  ASSIGN  ".len() as u16;
+    f.set_cursor_position((sub[0].x + pw + filter.len() as u16, sub[0].y));
+    for (i, row) in sub.iter().enumerate().skip(1) {
+        if let Some(name) = filtered.get(i - 1) {
+            let is_sel = (i - 1) == sel;
+            let (cur, cur_sty, row_sty) = if is_sel {
+                (format!("{} ", theme.cursor), Style::new().fg(theme.accent), theme.highlight)
+            } else {
+                ("  ".to_string(), theme.dim(), Style::new())
+            };
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::raw("    "), Span::styled(cur, cur_sty), Span::styled(name.to_string(), row_sty),
+            ])), *row);
+        }
+    }
+}
+
+fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &str, sel: usize, active: bool, theme: &Theme) {
+    let label_sty = create_field_label(active, theme);
+    let f_lower = filter.to_lowercase();
+    let opts: Vec<Option<&Cake>> = std::iter::once(None)
+        .chain(cakes.iter().filter(|c| f_lower.is_empty() || c.title.to_lowercase().contains(&f_lower)).map(Some))
+        .collect();
+    if !active {
+        let val = opts.get(sel).and_then(|c| *c).map(|c| c.title.as_str()).unwrap_or("none");
+        f.render_widget(Paragraph::new(Line::from(vec![
+            Span::styled("  CAKE    ", label_sty), Span::styled(val.to_string(), theme.dim()),
+        ])), area);
+        return;
+    }
+    let sub = Layout::default().direction(Direction::Vertical)
+        .constraints(vec![Constraint::Length(1); area.height as usize]).split(area);
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled("  CAKE    ", label_sty), Span::styled(filter.to_string(), Style::new()),
+    ])), sub[0]);
+    let pw = "  CAKE    ".len() as u16;
+    f.set_cursor_position((sub[0].x + pw + filter.len() as u16, sub[0].y));
+    for (i, row) in sub.iter().enumerate().skip(1) {
+        if let Some(entry) = opts.get(i - 1) {
+            let name = entry.map(|c| c.title.as_str()).unwrap_or("none");
+            let is_sel = (i - 1) == sel;
+            let (cur, cur_sty, row_sty) = if is_sel {
+                (format!("{} ", theme.cursor), Style::new().fg(theme.accent), theme.highlight)
+            } else {
+                ("  ".to_string(), theme.dim(), Style::new())
+            };
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::raw("    "), Span::styled(cur, cur_sty), Span::styled(name.to_string(), row_sty),
+            ])), *row);
+        }
+    }
+}
+
+fn create_hint_bar(theme: &Theme) -> Line<'static> {
+    theme.bar_line(&[("Tab", "next"), ("←→", "cycle"), ("Enter", "create"), ("Esc", "cancel")])
 }
 
 fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {
@@ -711,10 +799,6 @@ fn draw_pick_cake(f: &mut Frame, cakes: &[Cake], selected: usize, filter: &str, 
         .filter(|t| filter.is_empty() || t.to_lowercase().contains(&filter.to_lowercase()))
         .collect();
     draw_user_picker(f, "Pick cake", &items, selected, filter, theme);
-}
-
-fn draw_pick_assignee(f: &mut Frame, users: &[String], selected: usize, filter: &str, theme: &Theme) {
-    draw_user_picker(f, " Pick assignee ", users, selected, filter, theme);
 }
 
 fn draw_assign_task(f: &mut Frame, users: &[String], selected: usize, filter: &str, theme: &Theme) {
@@ -990,20 +1074,6 @@ fn detail_nav_bar(theme: &Theme) -> Line<'static> {
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
-
-fn draw_field_label(f: &mut Frame, area: Rect, label: &str, active: bool, theme: &Theme) {
-    if active {
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::styled(format!("{} ", theme.cursor), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            Span::styled(label.to_string(), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
-        ])), area);
-    } else {
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(label.to_string(), Style::new().fg(theme.muted).add_modifier(Modifier::BOLD)),
-        ])), area);
-    }
-}
 
 fn draw_error_line(f: &mut Frame, area: Rect, err: Option<&str>, theme: &Theme) {
     if let Some(e) = err {
