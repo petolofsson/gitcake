@@ -348,7 +348,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         state.select(index_map.iter().position(|&i| i == safe_sel));
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
-    f.render_widget(filter_line_widget(filter, filter_active), rows[1]);
+    f.render_widget(filter_line_widget(filter, filter_active, theme), rows[1]);
     f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[2]);
     render_flash_row(f, rows[3], message, theme);
 }
@@ -413,8 +413,8 @@ fn build_task_items(tasks: &[Task], filter: &str, selected: usize, inner_width: 
     (items, index_map, safe_sel)
 }
 
-fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a> {
-    let dim = Style::new().add_modifier(Modifier::DIM);
+fn filter_line_widget<'a>(filter: &'a str, filter_active: bool, theme: &Theme) -> Paragraph<'a> {
+    let dim = theme.dim();
     if filter_active {
         if filter.is_empty() {
             Paragraph::new(Line::from(vec![
@@ -795,7 +795,7 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
         state.select(index_map.iter().position(|e| *e == Some(selected)));
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
-    f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
+    f.render_widget(filter_line_widget(&app.filter, app.filter_active, theme), rows[1]);
     f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[2]);
     render_flash_row(f, rows[3], None, theme);
 }
