@@ -421,7 +421,7 @@ fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a>
                 Span::raw("  "),
                 Span::styled("/ ", dim),
                 Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
-                Span::styled("   @owner  !exclude  keyword", dim),
+                Span::styled("   you can use '@' for users '!' to exclude", dim),
             ]))
         } else {
             Paragraph::new(Line::from(vec![
