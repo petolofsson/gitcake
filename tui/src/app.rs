@@ -836,7 +836,7 @@ impl App {
                     sorted.iter().position(|t| t.id == id)
                 } else {
                     let f = self.filter.to_lowercase();
-                    sorted.iter().filter(|t| task_matches(t, &f)).position(|t| t.id == id)
+                    sorted.iter().filter(|t| filter_matches(t, &f)).position(|t| t.id == id)
                 }
             })
             .unwrap_or(0);
@@ -1013,7 +1013,7 @@ impl App {
         if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::NONE {
             let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
             let task = if let Screen::PlannerView { tasks, selected, .. } = &self.screen {
-                tasks.iter().filter(|(_, t)| f.is_empty() || task_matches(t, &f)).nth(*selected).map(|(_, t)| t.clone())
+                tasks.iter().filter(|(_, t)| f.is_empty() || filter_matches(t, &f)).nth(*selected).map(|(_, t)| t.clone())
             } else { None };
             if let Some(t) = task {
                 self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: true };
@@ -1026,7 +1026,7 @@ impl App {
         }
         let Screen::PlannerView { tasks, selected, .. } = &mut self.screen else { return };
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-        let visible_count = tasks.iter().filter(|(_, t)| f.is_empty() || task_matches(t, &f)).count();
+        let visible_count = tasks.iter().filter(|(_, t)| f.is_empty() || filter_matches(t, &f)).count();
         match key.code {
             KeyCode::Char('w') | KeyCode::Up => {
                 if visible_count > 0 { *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); }
@@ -1300,7 +1300,7 @@ fn apply_filter_indices(tasks: &[Task], filter: &str) -> Vec<usize> {
     }
     let f = filter.to_lowercase();
     tasks.iter().enumerate()
-        .filter(|(_, t)| task_matches(t, &f))
+        .filter(|(_, t)| filter_matches(t, &f))
         .map(|(i, _)| i)
         .collect()
 }
@@ -1331,6 +1331,19 @@ pub(crate) fn task_matches(t: &Task, f: &str) -> bool {
         || (f == "ai_flagged" && t.ai_flagged)
         || (f == "urgent" && t.priority == Priority::Urgent)
         || (f == "high"   && t.priority == Priority::High)
+}
+
+pub(crate) fn filter_matches(t: &Task, filter: &str) -> bool {
+    if filter.is_empty() { return true; }
+    if let Some(neg) = filter.strip_prefix('!') {
+        return !task_matches(t, neg);
+    }
+    if let Some(owner_q) = filter.strip_prefix('@') {
+        return t.owner.as_deref()
+            .map(|o| o.to_lowercase().contains(owner_q))
+            .unwrap_or(false);
+    }
+    task_matches(t, filter)
 }
 
 fn type_str(t: &gitcake_core::models::task::TaskType) -> &'static str {

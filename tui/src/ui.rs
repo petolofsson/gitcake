@@ -191,8 +191,12 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_init_repo(f, path, name, error.as_deref(), &t),
         Screen::TaskList { tasks, selected, message } =>
             draw_task_list(f, task_list_params(app, tasks, *selected, message.as_deref(), &t)),
-        Screen::Detail { task, message, selected_field, .. } =>
-            draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes, &t),
+        Screen::Detail { task, message, selected_field, from_planner } => {
+            let (rn, un) = app.repo.as_ref()
+                .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
+                .unwrap_or(("", ""));
+            draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, &t);
+        }
         Screen::Create { task_type, assignee, cake_id, field } =>
             draw_create(f, app.context, task_type, assignee, cake_id.as_deref(), &app.cached_cakes, field, &t),
         Screen::CreateCake { title } => draw_create_cake(f, title, &t),
@@ -325,10 +329,10 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         .constraints([Constraint::Length(1), Constraint::Fill(1)])
         .areas(area);
     let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
-    render_top_bar(f, top_row, active, repo_name, username, theme);
+    render_top_bar(f, top_row, active, repo_name, username, None, theme);
     let view_bg = if context == TaskContext::Backlog { theme.bg_backlog } else { theme.bg_personal };
     let inner_width = theme.padded_block("").inner(rest).width as usize;
-    let block = task_list_block(message, filter, filter_active, pull_error, lock_warning, theme)
+    let block = task_list_block(filter, filter_active, pull_error, lock_warning, theme)
         .style(Style::new().bg(view_bg));
     let inner = block.inner(rest);
     f.render_widget(block, rest);
@@ -345,20 +349,17 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(filter, filter_active), rows[1]);
-    // rows[2] blank — padding between filter and navbar
-    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[3]);
+    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[2]);
+    render_flash_row(f, rows[3], message, theme);
 }
 
 fn task_list_block(
-    message: Option<&str>, filter: &str, filter_active: bool,
+    filter: &str, filter_active: bool,
     pull_error: Option<&str>, lock_warning: Option<&str>,
     theme: &Theme,
 ) -> Block<'static> {
     let mut block = Block::default()
         .padding(Padding::new(1, 1, 1, 1));
-    if let Some(msg) = message {
-        block = block.title_top(Line::from(format!(" {msg} ")).right_aligned());
-    }
     if !filter.is_empty() && !filter_active {
         block = block.title_top(Line::from(vec![
             Span::styled(format!(" /{filter} "), theme.dim()),
@@ -380,9 +381,9 @@ fn task_list_block(
 }
 
 fn build_task_items(tasks: &[Task], filter: &str, selected: usize, inner_width: usize, theme: &Theme) -> (Vec<ListItem<'static>>, Vec<usize>, usize) {
-    use crate::app::task_matches;
+    use crate::app::filter_matches;
     let f_lower = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
-    let visible = |t: &Task| f_lower.is_empty() || task_matches(t, &f_lower);
+    let visible = |t: &Task| f_lower.is_empty() || filter_matches(t, &f_lower);
     let (mut ip, mut op, mut dn) = (0usize, 0usize, 0usize);
     for t in tasks.iter().filter(|t| visible(t)) {
         match t.status { TaskStatus::InProgress => ip += 1, TaskStatus::Open => op += 1, TaskStatus::Done => dn += 1 }
@@ -413,25 +414,43 @@ fn build_task_items(tasks: &[Task], filter: &str, selected: usize, inner_width: 
 }
 
 fn filter_line_widget<'a>(filter: &'a str, filter_active: bool) -> Paragraph<'a> {
+    let dim = Style::new().add_modifier(Modifier::DIM);
     if filter_active {
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("/ ", Style::new().add_modifier(Modifier::DIM)),
-            Span::styled(filter, Style::new().add_modifier(Modifier::BOLD)),
-            Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
-        ]))
+        if filter.is_empty() {
+            Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("/ ", dim),
+                Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+                Span::styled("   @owner  !exclude  keyword", dim),
+            ]))
+        } else {
+            Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("/ ", dim),
+                Span::styled(filter, Style::new().add_modifier(Modifier::BOLD)),
+                Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
+            ]))
+        }
     } else if !filter.is_empty() {
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("/{filter}"), Style::new().add_modifier(Modifier::DIM)),
-            Span::styled("  Esc: clear", Style::new().add_modifier(Modifier::DIM)),
+            Span::styled(format!("/{filter}"), dim),
+            Span::styled("  Esc: clear", dim),
         ]))
     } else {
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled("Use '/' to filter", Style::new().add_modifier(Modifier::DIM)),
+            Span::styled("Use '/' to filter", dim),
         ]))
     }
+}
+
+fn render_flash_row(f: &mut Frame, area: Rect, message: Option<&str>, theme: &Theme) {
+    let line = match message {
+        Some(msg) => Line::from(vec![Span::raw("  "), Span::styled(msg.to_string(), theme.dim())]),
+        None      => Line::from(""),
+    };
+    f.render_widget(Paragraph::new(line), area);
 }
 
 // ── task row ──────────────────────────────────────────────────────────────────
@@ -490,8 +509,20 @@ fn bite_progress(bites: &[gitcake_core::models::task::Bite]) -> Option<String> {
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
-fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField, cakes: &[Cake], theme: &Theme) {
+fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField, cakes: &[Cake], from_planner: bool, repo_name: &str, username: &str, theme: &Theme) {
     let area = f.area();
+    let [top_row, rest] = Layout::default().direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Fill(1)])
+        .areas(area);
+    let (crumb_label, active_tab) = if from_planner {
+        ("PLANNER", ActiveView::Planner)
+    } else if context == TaskContext::Backlog {
+        ("BACKLOG", ActiveView::Backlog)
+    } else {
+        ("PERSONAL", ActiveView::Personal)
+    };
+    let crumb = format!("{crumb_label} › {}", task.id);
+    render_top_bar(f, top_row, active_tab, repo_name, username, Some(&crumb), theme);
     let sty = theme.border_style();
     let block = Block::default()
         .title(Line::from(vec![
@@ -500,8 +531,8 @@ fn draw_detail(f: &mut Frame, _context: TaskContext, task: &Task, _message: Opti
             Span::styled(" ", sty),
         ]))
         .padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = block.inner(rest);
+    f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
@@ -746,7 +777,7 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
     let [top_row, rest] = Layout::default().direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Fill(1)])
         .areas(area);
-    render_top_bar(f, top_row, ActiveView::Planner, repo_name, username, theme);
+    render_top_bar(f, top_row, ActiveView::Planner, repo_name, username, None, theme);
     let block = Block::default().padding(Padding::new(1, 1, 1, 1))
         .style(Style::new().bg(theme.bg_planner));
     let inner = block.inner(rest);
@@ -765,8 +796,8 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(&app.filter, app.filter_active), rows[1]);
-    // rows[2] blank — padding between filter and navbar
-    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[3]);
+    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[2]);
+    render_flash_row(f, rows[3], None, theme);
 }
 
 fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, inner_width: usize, theme: &Theme) -> ListItem<'static> {
@@ -794,9 +825,9 @@ fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, i
 }
 
 fn build_planner_items(cakes: &[Cake], tasks: &[(String, Task)], selected: usize, filter: &str, inner_width: usize, theme: &Theme) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
-    use crate::app::task_matches;
+    use crate::app::filter_matches;
     let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
-    let is_vis = |t: &Task| f.is_empty() || task_matches(t, &f);
+    let is_vis = |t: &Task| f.is_empty() || filter_matches(t, &f);
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
     let mut vis_idx = 0usize;
@@ -901,11 +932,9 @@ fn draw_push_prompt(f: &mut Frame, theme: &Theme) {
 #[derive(Clone, Copy, PartialEq)]
 enum ActiveView { Personal, Planner, Backlog }
 
-fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str, username: &str, theme: &Theme) {
+fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str, username: &str, breadcrumb: Option<&str>, theme: &Theme) {
     let bar_bg = if theme.text == Color::Reset { Color::White } else { theme.text };
-    // Fill the row with the bar background
     f.render_widget(Block::default().style(Style::new().bg(bar_bg)), area);
-    // Tabs — left-aligned
     let tabs = [
         (ActiveView::Personal, "PERSONAL"),
         (ActiveView::Planner,  "PLANNER"),
@@ -923,10 +952,13 @@ fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str
         spans.push(Span::raw("   "));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
-    // Repo · username — right-aligned
-    let info = format!(" {} · {} ", repo_name, username);
+    let right = if let Some(crumb) = breadcrumb {
+        format!(" {} ", crumb)
+    } else {
+        format!(" {} · {} ", repo_name, username)
+    };
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(info, Style::new().bg(bar_bg).fg(Color::DarkGray))))
+        Paragraph::new(Line::from(Span::styled(right, Style::new().bg(bar_bg).fg(Color::DarkGray))))
             .alignment(Alignment::Right),
         area,
     );
