@@ -13,6 +13,7 @@ use ratatui::{
 use gitcake_core::models::{cake::Cake, task::{Priority, Task, TaskStatus, TaskType}};
 
 use tui_input::Input;
+use ratatui_textarea::TextArea;
 
 use crate::app::{App, CreateFocus, DetailField, Screen, TaskContext};
 use crate::config::ThemeConfig;
@@ -199,8 +200,8 @@ pub fn draw(f: &mut Frame, app: &App) {
                 .unwrap_or(("", ""));
             draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, &t);
         }
-        Screen::Create { title, focus, task_type, users, user_filter, user_sel, cakes, cake_filter, cake_sel } =>
-            draw_create(f, app.context, title, *focus, task_type, users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t),
+        Screen::Create { title, description, focus, task_type, users, user_filter, user_sel, cakes, cake_filter, cake_sel } =>
+            draw_create(f, app.context, title, description, *focus, task_type, users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t),
         Screen::CreateCake { title } => draw_create_cake(f, title, &t),
         Screen::PickCake { cakes, selected, filter, .. } =>
             draw_pick_cake(f, cakes, *selected, filter, &t),
@@ -642,11 +643,11 @@ fn create_field_label(active: bool, theme: &Theme) -> Style {
     else       { Style::new().fg(theme.muted).add_modifier(Modifier::BOLD) }
 }
 
-fn draw_create(f: &mut Frame, _ctx: TaskContext, title: &Input, focus: CreateFocus, task_type: &TaskType, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
+fn draw_create(f: &mut Frame, _ctx: TaskContext, title: &Input, description: &TextArea<'static>, focus: CreateFocus, task_type: &TaskType, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
     let area = f.area();
     let assign_h: u16 = if focus == CreateFocus::Assignee { 4 } else { 1 };
     let cake_h:   u16 = if focus == CreateFocus::Cake     { 4 } else { 1 };
-    let popup_h = 10 + assign_h + cake_h;
+    let popup_h = 14 + assign_h + cake_h;
     let popup = centered_rect(65, popup_h, area);
     f.render_widget(Clear, popup);
     let block = theme.padded_block("New Task");
@@ -654,15 +655,17 @@ fn draw_create(f: &mut Frame, _ctx: TaskContext, title: &Input, focus: CreateFoc
     f.render_widget(block, popup);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(assign_h),
         Constraint::Length(1), Constraint::Length(cake_h),
         Constraint::Length(1), Constraint::Length(1),
     ]).split(inner);
     draw_create_title(f, rows[1], title, focus == CreateFocus::Title, theme);
-    draw_create_type_chips(f, rows[3], task_type, focus == CreateFocus::Type, theme);
-    draw_create_assign(f, rows[5], users, user_filter, user_sel, focus == CreateFocus::Assignee, theme);
-    draw_create_cake_field(f, rows[7], cakes, cake_filter, cake_sel, focus == CreateFocus::Cake, theme);
-    f.render_widget(Paragraph::new(create_hint_bar(theme)), rows[9]);
+    draw_create_desc(f, rows[3], rows[4], description, focus == CreateFocus::Description, theme);
+    draw_create_type_chips(f, rows[6], task_type, focus == CreateFocus::Type, theme);
+    draw_create_assign(f, rows[8], users, user_filter, user_sel, focus == CreateFocus::Assignee, theme);
+    draw_create_cake_field(f, rows[10], cakes, cake_filter, cake_sel, focus == CreateFocus::Cake, theme);
+    f.render_widget(Paragraph::new(create_hint_bar(theme)), rows[12]);
 }
 
 fn draw_create_title(f: &mut Frame, area: Rect, input: &Input, active: bool, theme: &Theme) {
@@ -680,6 +683,16 @@ fn draw_create_title(f: &mut Frame, area: Rect, input: &Input, active: bool, the
         let col = (input.visual_cursor().max(scroll) - scroll) as u16;
         f.set_cursor_position((area.x + pw + col, area.y));
     }
+}
+
+fn draw_create_desc(f: &mut Frame, label_row: Rect, text_area: Rect, description: &TextArea<'static>, active: bool, theme: &Theme) {
+    let label_sty = create_field_label(active, theme);
+    f.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled("  DESC    ", label_sty),
+        if active { Span::styled("Enter for newline · Tab to continue", theme.dim()) }
+        else      { Span::raw("") },
+    ])), label_row);
+    f.render_widget(description, text_area);
 }
 
 fn draw_create_type_chips(f: &mut Frame, area: Rect, task_type: &TaskType, active: bool, theme: &Theme) {
@@ -769,7 +782,7 @@ fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &st
 }
 
 fn create_hint_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[("Tab", "next"), ("←→", "cycle"), ("Enter", "create"), ("Esc", "cancel")])
+    theme.bar_line(&[("Tab", "next field"), ("←→", "cycle type"), ("Enter", "create"), ("Esc", "cancel")])
 }
 
 fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {

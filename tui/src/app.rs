@@ -13,7 +13,9 @@ use gitcake_core::{
     repo::TaskRepo,
 };
 
+use ratatui::style::{Modifier, Style};
 use tui_input::Input;
+use ratatui_textarea::TextArea;
 
 use crate::config::Config;
 
@@ -59,6 +61,7 @@ pub enum Screen {
     },
     Create {
         title:       Input,
+        description: TextArea<'static>,
         focus:       CreateFocus,
         task_type:   TaskType,
         users:       Vec<String>,
@@ -99,6 +102,7 @@ pub enum Screen {
 #[derive(PartialEq, Clone, Copy)]
 pub enum CreateFocus {
     Title,
+    Description,
     Type,
     Assignee,
     Cake,
@@ -107,18 +111,20 @@ pub enum CreateFocus {
 impl CreateFocus {
     pub fn next(self) -> Self {
         match self {
-            Self::Title    => Self::Type,
-            Self::Type     => Self::Assignee,
-            Self::Assignee => Self::Cake,
-            Self::Cake     => Self::Title,
+            Self::Title       => Self::Description,
+            Self::Description => Self::Type,
+            Self::Type        => Self::Assignee,
+            Self::Assignee    => Self::Cake,
+            Self::Cake        => Self::Title,
         }
     }
     pub fn prev(self) -> Self {
         match self {
-            Self::Title    => Self::Cake,
-            Self::Type     => Self::Title,
-            Self::Assignee => Self::Type,
-            Self::Cake     => Self::Assignee,
+            Self::Title       => Self::Cake,
+            Self::Description => Self::Title,
+            Self::Type        => Self::Description,
+            Self::Assignee    => Self::Type,
+            Self::Cake        => Self::Assignee,
         }
     }
 }
@@ -250,8 +256,10 @@ impl App {
                 });
                 if let Some((users, user_sel)) = info {
                     let cakes = self.cached_cakes.clone();
+                    let mut description = TextArea::default();
+                    description.set_cursor_style(Style::default());
                     self.screen = Screen::Create {
-                        title: Input::default(), focus: CreateFocus::Title,
+                        title: Input::default(), description, focus: CreateFocus::Title,
                         task_type: TaskType::Task, users, user_filter: String::new(),
                         user_sel, cakes, cake_filter: String::new(), cake_sel: 0,
                     };
@@ -622,22 +630,31 @@ impl App {
         };
         if key.code == KeyCode::Tab    { self.create_next_field(false); return; }
         if key.code == KeyCode::BackTab { self.create_next_field(true); return; }
-        if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE {
+        if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE
+            && focus != CreateFocus::Description
+        {
             self.submit_create(); return;
         }
         match focus {
-            CreateFocus::Title    => self.create_title_key(key),
-            CreateFocus::Type     => self.create_type_key(key),
-            CreateFocus::Assignee => self.create_assignee_key(key),
-            CreateFocus::Cake     => self.create_cake_key(key),
+            CreateFocus::Title       => self.create_title_key(key),
+            CreateFocus::Description => self.create_desc_key(key),
+            CreateFocus::Type        => self.create_type_key(key),
+            CreateFocus::Assignee    => self.create_assignee_key(key),
+            CreateFocus::Cake        => self.create_cake_key(key),
         }
     }
 
     fn create_next_field(&mut self, backward: bool) {
-        if let Screen::Create { focus, user_filter, cake_filter, .. } = &mut self.screen {
+        if let Screen::Create { focus, user_filter, cake_filter, description, .. } = &mut self.screen {
             user_filter.clear();
             cake_filter.clear();
-            *focus = if backward { focus.prev() } else { focus.next() };
+            let next = if backward { focus.prev() } else { focus.next() };
+            description.set_cursor_style(if next == CreateFocus::Description {
+                Style::new().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            });
+            *focus = next;
         }
     }
 
@@ -645,6 +662,12 @@ impl App {
         use tui_input::backend::crossterm::EventHandler;
         if let Screen::Create { title, .. } = &mut self.screen {
             title.handle_event(&crossterm::event::Event::Key(key));
+        }
+    }
+
+    fn create_desc_key(&mut self, key: KeyEvent) {
+        if let Screen::Create { description, .. } = &mut self.screen {
+            description.input(key);
         }
     }
 
@@ -695,14 +718,21 @@ impl App {
     }
 
     fn submit_create(&mut self) {
-        let (title_str, tt, users, user_filter, user_sel, cakes, cake_sel, cake_filter) = match &self.screen {
-            Screen::Create { title, task_type, users, user_filter, user_sel, cakes, cake_sel, cake_filter, .. } => {
+        let (title_str, desc, tt, users, user_filter, user_sel, cakes, cake_sel, cake_filter) = match &self.screen {
+            Screen::Create { title, description, task_type, users, user_filter, user_sel, cakes, cake_sel, cake_filter, .. } => {
                 let ts = title.value().trim().to_string();
                 if ts.is_empty() { return; }
-                (ts, task_type.clone(), users.clone(), user_filter.clone(), *user_sel, cakes.clone(), *cake_sel, cake_filter.clone())
+                let dt = description.lines().join("\n");
+                let dt = dt.trim().to_string();
+                let desc = if dt.is_empty() { None } else { Some(dt) };
+                (ts, desc, task_type.clone(), users.clone(), user_filter.clone(), *user_sel, cakes.clone(), *cake_sel, cake_filter.clone())
             }
             _ => return,
         };
+        if let Some(ref d) = desc {
+            let n = d.chars().count();
+            if n > DESCRIPTION_MAX_CHARS { self.enter_task_list(Some(desc_too_long(n)), None); return; }
+        }
         let ctx = self.context;
         let f = user_filter.to_lowercase();
         let filt_u: Vec<&String> = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).collect();
@@ -710,7 +740,7 @@ impl App {
         let cf = cake_filter.to_lowercase();
         let filt_c: Vec<&Cake> = cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).collect();
         let cake_id = if cake_sel == 0 { None } else { filt_c.get(cake_sel - 1).map(|c| c.id.clone()) };
-        let new_task = NewTask { title: title_str, task_type: tt, cake_id, ..Default::default() };
+        let new_task = NewTask { title: title_str, description: desc, task_type: tt, cake_id, ..Default::default() };
         let result = match ctx {
             TaskContext::Personal => self.repo.as_ref().map(|r| r.create_task(new_task)),
             TaskContext::Backlog  => self.repo.as_ref().map(|r| r.create_backlog_task(new_task)),
