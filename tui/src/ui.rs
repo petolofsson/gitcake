@@ -5,7 +5,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Clear, List, ListItem, ListState, Padding, Paragraph},
     Frame,
 };
@@ -155,14 +155,31 @@ impl Theme {
     // ── bar builder ───────────────────────────────────────────────────────────
 
     fn bar_line<'a>(&self, items: &[(&'a str, &'a str)]) -> Line<'a> {
-        let mut spans = vec![Span::raw(" ")];
         let chip = self.chip_style();
         let lbl  = self.label_style();
-        for (key, label) in items {
-            spans.push(Span::styled(format!(" {key} "), chip));
-            spans.push(Span::styled(format!(" {label}  "), lbl));
+        bar_make_line(items, chip, lbl)
+    }
+
+    fn bar_text(&self, items: &[(&'static str, &'static str)], width: u16) -> Text<'static> {
+        let chip = self.chip_style();
+        let lbl  = self.label_style();
+        let iw = |k: &str, l: &str| -> usize {
+            2 + UnicodeWidthStr::width(k) + 1 + UnicodeWidthStr::width(l) + 2
+        };
+        let total: usize = 1 + items.iter().map(|(k, l)| iw(k, l)).sum::<usize>();
+        if total <= width as usize {
+            return Text::from(bar_make_line(items, chip, lbl));
         }
-        Line::from(spans)
+        let mut w = 1usize;
+        let mut split = items.len().max(1);
+        for (i, (k, l)) in items.iter().enumerate() {
+            w += iw(k, l);
+            if w > width as usize { split = i.max(1); break; }
+        }
+        Text::from(vec![
+            bar_make_line(&items[..split], chip, lbl),
+            bar_make_line(&items[split..], chip, lbl),
+        ])
     }
 }
 
@@ -339,7 +356,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
     ]).split(inner);
     let (items, index_map, safe_sel) = build_task_items(tasks, filter, selected, inner_width, theme);
     if items.is_empty() {
@@ -351,7 +368,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(filter, filter_active, theme), rows[1]);
-    f.render_widget(Paragraph::new(hint_bar(context, theme)), rows[2]);
+    f.render_widget(Paragraph::new(hint_bar(context, rows[2].width, theme)), rows[2]);
     render_flash_row(f, rows[3], message, theme);
 }
 
@@ -540,11 +557,11 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
-        Constraint::Length(1),
+        Constraint::Length(2),
     ]).split(inner);
     render_detail_fields(f, &rows, task, selected, cakes, theme);
     render_detail_desc(f, rows[11], task, theme);
-    f.render_widget(Paragraph::new(detail_nav_bar(theme)), rows[12]);
+    f.render_widget(Paragraph::new(detail_nav_bar(rows[12].width, theme)), rows[12]);
 }
 
 fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField, cakes: &[Cake], theme: &Theme) {
@@ -647,7 +664,7 @@ fn draw_create(f: &mut Frame, _ctx: TaskContext, title: &Input, description: &Te
     let area = f.area();
     let assign_h: u16 = if focus == CreateFocus::Assignee { 4 } else { 1 };
     let cake_h:   u16 = if focus == CreateFocus::Cake     { 4 } else { 1 };
-    let popup_h = 14 + assign_h + cake_h;
+    let popup_h = 15 + assign_h + cake_h;
     let popup = centered_rect(65, popup_h, area);
     f.render_widget(Clear, popup);
     let block = theme.padded_block("New Task");
@@ -658,14 +675,14 @@ fn draw_create(f: &mut Frame, _ctx: TaskContext, title: &Input, description: &Te
         Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
         Constraint::Length(1), Constraint::Length(1), Constraint::Length(assign_h),
         Constraint::Length(1), Constraint::Length(cake_h),
-        Constraint::Length(1), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Length(2),
     ]).split(inner);
     draw_create_title(f, rows[1], title, focus == CreateFocus::Title, theme);
     draw_create_desc(f, rows[3], rows[4], description, focus == CreateFocus::Description, theme);
     draw_create_type_chips(f, rows[6], task_type, focus == CreateFocus::Type, theme);
     draw_create_assign(f, rows[8], users, user_filter, user_sel, focus == CreateFocus::Assignee, theme);
     draw_create_cake_field(f, rows[10], cakes, cake_filter, cake_sel, focus == CreateFocus::Cake, theme);
-    f.render_widget(Paragraph::new(create_hint_bar(theme)), rows[12]);
+    f.render_widget(Paragraph::new(create_hint_bar_text(rows[12].width, theme)), rows[12]);
 }
 
 fn draw_create_title(f: &mut Frame, area: Rect, input: &Input, active: bool, theme: &Theme) {
@@ -781,9 +798,6 @@ fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &st
     }
 }
 
-fn create_hint_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[("Tab", "next field"), ("←→", "cycle type"), ("Enter", "create"), ("Esc", "cancel")])
-}
 
 fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {
     let area = f.area();
@@ -880,7 +894,7 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
+        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
     ]).split(inner);
     let inner_width = inner.width as usize;
     let (items, index_map) = build_planner_items(cakes, tasks, selected, &app.filter, inner_width, theme);
@@ -893,7 +907,7 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
         f.render_stateful_widget(List::new(items), rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(&app.filter, app.filter_active, theme), rows[1]);
-    f.render_widget(Paragraph::new(planner_hint_bar(theme)), rows[2]);
+    f.render_widget(Paragraph::new(planner_hint_bar(rows[2].width, theme)), rows[2]);
     render_flash_row(f, rows[3], None, theme);
 }
 
@@ -1061,29 +1075,45 @@ fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str
     );
 }
 
-fn hint_bar(context: TaskContext, theme: &Theme) -> Line<'static> {
+fn bar_make_line<'a>(items: &[(&'a str, &'a str)], chip: Style, lbl: Style) -> Line<'a> {
+    let mut spans = vec![Span::raw(" ")];
+    for (key, label) in items {
+        spans.push(Span::styled(format!(" {key} "), chip));
+        spans.push(Span::styled(format!(" {label}  "), lbl));
+    }
+    Line::from(spans)
+}
+
+fn hint_bar(context: TaskContext, width: u16, theme: &Theme) -> Text<'static> {
     if context == TaskContext::Backlog {
-        theme.bar_line(&[
+        theme.bar_text(&[
             ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", "claim"),
             ("^C", "create"), ("^A", "assign"), ("^D", "delete"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
-        ])
+        ], width)
     } else {
-        theme.bar_line(&[
+        theme.bar_text(&[
             ("WASD", "nav"), ("D", "detail"), ("E", "edit"), ("F", "cycle"),
             ("^C", "create"), ("^A", "assign"), ("^B", "backlog"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
-        ])
+        ], width)
     }
 }
 
-fn planner_hint_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[
+fn planner_hint_bar(width: u16, theme: &Theme) -> Text<'static> {
+    theme.bar_text(&[
         ("WASD", "nav"), ("D", "detail"), ("C", "cake"),
         ("^C", "create"), ("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
-    ])
+    ], width)
 }
 
-fn detail_nav_bar(theme: &Theme) -> Line<'static> {
-    theme.bar_line(&[("WS", "nav"), ("F", "cycle"), ("E", "edit"), ("A/Q", "back"), ("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit")])
+fn detail_nav_bar(width: u16, theme: &Theme) -> Text<'static> {
+    theme.bar_text(&[
+        ("WS", "nav"), ("F", "cycle"), ("E", "edit"), ("A/Q", "back"),
+        ("^A", "assign"), ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+    ], width)
+}
+
+fn create_hint_bar_text(width: u16, theme: &Theme) -> Text<'static> {
+    theme.bar_text(&[("Tab", "next"), ("←→", "cycle"), ("↵", "create"), ("Esc", "cancel")], width)
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
