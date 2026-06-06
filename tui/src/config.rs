@@ -45,7 +45,7 @@ pub struct ThemeConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            highlight:      "bold bg:blue fg:white".into(),
+            highlight:      "bold reversed".into(),
             accent:         "cyan".into(),
             warning:        "yellow".into(),
             danger:         "red".into(),

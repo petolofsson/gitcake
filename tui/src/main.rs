@@ -61,14 +61,6 @@ fn run_tui(
     app: &mut App,
 ) -> io::Result<()> {
     loop {
-        if app.needs_clear {
-            terminal.clear()?;
-            while event::poll(Duration::from_millis(0))? {
-                let _ = event::read();
-            }
-            app.needs_clear = false;
-        }
-
         terminal.draw(|f| ui::draw(f, app))?;
 
         if event::poll(Duration::from_millis(100))? {
