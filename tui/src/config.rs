@@ -16,7 +16,6 @@ pub struct ThemeConfig {
     pub accent:         String,   // e.g. "cyan"  (fg only — used for cursor)
     pub warning:        String,   // e.g. "yellow"
     pub danger:         String,   // e.g. "red"
-    pub success:        String,   // e.g. "green" — done badges, confirmed actions
     // base palette — style strings (fg = text color)
     pub text:           String,   // e.g. "reset" or "white"
     pub bg:             String,   // e.g. "reset" or "black"  (drives navbar chip fg)
@@ -35,7 +34,6 @@ pub struct ThemeConfig {
     pub sym_done:     String,
     pub sym_open:     String,
     pub sym_progress: String,
-    pub sym_arrow:    String,
     pub sym_dot:      String,
     // named color aliases
     #[serde(default)]
@@ -49,7 +47,6 @@ impl Default for ThemeConfig {
             accent:         "cyan".into(),
             warning:        "yellow".into(),
             danger:         "red".into(),
-            success:        "green".into(),
             text:           "reset".into(),
             bg:             "reset".into(),
             border:         "reset".into(),
@@ -65,7 +62,6 @@ impl Default for ThemeConfig {
             sym_done:     "✓".into(),
             sym_open:     "○".into(),
             sym_progress: "●".into(),
-            sym_arrow:    "→".into(),
             sym_dot:      "·".into(),
             palette: HashMap::new(),
         }

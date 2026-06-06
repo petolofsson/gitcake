@@ -53,7 +53,6 @@ pub struct Theme {
     pub accent:       Color,
     pub warning:      Color,
     pub danger:       Color,
-    pub success:      Color,
     pub text:         Color,
     pub bg:           Color,
     pub border:       Color,
@@ -68,7 +67,6 @@ pub struct Theme {
     pub sym_done:     String,
     pub sym_open:     String,
     pub sym_progress: String,
-    pub sym_arrow:    String,
     pub sym_dot:      String,
 }
 
@@ -82,7 +80,6 @@ impl Theme {
             accent:       c(&tc.accent,      Color::Cyan),
             warning:      c(&tc.warning,     Color::Yellow),
             danger:       c(&tc.danger,      Color::Red),
-            success:      c(&tc.success,     Color::Green),
             text:         c(&tc.text,        Color::Reset),
             bg:           c(&tc.bg,          Color::Reset),
             border:       c(&tc.border,      Color::Reset),
@@ -97,7 +94,6 @@ impl Theme {
             sym_done:     tc.sym_done.clone(),
             sym_open:     tc.sym_open.clone(),
             sym_progress: tc.sym_progress.clone(),
-            sym_arrow:    tc.sym_arrow.clone(),
             sym_dot:      tc.sym_dot.clone(),
         }
     }
@@ -326,20 +322,22 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
     ]).split(inner);
-    let (items, index_map, safe_sel) = build_task_items(tasks, filter, selected, inner_width, theme);
+    f.render_widget(column_header(inner_width, theme), rows[0]);
+    let owner = if context == TaskContext::Backlog { "(none)" } else { "(you)" };
+    let (items, safe_sel) = build_task_items(tasks, owner, filter, selected, inner_width, theme);
     if items.is_empty() {
         let msg = if filter.is_empty() { "No tasks yet. ^C to create one." } else { "No tasks match the filter." };
-        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[1]);
     } else {
         let mut state = ListState::default();
-        state.select(index_map.iter().position(|&i| i == safe_sel));
-        f.render_stateful_widget(List::new(items), rows[0], &mut state);
+        state.select(Some(safe_sel));
+        f.render_stateful_widget(List::new(items), rows[1], &mut state);
     }
-    f.render_widget(filter_line_widget(filter, filter_active, theme), rows[1]);
-    f.render_widget(Paragraph::new(hint_bar(context, rows[2].width, theme)), rows[2]);
-    render_flash_row(f, rows[3], message, theme);
+    f.render_widget(filter_line_widget(filter, filter_active, theme), rows[2]);
+    f.render_widget(Paragraph::new(hint_bar(context, rows[3].width, theme)), rows[3]);
+    render_flash_row(f, rows[4], message, theme);
 }
 
 fn task_list_block(filter: &str, filter_active: bool, pull_error: Option<&str>, lock_warning: Option<&str>, theme: &Theme) -> Block<'static> {
@@ -364,37 +362,16 @@ fn task_list_block(filter: &str, filter_active: bool, pull_error: Option<&str>, 
     block
 }
 
-fn build_task_items(tasks: &[Task], filter: &str, selected: usize, inner_width: usize, theme: &Theme) -> (Vec<ListItem<'static>>, Vec<usize>, usize) {
+fn build_task_items(tasks: &[Task], owner: &str, filter: &str, selected: usize, inner_width: usize, theme: &Theme) -> (Vec<ListItem<'static>>, usize) {
     use crate::app::filter_matches;
     let f_lower = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
-    let visible = |t: &Task| f_lower.is_empty() || filter_matches(t, &f_lower);
-    let (mut ip, mut op, mut dn) = (0usize, 0usize, 0usize);
-    for t in tasks.iter().filter(|t| visible(t)) {
-        match t.status { TaskStatus::InProgress => ip += 1, TaskStatus::Open => op += 1, TaskStatus::Done => dn += 1 }
-    }
-    let safe_sel = selected.min((ip + op + dn).saturating_sub(1));
-    let mut items: Vec<ListItem<'static>> = Vec::new();
-    let mut index_map: Vec<usize> = Vec::new();
-    let mut prev_status: Option<TaskStatus> = None;
-    for (vis_idx, task) in tasks.iter().filter(|t| visible(t)).enumerate() {
-        if prev_status.as_ref() != Some(&task.status) {
-            if prev_status.is_some() { items.push(ListItem::new(Line::from(""))); index_map.push(usize::MAX); }
-            let (sym, label, count, color) = match task.status {
-                TaskStatus::InProgress => (theme.sym_progress.as_str(), "IN PROGRESS", ip, Some(theme.warning)),
-                TaskStatus::Open       => (theme.sym_open.as_str(),     "OPEN",        op, Some(theme.muted)),
-                TaskStatus::Done       => (theme.sym_done.as_str(),     "DONE",        dn, Some(theme.success)),
-            };
-            let hdr = Style::new().add_modifier(Modifier::BOLD).fg(color.unwrap());
-            items.push(ListItem::new(Line::from(Span::styled(format!(" {sym} {label} ({count})"), hdr))));
-            index_map.push(usize::MAX);
-            prev_status = Some(task.status.clone());
-        }
-        let (row, idx) = task_row(task, vis_idx, safe_sel, inner_width, theme);
-        items.push(row);
-        index_map.push(idx);
-    }
-    if prev_status.is_some() { items.push(ListItem::new(Line::from(""))); index_map.push(usize::MAX); }
-    (items, index_map, safe_sel)
+    let visible  = |t: &Task| f_lower.is_empty() || filter_matches(t, &f_lower);
+    let count    = tasks.iter().filter(|t| visible(t)).count();
+    let safe_sel = selected.min(count.saturating_sub(1));
+    let items = tasks.iter().filter(|t| visible(t)).enumerate()
+        .map(|(vis_idx, task)| task_row(task, owner, vis_idx == safe_sel, inner_width, theme))
+        .collect();
+    (items, safe_sel)
 }
 
 fn filter_line_widget<'a>(filter: &'a str, filter_active: bool, theme: &Theme) -> Paragraph<'a> {
@@ -436,8 +413,25 @@ fn render_flash_row(f: &mut Frame, area: Rect, message: Option<&str>, theme: &Th
 
 // ── task row ──────────────────────────────────────────────────────────────────
 
-fn task_row(task: &Task, vis_idx: usize, safe_sel: usize, inner_width: usize, theme: &Theme) -> (ListItem<'static>, usize) {
-    let is_sel = vis_idx == safe_sel;
+fn type_char(t: &TaskType) -> &'static str {
+    match t { TaskType::Task => "T", TaskType::Bug => "B", TaskType::Incident => "I" }
+}
+
+fn column_header(inner_width: usize, theme: &Theme) -> Paragraph<'static> {
+    // cursor(2)+flag(3)+type(2)+status(2) = 9 before title; sep(2)+bites(5)+sep(2)+owner(12) = 21 after
+    let title_width = inner_width.saturating_sub(30);
+    let s = theme.dim();
+    Paragraph::new(Line::from(vec![
+        Span::styled("         ",                              s),
+        Span::styled(format!("{:<title_width$}", "TITLE"),   s),
+        Span::styled("  ",                                    s),
+        Span::styled(format!("{:<5}", "/"),                   s),
+        Span::styled("  ",                                    s),
+        Span::styled(format!("{:<12}", "OWNER"),              s),
+    ]))
+}
+
+fn task_row(task: &Task, owner: &str, is_sel: bool, inner_width: usize, theme: &Theme) -> ListItem<'static> {
     let base = match task.status {
         TaskStatus::Done       => Style::new().add_modifier(Modifier::DIM),
         TaskStatus::InProgress => Style::new().add_modifier(Modifier::BOLD).fg(theme.warning),
@@ -445,27 +439,33 @@ fn task_row(task: &Task, vis_idx: usize, safe_sel: usize, inner_width: usize, th
     };
     let row_sty    = if is_sel { theme.highlight } else { base };
     let cursor_sty = if is_sel { theme.cursor_style() } else { Style::new().add_modifier(Modifier::DIM) };
+    let sp         = if is_sel { row_sty } else { Style::new() };
     let (flag_str, flag_sty) = task_flag(task, theme);
-    let bite_prog  = bite_progress(&task.bites);
-    let prog_width = bite_prog.as_ref().map(|s| s.len() + 2).unwrap_or(0);
-    let title_str  = truncate_title(&task.title, inner_width.saturating_sub(24 + prog_width));
+    let (status_sym, status_sty) = match task.status {
+        TaskStatus::InProgress => (theme.sym_progress.as_str(), Style::new().fg(theme.warning)),
+        TaskStatus::Open       => (theme.sym_open.as_str(),     Style::new().fg(theme.muted)),
+        TaskStatus::Done       => (theme.sym_done.as_str(),     Style::new().fg(theme.muted)),
+    };
+    // Fixed: cursor(2)+flag(3)+type(2)+status(2)+sep(2)+bites(5)+sep(2)+owner(12) = 30
+    let title_width = inner_width.saturating_sub(30);
+    let title_str   = format!("{:<title_width$}", truncate_title(&task.title, title_width));
+    let bites_str   = format!("{:<5}", bite_progress(&task.bites).unwrap_or_default());
+    let owner_str   = format!("{:<12}", truncate_title(owner, 12));
     let cursor_char = if is_sel { theme.cursor.clone() } else { " ".to_string() };
-    let sp = if is_sel { row_sty } else { Style::new() };
-    let mut spans = vec![
-        Span::styled(cursor_char,                              cursor_sty),
-        Span::styled(" ",                                      sp),
-        Span::styled(flag_str,                                 if is_sel { row_sty } else { flag_sty }),
-        Span::styled(task.id.clone(),                          row_sty.add_modifier(Modifier::DIM)),
-        Span::styled("  ",                                     sp),
-        Span::styled(format!("{:<8}", type_label(&task.task_type)), row_sty.add_modifier(Modifier::DIM)),
-        Span::styled("  ",                                     sp),
-        Span::styled(title_str,                                row_sty),
-    ];
-    if let Some(p) = bite_prog {
-        spans.push(Span::styled("  ", sp));
-        spans.push(Span::styled(p, row_sty.add_modifier(Modifier::DIM)));
-    }
-    (ListItem::new(Line::from(spans)), vis_idx)
+    ListItem::new(Line::from(vec![
+        Span::styled(cursor_char,                                cursor_sty),
+        Span::styled(" ",                                        sp),
+        Span::styled(flag_str,                                   if is_sel { row_sty } else { flag_sty }),
+        Span::styled(type_char(&task.task_type).to_string(),     row_sty.add_modifier(Modifier::DIM)),
+        Span::styled(" ",                                        sp),
+        Span::styled(status_sym.to_string(),                     if is_sel { row_sty } else { status_sty }),
+        Span::styled(" ",                                        sp),
+        Span::styled(title_str,                                  row_sty),
+        Span::styled("  ",                                       sp),
+        Span::styled(bites_str,                                  row_sty.add_modifier(Modifier::DIM)),
+        Span::styled("  ",                                       sp),
+        Span::styled(owner_str,                                  row_sty.add_modifier(Modifier::DIM)),
+    ]))
 }
 
 fn task_flag(task: &Task, theme: &Theme) -> (String, Style) {
@@ -941,47 +941,22 @@ fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String,
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
+        Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
     ]).split(inner);
     let inner_width = inner.width as usize;
+    f.render_widget(column_header(inner_width, theme), rows[0]);
     let (items, index_map) = build_planner_items(cakes, tasks, selected, &app.filter, inner_width, theme);
     if items.is_empty() {
         let msg = if app.filter.is_empty() { "No active tasks. ^C to create one." } else { "No tasks match the filter." };
-        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
+        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).style(theme.dim()), rows[1]);
     } else {
         let mut state = ListState::default();
         state.select(index_map.iter().position(|e| *e == Some(selected)));
-        f.render_stateful_widget(List::new(items), rows[0], &mut state);
+        f.render_stateful_widget(List::new(items), rows[1], &mut state);
     }
-    f.render_widget(filter_line_widget(&app.filter, app.filter_active, theme), rows[1]);
-    f.render_widget(Paragraph::new(planner_hint_bar(rows[2].width, theme)), rows[2]);
-    render_flash_row(f, rows[3], None, theme);
-}
-
-fn planner_task_row(task: &Task, owner: &str, vis_idx: usize, selected: usize, inner_width: usize, theme: &Theme) -> ListItem<'static> {
-    let is_sel   = vis_idx == selected;
-    let in_prog  = task.status == TaskStatus::InProgress;
-    let base     = if in_prog { Style::new().add_modifier(Modifier::BOLD).fg(theme.warning) } else { Style::new() };
-    let cur_sty  = if is_sel { theme.cursor_style() } else { Style::new().add_modifier(Modifier::DIM) };
-    let row_sty  = if is_sel { theme.highlight } else { base };
-    let status_sty = if in_prog { Style::new().fg(theme.warning) } else { Style::new().add_modifier(Modifier::DIM) };
-    let status_ind = if in_prog { format!("{} ", theme.sym_arrow) } else { format!("{} ", theme.sym_dot) };
-    let (flag_str, flag_sty) = task_flag(task, theme);
-    let owner_str  = format!("{:<12}  ", truncate_title(owner, 12));
-    let title_bud  = inner_width.saturating_sub(2 + 3 + 14 + 2 + 10 + 2);
-    let type_span = if is_sel {
-        Span::styled(format!("{:<8}  ", type_label(&task.task_type)), row_sty.add_modifier(Modifier::DIM))
-    } else {
-        type_tag_span(&task.task_type, theme)
-    };
-    ListItem::new(Line::from(vec![
-        Span::styled(if is_sel { format!("{} ", theme.cursor) } else { "  ".to_string() }, cur_sty),
-        Span::styled(flag_str,   if is_sel { row_sty } else { flag_sty }),
-        Span::styled(owner_str,  row_sty.add_modifier(Modifier::DIM)),
-        Span::styled(status_ind, if is_sel { row_sty } else { status_sty }),
-        type_span,
-        Span::styled(truncate_title(&task.title, title_bud), row_sty),
-    ]))
+    f.render_widget(filter_line_widget(&app.filter, app.filter_active, theme), rows[2]);
+    f.render_widget(Paragraph::new(planner_hint_bar(rows[3].width, theme)), rows[3]);
+    render_flash_row(f, rows[4], None, theme);
 }
 
 fn build_planner_items(cakes: &[Cake], tasks: &[(String, Task)], selected: usize, filter: &str, inner_width: usize, theme: &Theme) -> (Vec<ListItem<'static>>, Vec<Option<usize>>) {
@@ -991,21 +966,20 @@ fn build_planner_items(cakes: &[Cake], tasks: &[(String, Task)], selected: usize
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
     let mut vis_idx = 0usize;
-    let cake_hdr_sty = Style::new().add_modifier(Modifier::BOLD).fg(theme.accent);
+    let cake_hdr_sty    = Style::new().add_modifier(Modifier::BOLD).fg(theme.accent);
     let section_hdr_sty = Style::new().add_modifier(Modifier::BOLD).fg(theme.muted);
-    let section_hdr = |title: &str| ListItem::new(Line::from(Span::styled(format!(" {title}"), section_hdr_sty)));
     for cake in cakes {
         let cake_tasks: Vec<_> = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && is_vis(t)).collect();
-        let total = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id)).count();
-        let done  = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && t.status == TaskStatus::Done).count();
-        let progress = if total > 0 { format!("  {}/{}", total - done, total) } else { String::new() };
+        let total  = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id)).count();
+        let active = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && t.status != TaskStatus::Done).count();
+        let progress = if total > 0 { format!("  {active}/{total}") } else { String::new() };
         items.push(ListItem::new(Line::from(vec![
             Span::styled(format!(" {}", cake.title), cake_hdr_sty),
             Span::styled(progress, Style::new().fg(theme.muted)),
         ])));
         index_map.push(None);
         for (owner, task) in &cake_tasks {
-            items.push(planner_task_row(task, owner, vis_idx, selected, inner_width, theme));
+            items.push(task_row(task, owner, vis_idx == selected, inner_width, theme));
             index_map.push(Some(vis_idx));
             vis_idx += 1;
         }
@@ -1014,10 +988,10 @@ fn build_planner_items(cakes: &[Cake], tasks: &[(String, Task)], selected: usize
     }
     let standalone: Vec<_> = tasks.iter().filter(|(_, t)| t.cake_id.is_none() && is_vis(t)).collect();
     if !standalone.is_empty() {
-        items.push(section_hdr("STANDALONE"));
+        items.push(ListItem::new(Line::from(Span::styled(" STANDALONE", section_hdr_sty))));
         index_map.push(None);
         for (owner, task) in standalone {
-            items.push(planner_task_row(task, owner, vis_idx, selected, inner_width, theme));
+            items.push(task_row(task, owner, vis_idx == selected, inner_width, theme));
             index_map.push(Some(vis_idx));
             vis_idx += 1;
         }
@@ -1183,13 +1157,6 @@ fn type_label(t: &TaskType) -> &'static str {
     match t { TaskType::Task => "task", TaskType::Bug => "bug", TaskType::Incident => "incident" }
 }
 
-fn type_tag_span(t: &TaskType, theme: &Theme) -> Span<'static> {
-    match t {
-        TaskType::Task     => Span::styled("[T]     ", Style::new().fg(theme.muted)),
-        TaskType::Bug      => Span::styled("[B]     ", Style::new().fg(theme.danger)),
-        TaskType::Incident => Span::styled("[I]     ", Style::new().fg(theme.danger).add_modifier(Modifier::BOLD)),
-    }
-}
 
 fn status_label(s: &TaskStatus) -> &'static str {
     match s { TaskStatus::Open => "open", TaskStatus::InProgress => "in-progress", TaskStatus::Done => "done" }
