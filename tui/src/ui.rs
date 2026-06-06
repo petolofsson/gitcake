@@ -450,11 +450,11 @@ fn task_row(task: &Task, vis_idx: usize, safe_sel: usize, inner_width: usize, th
     let prog_width = bite_prog.as_ref().map(|s| s.len() + 2).unwrap_or(0);
     let title_str  = truncate_title(&task.title, inner_width.saturating_sub(24 + prog_width));
     let cursor_char = if is_sel { theme.cursor.clone() } else { " ".to_string() };
-    let sp = Style::new();
+    let sp = if is_sel { row_sty } else { Style::new() };
     let mut spans = vec![
         Span::styled(cursor_char,                              cursor_sty),
         Span::styled(" ",                                      sp),
-        Span::styled(flag_str,                                 flag_sty),
+        Span::styled(flag_str,                                 if is_sel { row_sty } else { flag_sty }),
         Span::styled(task.id.clone(),                          row_sty.add_modifier(Modifier::DIM)),
         Span::styled("  ",                                     sp),
         Span::styled(format!("{:<8}", type_label(&task.task_type)), row_sty.add_modifier(Modifier::DIM)),
@@ -463,7 +463,7 @@ fn task_row(task: &Task, vis_idx: usize, safe_sel: usize, inner_width: usize, th
     ];
     if let Some(p) = bite_prog {
         spans.push(Span::styled("  ", sp));
-        spans.push(Span::styled(p, Style::new().add_modifier(Modifier::DIM)));
+        spans.push(Span::styled(p, row_sty.add_modifier(Modifier::DIM)));
     }
     (ListItem::new(Line::from(spans)), vis_idx)
 }
