@@ -9,9 +9,7 @@ use gitcake_core::{
     repo::TaskRepo,
 };
 
-use ratatui::style::{Modifier, Style};
 use tui_input::Input;
-use ratatui_textarea::TextArea;
 
 use crate::config::Config;
 
@@ -28,6 +26,12 @@ fn desc_too_long(len: usize) -> String {
 pub enum TaskContext {
     Personal,
     Backlog,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum ViewMode {
+    Table,
+    Tree,
 }
 
 // ── screens ───────────────────────────────────────────────────────────────────
@@ -57,12 +61,10 @@ pub enum Screen {
     },
     Create {
         title:       Input,
-        description: TextArea<'static>,
+        description: String,
         focus:       CreateFocus,
         task_type:   TaskType,
-        status:      TaskStatus,
         priority:    Priority,
-        ai_flagged:  bool,
         users:       Vec<String>,
         user_filter: String,
         user_sel:    usize,
@@ -73,8 +75,7 @@ pub enum Screen {
     EditTask {
         task_id:      String,
         title:        Input,
-        description:  TextArea<'static>,
-        focus:        EditFocus,
+        description:  String,
         context:      TaskContext,
         from_detail:  bool,
         from_planner: bool,
@@ -112,9 +113,7 @@ pub enum CreateFocus {
     Title,
     Description,
     Type,
-    Status,
     Priority,
-    AiFlagged,
     Assignee,
     Cake,
 }
@@ -124,10 +123,8 @@ impl CreateFocus {
         match self {
             Self::Title       => Self::Description,
             Self::Description => Self::Type,
-            Self::Type        => Self::Status,
-            Self::Status      => Self::Priority,
-            Self::Priority    => Self::AiFlagged,
-            Self::AiFlagged   => Self::Assignee,
+            Self::Type        => Self::Priority,
+            Self::Priority    => Self::Assignee,
             Self::Assignee    => Self::Cake,
             Self::Cake        => Self::Title,
         }
@@ -137,19 +134,11 @@ impl CreateFocus {
             Self::Title       => Self::Cake,
             Self::Description => Self::Title,
             Self::Type        => Self::Description,
-            Self::Status      => Self::Type,
-            Self::Priority    => Self::Status,
-            Self::AiFlagged   => Self::Priority,
-            Self::Assignee    => Self::AiFlagged,
+            Self::Priority    => Self::Type,
+            Self::Assignee    => Self::Priority,
             Self::Cake        => Self::Assignee,
         }
     }
-}
-
-#[derive(PartialEq, Clone, Copy)]
-pub enum EditFocus {
-    Title,
-    Description,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -200,6 +189,9 @@ pub struct App {
     /// Persists across screen transitions — cleared only by Esc.
     pub filter: String,
     pub filter_active: bool,
+    pub hide_done: bool,
+    pub needs_clear: bool,
+    pub view_mode: ViewMode,
     /// Cached cake list for detail view and pickers. Refreshed when entering planner.
     pub cached_cakes: Vec<Cake>,
 }
@@ -212,7 +204,7 @@ impl App {
                 repo: None, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, cached_cakes: Vec::new(),
+                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, view_mode: ViewMode::Table, cached_cakes: Vec::new(),
             };
         }
 
@@ -228,7 +220,7 @@ impl App {
                 repo: None, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, cached_cakes: Vec::new(),
+                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, view_mode: ViewMode::Table, cached_cakes: Vec::new(),
             };
         }
 
@@ -243,12 +235,19 @@ impl App {
             screen, repo, config, context: TaskContext::Personal,
             should_quit: false, exit_message: None,
             pull_error, lock_warning, lock_path,
-            filter: String::new(), filter_active: false, cached_cakes: Vec::new(),
+            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, view_mode: ViewMode::Table, cached_cakes: Vec::new(),
         }
     }
 
     pub fn handle_event(&mut self, event: Event) {
         let Event::Key(key) = event else { return };
+        if matches!(&self.screen, Screen::TaskList { .. } | Screen::PlannerView { .. }) {
+            match key.code {
+                KeyCode::F(1) => { self.view_mode = ViewMode::Table; return; }
+                KeyCode::F(2) => { self.view_mode = ViewMode::Tree;  return; }
+                _ => {}
+            }
+        }
         if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
             let input_screen = matches!(&self.screen,
                 Screen::Setup { .. } | Screen::InitRepo { .. } | Screen::Create { .. }
@@ -285,12 +284,9 @@ impl App {
         });
         if let Some((users, user_sel)) = info {
             let cakes = self.cached_cakes.clone();
-            let mut description = TextArea::default();
-            description.set_cursor_style(Style::default());
             self.screen = Screen::Create {
-                title: Input::default(), description, focus: CreateFocus::Title,
-                task_type: TaskType::Task, status: TaskStatus::Open,
-                priority: Priority::Normal, ai_flagged: false,
+                title: Input::default(), description: String::new(), focus: CreateFocus::Title,
+                task_type: TaskType::Task, priority: Priority::Normal,
                 users, user_filter: String::new(), user_sel,
                 cakes, cake_filter: String::new(), cake_sel: 0,
             };
@@ -370,10 +366,21 @@ impl App {
         if key.code == KeyCode::Char('/') && key.modifiers == KeyModifiers::NONE {
             self.filter_active = true; self.filter.clear(); *selected = 0; return;
         }
-        let filter = self.filter.clone();
-        let visible = apply_filter_indices(tasks, &filter);
-        let vc = visible.len();
         let no_mod = key.modifiers == KeyModifiers::NONE;
+        if key.code == KeyCode::Char('H') && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.hide_done = !self.hide_done; *selected = 0; return;
+        }
+        let filter = self.filter.clone();
+        let hide_done = self.hide_done;
+        let visible: Vec<usize> = if self.view_mode == ViewMode::Tree {
+            tree_visible_indices(tasks, &self.cached_cakes, &filter, hide_done)
+        } else {
+            apply_filter_indices(tasks, &filter)
+                .into_iter()
+                .filter(|&i| !hide_done || tasks[i].status != TaskStatus::Done)
+                .collect()
+        };
+        let vc = visible.len();
         let up_k = self.config.keys.up.chars().next().unwrap_or('w');
         let dn_k = self.config.keys.down.chars().next().unwrap_or('s');
         let is_up = key.code == KeyCode::Up
@@ -572,18 +579,10 @@ impl App {
     // ── edit task ─────────────────────────────────────────────────────────────
 
     fn enter_edit_task(&mut self, task_id: String, title: String, desc: String, from_detail: bool, from_planner: bool) {
-        let lines: Vec<String> = if desc.is_empty() {
-            vec![String::new()]
-        } else {
-            desc.lines().map(String::from).collect()
-        };
-        let mut description = TextArea::new(lines);
-        description.set_cursor_style(Style::default());
         self.screen = Screen::EditTask {
             task_id,
             title: title.as_str().into(),
-            description,
-            focus: EditFocus::Title,
+            description: desc,
             context: self.context,
             from_detail,
             from_planner,
@@ -592,38 +591,24 @@ impl App {
 
     fn handle_edit_task(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.try_quit(); return; }
-        let focus = match &self.screen {
-            Screen::EditTask { focus, .. } => *focus,
-            _ => return,
-        };
-        if key.code == KeyCode::Tab    { self.edit_toggle_focus(); return; }
-        if key.code == KeyCode::BackTab { self.edit_toggle_focus(); return; }
-        if key.code == KeyCode::Esc { self.edit_cancel(); return; }
-        if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE && focus == EditFocus::Title {
-            self.edit_submit(); return;
-        }
-        match focus {
-            EditFocus::Title => self.edit_title_key(key),
-            EditFocus::Description => {
+        if key.code == KeyCode::Tab || key.code == KeyCode::BackTab {
+            let current = match &self.screen {
+                Screen::EditTask { description, .. } => description.clone(),
+                _ => return,
+            };
+            if let Some(new_desc) = open_editor(&current) {
                 if let Screen::EditTask { description, .. } = &mut self.screen {
-                    description.input(key);
+                    *description = new_desc;
                 }
             }
+            self.needs_clear = true;
+            return;
         }
-    }
-
-    fn edit_toggle_focus(&mut self) {
-        if let Screen::EditTask { focus, description, .. } = &mut self.screen {
-            *focus = match *focus {
-                EditFocus::Title       => EditFocus::Description,
-                EditFocus::Description => EditFocus::Title,
-            };
-            description.set_cursor_style(if *focus == EditFocus::Description {
-                Style::new().add_modifier(Modifier::REVERSED)
-            } else {
-                Style::default()
-            });
+        if key.code == KeyCode::Esc { self.edit_cancel(); return; }
+        if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE {
+            self.edit_submit(); return;
         }
+        self.edit_title_key(key);
     }
 
     fn edit_title_key(&mut self, key: KeyEvent) {
@@ -653,8 +638,7 @@ impl App {
             Screen::EditTask { task_id, title, description, context, from_detail, from_planner, .. } => {
                 let ts = title.value().trim().to_string();
                 if ts.is_empty() { return; }
-                let ds = description.lines().join("\n");
-                let ds = ds.trim().to_string();
+                let ds = description.trim().to_string();
                 (task_id.clone(), ts, ds, *context, *from_detail, *from_planner)
             }
             _ => return,
@@ -699,27 +683,33 @@ impl App {
         }
         match focus {
             CreateFocus::Title       => self.create_title_key(key),
-            CreateFocus::Description => self.create_desc_key(key),
+            CreateFocus::Description => {
+                if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE {
+                    let current = match &self.screen {
+                        Screen::Create { description, .. } => description.clone(),
+                        _ => return,
+                    };
+                    if let Some(new_desc) = open_editor(&current) {
+                        if let Screen::Create { description, focus, .. } = &mut self.screen {
+                            *description = new_desc;
+                            *focus = CreateFocus::Type;
+                        }
+                    }
+                    self.needs_clear = true;
+                }
+            }
             CreateFocus::Type        => self.create_type_key(key),
-            CreateFocus::Status      => self.create_status_key(key),
             CreateFocus::Priority    => self.create_priority_key(key),
-            CreateFocus::AiFlagged   => self.create_ai_flagged_key(key),
             CreateFocus::Assignee    => self.create_assignee_key(key),
             CreateFocus::Cake        => self.create_cake_key(key),
         }
     }
 
     fn create_next_field(&mut self, backward: bool) {
-        if let Screen::Create { focus, user_filter, cake_filter, description, .. } = &mut self.screen {
+        if let Screen::Create { focus, user_filter, cake_filter, .. } = &mut self.screen {
             user_filter.clear();
             cake_filter.clear();
-            let next = if backward { focus.prev() } else { focus.next() };
-            description.set_cursor_style(if next == CreateFocus::Description {
-                Style::new().add_modifier(Modifier::REVERSED)
-            } else {
-                Style::default()
-            });
-            *focus = next;
+            *focus = if backward { focus.prev() } else { focus.next() };
         }
     }
 
@@ -727,12 +717,6 @@ impl App {
         use tui_input::backend::crossterm::EventHandler;
         if let Screen::Create { title, .. } = &mut self.screen {
             title.handle_event(&crossterm::event::Event::Key(key));
-        }
-    }
-
-    fn create_desc_key(&mut self, key: KeyEvent) {
-        if let Screen::Create { description, .. } = &mut self.screen {
-            description.input(key);
         }
     }
 
@@ -751,21 +735,6 @@ impl App {
         }
     }
 
-    fn create_status_key(&mut self, key: KeyEvent) {
-        if key.modifiers != KeyModifiers::NONE { return; }
-        let Screen::Create { status, .. } = &mut self.screen else { return };
-        if matches!(key.code, KeyCode::Left | KeyCode::Right) {
-            *status = match (&status, key.code == KeyCode::Right) {
-                (TaskStatus::Open,       true)  => TaskStatus::InProgress,
-                (TaskStatus::Open,       false) => TaskStatus::Done,
-                (TaskStatus::InProgress, true)  => TaskStatus::Done,
-                (TaskStatus::InProgress, false) => TaskStatus::Open,
-                (TaskStatus::Done,       true)  => TaskStatus::Open,
-                (TaskStatus::Done,       false) => TaskStatus::InProgress,
-            };
-        }
-    }
-
     fn create_priority_key(&mut self, key: KeyEvent) {
         if key.modifiers != KeyModifiers::NONE { return; }
         let Screen::Create { priority, .. } = &mut self.screen else { return };
@@ -779,12 +748,6 @@ impl App {
                 (Priority::Urgent, false) => Priority::High,
             };
         }
-    }
-
-    fn create_ai_flagged_key(&mut self, key: KeyEvent) {
-        if key.modifiers != KeyModifiers::NONE { return; }
-        let Screen::Create { ai_flagged, .. } = &mut self.screen else { return };
-        if matches!(key.code, KeyCode::Left | KeyCode::Right) { *ai_flagged = !*ai_flagged; }
     }
 
     fn create_assignee_key(&mut self, key: KeyEvent) {
@@ -817,19 +780,18 @@ impl App {
 
     fn submit_create(&mut self) {
         let extracted = match &self.screen {
-            Screen::Create { title, description, task_type, status, priority, ai_flagged,
+            Screen::Create { title, description, task_type, priority,
                              users, user_filter, user_sel, cakes, cake_sel, cake_filter, .. } => {
                 let ts = title.value().trim().to_string();
                 if ts.is_empty() { return; }
-                let dt = description.lines().join("\n");
-                let dt = dt.trim().to_string();
+                let dt = description.trim().to_string();
                 let desc = if dt.is_empty() { None } else { Some(dt) };
-                Some((ts, desc, task_type.clone(), status.clone(), priority.clone(), *ai_flagged,
+                Some((ts, desc, task_type.clone(), priority.clone(),
                       users.clone(), user_filter.clone(), *user_sel, cakes.clone(), *cake_sel, cake_filter.clone()))
             }
             _ => None,
         };
-        let Some((title_str, desc, tt, status, priority, ai_flagged,
+        let Some((title_str, desc, tt, priority,
                   users, user_filter, user_sel, cakes, cake_sel, cake_filter)) = extracted else { return };
         if let Some(ref d) = desc {
             let n = d.chars().count();
@@ -847,7 +809,7 @@ impl App {
             TaskContext::Personal => self.repo.as_ref().map(|r| r.create_task(new_task)),
             TaskContext::Backlog  => self.repo.as_ref().map(|r| r.create_backlog_task(new_task)),
         };
-        let msg = self.apply_create_extras(create_result, assignee, status, ai_flagged, ctx);
+        let msg = self.apply_create_extras(create_result, assignee, ctx);
         self.enter_task_list(Some(msg), None);
     }
 
@@ -855,9 +817,7 @@ impl App {
         &self,
         create_result: Option<Result<Task, gitcake_core::error::AppError>>,
         assignee: Option<String>,
-        status: TaskStatus,
-        ai_flagged: bool,
-        ctx: TaskContext,
+        _ctx: TaskContext,
     ) -> String {
         let task = match create_result {
             Some(Ok(t))  => t,
@@ -871,26 +831,6 @@ impl App {
                 _ => {}
             }
         }
-        if ai_flagged {
-            let patch = TaskPatch { ai_flagged: Some(true), ..Default::default() };
-            let err = match ctx {
-                TaskContext::Personal => self.repo.as_ref().and_then(|r| r.update_task(id, patch).err()),
-                TaskContext::Backlog  => self.repo.as_ref().and_then(|r| r.update_backlog_task(id, patch).err()),
-            };
-            if let Some(e) = err { return format!("Task created but flag failed: {e}"); }
-        }
-        let status_err = match (&status, ctx) {
-            (TaskStatus::InProgress, TaskContext::Personal) =>
-                self.repo.as_ref().and_then(|r| r.set_task_in_progress(id).err()),
-            (TaskStatus::Done, TaskContext::Personal) =>
-                self.repo.as_ref().and_then(|r| r.mark_task_done(id).err()),
-            (TaskStatus::InProgress, TaskContext::Backlog) =>
-                self.repo.as_ref().and_then(|r| r.set_backlog_task_in_progress(id).err()),
-            (TaskStatus::Done, TaskContext::Backlog) =>
-                self.repo.as_ref().and_then(|r| r.mark_backlog_task_done(id).err()),
-            _ => None,
-        };
-        if let Some(e) = status_err { return format!("Task created but status failed: {e}"); }
         "Task created.".to_string()
     }
 
@@ -964,10 +904,18 @@ impl App {
             if let Screen::PlannerView { selected, .. } = &mut self.screen { *selected = 0; }
             return;
         }
+        if key.code == KeyCode::Char('H') && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.hide_done = !self.hide_done;
+            if let Screen::PlannerView { selected, .. } = &mut self.screen { *selected = 0; }
+            return;
+        }
         if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::NONE {
             let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-            let task = if let Screen::PlannerView { tasks, selected, .. } = &self.screen {
-                tasks.iter().filter(|(_, t)| f.is_empty() || filter_matches(t, &f)).nth(*selected).map(|(_, t)| t.clone())
+            let hd = self.hide_done;
+            let tree = self.view_mode == ViewMode::Tree;
+            let task = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
+                planner_visible_tasks(cakes, tasks, &f, hd, tree)
+                    .get(*selected).map(|(_, t)| t.clone())
             } else { None };
             if let Some(t) = task {
                 self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: true };
@@ -980,9 +928,13 @@ impl App {
         if key.code == KeyCode::Char('b') && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.do_planner_backlog(); return;
         }
-        let Screen::PlannerView { tasks, selected, .. } = &mut self.screen else { return };
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-        let visible_count = tasks.iter().filter(|(_, t)| f.is_empty() || filter_matches(t, &f)).count();
+        let hd = self.hide_done;
+        let tree = self.view_mode == ViewMode::Tree;
+        let visible_count = if let Screen::PlannerView { cakes, tasks, .. } = &self.screen {
+            planner_visible_tasks(cakes, tasks, &f, hd, tree).len()
+        } else { return };
+        let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
         match key.code {
             KeyCode::Char('w') | KeyCode::Up => {
                 if visible_count > 0 { *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); }
@@ -1007,11 +959,11 @@ impl App {
 
     fn do_planner_backlog(&mut self) {
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-        let task_id = if let Screen::PlannerView { tasks, selected, .. } = &self.screen {
-            tasks.iter()
-                .filter(|(_, t)| f.is_empty() || filter_matches(t, &f))
-                .nth(*selected)
-                .map(|(_, t)| t.id.clone())
+        let hd = self.hide_done;
+        let tree = self.view_mode == ViewMode::Tree;
+        let task_id = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
+            planner_visible_tasks(cakes, tasks, &f, hd, tree)
+                .get(*selected).map(|(_, t)| t.id.clone())
         } else { None };
         let Some(id) = task_id else { return };
         if let Some(repo) = &self.repo {
@@ -1141,6 +1093,7 @@ impl App {
                 }
             })
             .unwrap_or(0);
+        self.cached_cakes = self.repo.as_ref().and_then(|r| r.list_cakes().ok()).unwrap_or_default();
         self.screen = Screen::TaskList { tasks: sorted, selected, message: msg };
     }
 
@@ -1365,6 +1318,85 @@ fn apply_filter_indices(tasks: &[Task], filter: &str) -> Vec<usize> {
     tasks.iter().enumerate().filter(|(_, t)| filter_matches(t, &f)).map(|(i, _)| i).collect()
 }
 
+/// Returns task indices in cake-grouped tree traversal order (mirrors build_tree_items).
+/// Used so Up/Down in tree mode selects tasks in the same order they appear on screen.
+pub(crate) fn tree_visible_indices(tasks: &[Task], cakes: &[Cake], filter: &str, hide_done: bool) -> Vec<usize> {
+    let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
+    let is_vis = |t: &Task| (f.is_empty() || filter_matches(t, &f))
+                           && (!hide_done || t.status != TaskStatus::Done);
+
+    fn process(result: &mut Vec<usize>, tasks: &[Task], indices: &[usize]) {
+        let roots: Vec<usize> = indices.iter().copied()
+            .filter(|&i| tasks[i].parent_id.as_ref()
+                .map_or(true, |pid| !indices.iter().any(|&j| tasks[j].id == *pid)))
+            .collect();
+        for ri in roots {
+            result.push(ri);
+            for ci in indices.iter().copied()
+                .filter(|&ci| tasks[ci].parent_id.as_deref() == Some(tasks[ri].id.as_str()))
+            {
+                result.push(ci);
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+    for cake in cakes {
+        let group: Vec<usize> = tasks.iter().enumerate()
+            .filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && is_vis(t))
+            .map(|(i, _)| i).collect();
+        if !group.is_empty() { process(&mut result, tasks, &group); }
+    }
+    let standalone: Vec<usize> = tasks.iter().enumerate()
+        .filter(|(_, t)| t.cake_id.is_none() && is_vis(t))
+        .map(|(i, _)| i).collect();
+    if !standalone.is_empty() { process(&mut result, tasks, &standalone); }
+    result
+}
+
+/// Returns planner tasks in the order the renderer shows them.
+/// Table mode: cake-grouped flat order. Tree mode: cake-grouped tree traversal (roots then children).
+/// Used so Up/Down and task selection agree with what's on screen.
+pub(crate) fn planner_visible_tasks<'a>(
+    cakes: &[Cake],
+    tasks: &'a [(String, Task)],
+    filter: &str,
+    hide_done: bool,
+    tree: bool,
+) -> Vec<&'a (String, Task)> {
+    let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
+    let is_vis = |t: &Task| (f.is_empty() || filter_matches(t, &f))
+                           && (!hide_done || t.status != TaskStatus::Done);
+
+    fn process_group<'a>(result: &mut Vec<&'a (String, Task)>, group: &[&'a (String, Task)], tree: bool) {
+        if !tree { result.extend_from_slice(group); return; }
+        let roots: Vec<&(String, Task)> = group.iter().copied()
+            .filter(|(_, t)| t.parent_id.as_ref()
+                .map_or(true, |pid| !group.iter().any(|(_, pt)| pt.id == *pid)))
+            .collect();
+        for (_, root_task) in &roots {
+            let item = group.iter().copied().find(|(_, t)| t.id == root_task.id).unwrap();
+            result.push(item);
+            for child in group.iter().copied()
+                .filter(|(_, t)| t.parent_id.as_deref() == Some(root_task.id.as_str()))
+            { result.push(child); }
+        }
+    }
+
+    let mut result = Vec::new();
+    for cake in cakes {
+        let group: Vec<&(String, Task)> = tasks.iter()
+            .filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && is_vis(t))
+            .collect();
+        if !group.is_empty() { process_group(&mut result, &group, tree); }
+    }
+    let standalone: Vec<&(String, Task)> = tasks.iter()
+        .filter(|(_, t)| t.cake_id.is_none() && is_vis(t))
+        .collect();
+    if !standalone.is_empty() { process_group(&mut result, &standalone, tree); }
+    result
+}
+
 fn next_task_type(t: TaskType) -> TaskType {
     match t { TaskType::Task => TaskType::Bug, TaskType::Bug => TaskType::Incident, TaskType::Incident => TaskType::Task }
 }
@@ -1410,6 +1442,26 @@ fn expand_tilde(path: &str) -> String {
         if let Some(home) = dirs::home_dir() { return home.to_string_lossy().into_owned(); }
     }
     path.to_string()
+}
+
+fn open_editor(initial: &str) -> Option<String> {
+    let tmp_path = std::env::temp_dir().join(format!("gitcake-{}.md", std::process::id()));
+    fs::write(&tmp_path, initial).ok()?;
+
+    let _ = crossterm::terminal::disable_raw_mode();
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+    let _ = std::process::Command::new(&editor).arg(&tmp_path).status();
+
+    let _ = crossterm::terminal::enable_raw_mode();
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
+
+    let content = fs::read_to_string(&tmp_path).unwrap_or_default();
+    let _ = fs::remove_file(&tmp_path);
+    Some(content.trim_end_matches('\n').to_string())
 }
 
 fn is_empty_repo(path: &Path) -> bool {
