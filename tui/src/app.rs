@@ -28,12 +28,6 @@ pub enum TaskContext {
     Backlog,
 }
 
-#[derive(PartialEq, Clone, Copy)]
-pub enum ViewMode {
-    Table,
-    Tree,
-}
-
 // ── screens ───────────────────────────────────────────────────────────────────
 
 pub enum Screen {
@@ -191,7 +185,6 @@ pub struct App {
     pub filter_active: bool,
     pub hide_done: bool,
     pub needs_clear: bool,
-    pub view_mode: ViewMode,
     /// Cached cake list for detail view and pickers. Refreshed when entering planner.
     pub cached_cakes: Vec<Cake>,
 }
@@ -204,7 +197,7 @@ impl App {
                 repo: None, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, view_mode: ViewMode::Table, cached_cakes: Vec::new(),
+                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(),
             };
         }
 
@@ -220,7 +213,7 @@ impl App {
                 repo: None, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, view_mode: ViewMode::Table, cached_cakes: Vec::new(),
+                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(),
             };
         }
 
@@ -235,19 +228,12 @@ impl App {
             screen, repo, config, context: TaskContext::Personal,
             should_quit: false, exit_message: None,
             pull_error, lock_warning, lock_path,
-            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, view_mode: ViewMode::Table, cached_cakes: Vec::new(),
+            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(),
         }
     }
 
     pub fn handle_event(&mut self, event: Event) {
         let Event::Key(key) = event else { return };
-        if matches!(&self.screen, Screen::TaskList { .. } | Screen::PlannerView { .. }) {
-            match key.code {
-                KeyCode::F(1) => { self.view_mode = ViewMode::Table; return; }
-                KeyCode::F(2) => { self.view_mode = ViewMode::Tree;  return; }
-                _ => {}
-            }
-        }
         if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
             let input_screen = matches!(&self.screen,
                 Screen::Setup { .. } | Screen::InitRepo { .. } | Screen::Create { .. }
@@ -372,14 +358,7 @@ impl App {
         }
         let filter = self.filter.clone();
         let hide_done = self.hide_done;
-        let visible: Vec<usize> = if self.view_mode == ViewMode::Tree {
-            tree_visible_indices(tasks, &self.cached_cakes, &filter, hide_done)
-        } else {
-            apply_filter_indices(tasks, &filter)
-                .into_iter()
-                .filter(|&i| !hide_done || tasks[i].status != TaskStatus::Done)
-                .collect()
-        };
+        let visible: Vec<usize> = tree_visible_indices(tasks, &self.cached_cakes, &filter, hide_done);
         let vc = visible.len();
         let up_k = self.config.keys.up.chars().next().unwrap_or('w');
         let dn_k = self.config.keys.down.chars().next().unwrap_or('s');
@@ -912,9 +891,9 @@ impl App {
         if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::NONE {
             let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
             let hd = self.hide_done;
-            let tree = self.view_mode == ViewMode::Tree;
+    
             let task = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
-                planner_visible_tasks(cakes, tasks, &f, hd, tree)
+                planner_visible_tasks(cakes, tasks, &f, hd, true)
                     .get(*selected).map(|(_, t)| t.clone())
             } else { None };
             if let Some(t) = task {
@@ -930,9 +909,9 @@ impl App {
         }
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let hd = self.hide_done;
-        let tree = self.view_mode == ViewMode::Tree;
+
         let visible_count = if let Screen::PlannerView { cakes, tasks, .. } = &self.screen {
-            planner_visible_tasks(cakes, tasks, &f, hd, tree).len()
+            planner_visible_tasks(cakes, tasks, &f, hd, true).len()
         } else { return };
         let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
         match key.code {
@@ -960,9 +939,9 @@ impl App {
     fn do_planner_backlog(&mut self) {
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let hd = self.hide_done;
-        let tree = self.view_mode == ViewMode::Tree;
+
         let task_id = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
-            planner_visible_tasks(cakes, tasks, &f, hd, tree)
+            planner_visible_tasks(cakes, tasks, &f, hd, true)
                 .get(*selected).map(|(_, t)| t.id.clone())
         } else { None };
         let Some(id) = task_id else { return };
