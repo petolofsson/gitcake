@@ -214,12 +214,13 @@ impl App {
         let (raw_tasks, task_warnings) = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
         let startup_msg = merge_messages(pull_msg, warn_summary(&task_warnings));
         let tasks = sort_for_display(raw_tasks);
+        let cached_cakes = repo.as_ref().unwrap().list_cakes().unwrap_or_default();
         let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg };
         Self {
             screen, repo, config, context: TaskContext::Personal,
             should_quit: false, exit_message: None,
             pull_error, lock_warning, lock_path,
-            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(),
+            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes,
         }
     }
 
