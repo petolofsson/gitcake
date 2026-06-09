@@ -172,8 +172,6 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `Ctrl+C` | Create new slice (global — works from any non-input view) |
 | `E` | Edit slice in `$EDITOR` |
 | `F` | Cycle status (open → in-progress → done, wraps) |
-| `F1` | Switch to table view |
-| `F2` | Switch to tree view |
 | `Tab` | Cycle view: Personal → Planner → Backlog → Personal |
 | `Shift+Tab` | Cycle view in reverse |
 | `/` | Filter — matches title, hex ID, owner, type, status, `ai_flagged`, `urgent`, `high`. Esc to clear |
@@ -185,7 +183,7 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 
 List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` (high, yellow), `⚑` (ai_flagged, red). Tasks are sorted in-progress → open → done, then urgent → high → normal within each group.
 
-**F1 (table view):** htop-style flat table with STATUS, TYPE, TITLE, BITES, OWNER columns. **F2 (tree view):** Linux-style tree layout grouped by cake then standalone, with `├──`/`└──` connectors and status symbol inline before the title. F1/F2 is a global toggle that persists across all views.
+Tree layout groups slices by cake then standalone, with `├──`/`└──` connectors and status symbol inline before the title.
 
 ### Backlog view
 
@@ -195,8 +193,6 @@ List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` 
 | `D` | View slice detail |
 | `E` | Edit slice in `$EDITOR` |
 | `F` | Claim slice for yourself |
-| `F1` | Switch to table view |
-| `F2` | Switch to tree view |
 | `Tab` | Cycle view: Backlog → Personal → Planner |
 | `Shift+Tab` | Cycle view in reverse |
 | `/` | Filter. Esc to clear |
@@ -210,14 +206,16 @@ List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` 
 
 | Key | Action |
 |---|---|
-| `Tab` / `Shift+Tab` | Move between fields (TITLE → TYPE → ASSIGN → CAKE → TITLE) |
-| `←` / `→` | Cycle TYPE value |
-| `↑` / `↓` | Navigate ASSIGN / CAKE list |
-| Any char / `Backspace` | Type to filter ASSIGN / CAKE list; edit TITLE |
-| `Enter` | Create task (from any field) |
-| `Esc` | Cancel and return to previous view |
+| `1` | Cycle TYPE (task → bug → incident → task) |
+| `2` | Cycle PRIORITY (normal → high → urgent → normal) |
+| `3` | First press focuses ASSIGN for typing/filtering; subsequent presses advance selection |
+| `4` | First press focuses CAKE for typing/filtering; subsequent presses advance selection |
+| `↑` / `↓` | Navigate list when ASSIGN or CAKE is focused |
+| Any char / `Backspace` | Type to filter when ASSIGN or CAKE is focused |
+| `Enter` / `Ctrl+C` | Open `$EDITOR` to write title and description, then create on save |
+| `Esc` | If ASSIGN/CAKE focused: return to base. If base: cancel |
 
-Centered popup overlay. TITLE has a live text cursor. TYPE shows inline chips with the selected one `[bracketed]`. ASSIGN and CAKE expand to a filterable list when focused.
+Centered popup overlay. A hint line at the top reads "Use numbers 1-4 to configure your slice." TYPE and PRIORITY show inline chips with the selected one `[bracketed]`. ASSIGN and CAKE expand to a filterable list when focused; the CAKE null option displays as "None (default)" and is hidden when the filter cannot match it. Pressing `Enter` or `Ctrl+C` opens `$EDITOR` with a template (`# Write title here` + `## Description:`). On save the title is extracted from line 1 and the description from below `## Description:`; an empty title aborts without creating.
 
 ### Detail view
 
@@ -242,8 +240,6 @@ Detail view shows five navigable rows (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) wi
 | `D` | View slice detail |
 | `C` | Create new cake |
 | `Ctrl+C` | Create new slice |
-| `F1` | Switch to table view |
-| `F2` | Switch to tree view |
 | `Tab` | Cycle view: Planner → Backlog → Personal |
 | `Shift+Tab` | Cycle view in reverse |
 | `/` | Filter — same match rules as personal view. Esc to clear |
