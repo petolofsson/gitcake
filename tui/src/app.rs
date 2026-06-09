@@ -732,35 +732,39 @@ impl App {
     fn advance_cake_sel(&mut self) {
         if let Screen::Create { cakes, cake_filter, cake_sel, .. } = &mut self.screen {
             let cf = cake_filter.to_lowercase();
-            let fc = 1 + cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).count();
-            *cake_sel = (*cake_sel + 1) % fc;
+            let none_vis = cf.is_empty() || "none".contains(&cf);
+            let fc = (if none_vis { 1 } else { 0 }) + cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).count();
+            if fc > 0 { *cake_sel = (*cake_sel + 1) % fc; }
         }
     }
 
     fn create_assignee_key(&mut self, key: KeyEvent) {
-        let no_mod = key.modifiers == KeyModifiers::NONE;
+        let no_mod   = key.modifiers == KeyModifiers::NONE;
+        let is_alpha = no_mod || key.modifiers == KeyModifiers::SHIFT;
         let Screen::Create { users, user_filter, user_sel, .. } = &mut self.screen else { return };
         let f = user_filter.to_lowercase();
         let fc = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).count();
         match key.code {
-            KeyCode::Up        if no_mod => { *user_sel = user_sel.checked_sub(1).unwrap_or(fc.saturating_sub(1)); }
-            KeyCode::Down      if no_mod => { if fc > 0 { *user_sel = (*user_sel + 1) % fc; } }
-            KeyCode::Backspace           => { user_filter.pop(); *user_sel = 0; }
-            KeyCode::Char(c)   if no_mod => { user_filter.push(c); *user_sel = 0; }
+            KeyCode::Up        if no_mod  => { *user_sel = user_sel.checked_sub(1).unwrap_or(fc.saturating_sub(1)); }
+            KeyCode::Down      if no_mod  => { if fc > 0 { *user_sel = (*user_sel + 1) % fc; } }
+            KeyCode::Backspace            => { user_filter.pop(); *user_sel = 0; }
+            KeyCode::Char(c)   if is_alpha => { user_filter.push(c); *user_sel = 0; }
             _ => {}
         }
     }
 
     fn create_cake_key(&mut self, key: KeyEvent) {
-        let no_mod = key.modifiers == KeyModifiers::NONE;
+        let no_mod   = key.modifiers == KeyModifiers::NONE;
+        let is_alpha = no_mod || key.modifiers == KeyModifiers::SHIFT;
         let Screen::Create { cakes, cake_filter, cake_sel, .. } = &mut self.screen else { return };
         let cf = cake_filter.to_lowercase();
-        let fc = 1 + cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).count();
+        let none_vis = cf.is_empty() || "none".contains(&cf);
+        let fc = (if none_vis { 1 } else { 0 }) + cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).count();
         match key.code {
-            KeyCode::Up        if no_mod => { *cake_sel = cake_sel.checked_sub(1).unwrap_or(fc - 1); }
-            KeyCode::Down      if no_mod => { *cake_sel = (*cake_sel + 1) % fc; }
-            KeyCode::Backspace           => { cake_filter.pop(); *cake_sel = 0; }
-            KeyCode::Char(c)   if no_mod => { cake_filter.push(c); *cake_sel = 0; }
+            KeyCode::Up        if no_mod  => { *cake_sel = cake_sel.checked_sub(1).unwrap_or(fc.saturating_sub(1)); }
+            KeyCode::Down      if no_mod  => { if fc > 0 { *cake_sel = (*cake_sel + 1) % fc; } }
+            KeyCode::Backspace            => { cake_filter.pop(); *cake_sel = 0; }
+            KeyCode::Char(c)   if is_alpha => { cake_filter.push(c); *cake_sel = 0; }
             _ => {}
         }
     }
@@ -792,8 +796,13 @@ impl App {
         let filt_u: Vec<&String> = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).collect();
         let assignee = filt_u.get(user_sel).map(|u| (*u).clone());
         let cf = cake_filter.to_lowercase();
+        let none_vis = cf.is_empty() || "none".contains(&cf);
         let filt_c: Vec<&Cake> = cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).collect();
-        let cake_id = if cake_sel == 0 { None } else { filt_c.get(cake_sel - 1).map(|c| c.id.clone()) };
+        let cake_id = if none_vis {
+            if cake_sel == 0 { None } else { filt_c.get(cake_sel - 1).map(|c| c.id.clone()) }
+        } else {
+            filt_c.get(cake_sel).map(|c| c.id.clone())
+        };
         let new_task = NewTask { title: title_str, description: desc, task_type: tt, priority, cake_id, ..Default::default() };
         let create_result = match ctx {
             TaskContext::Personal => self.repo.as_ref().map(|r| r.create_task(new_task)),
@@ -1438,8 +1447,11 @@ fn open_editor(initial: &str) -> Option<String> {
     let tmp_path = std::env::temp_dir().join(format!("gitcake-{}.md", std::process::id()));
     fs::write(&tmp_path, initial).ok()?;
 
+    let _ = crossterm::execute!(std::io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        crossterm::terminal::LeaveAlternateScreen,
+    );
     let _ = crossterm::terminal::disable_raw_mode();
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
 
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
@@ -1448,6 +1460,10 @@ fn open_editor(initial: &str) -> Option<String> {
 
     let _ = crossterm::terminal::enable_raw_mode();
     let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
+    // drain any queued events (mouse moves etc.) that accumulated during the editor session
+    while crossterm::event::poll(std::time::Duration::from_millis(0)).unwrap_or(false) {
+        let _ = crossterm::event::read();
+    }
 
     let content = fs::read_to_string(&tmp_path).unwrap_or_default();
     let _ = fs::remove_file(&tmp_path);

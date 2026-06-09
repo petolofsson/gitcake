@@ -869,15 +869,20 @@ fn draw_create_assign(f: &mut Frame, area: Rect, users: &[String], filter: &str,
 
 fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &str, sel: usize, active: bool, theme: &Theme) {
     let f_lower = filter.to_lowercase();
-    let opts: Vec<Option<&Cake>> = std::iter::once(None)
+    let none_vis = f_lower.is_empty() || "none".contains(&f_lower);
+    let opts: Vec<Option<&Cake>> = (if none_vis { vec![None] } else { vec![] })
+        .into_iter()
         .chain(cakes.iter().filter(|c| f_lower.is_empty() || c.title.to_lowercase().contains(&f_lower)).map(Some))
         .collect();
+    let cake_name = |entry: Option<&Cake>| -> String {
+        entry.map(|c| c.title.clone()).unwrap_or_else(|| "None (default)".to_string())
+    };
     let label = num_field_label("CAKE");
     let key   = num_key_badge("4");
     if !active {
-        let val = opts.get(sel).and_then(|c| *c).map(|c| c.title.as_str()).unwrap_or("none");
+        let val = opts.get(sel).map(|e| cake_name(*e)).unwrap_or_else(|| "None (default)".to_string());
         f.render_widget(Paragraph::new(Line::from(vec![
-            key, label, Span::styled(val.to_string(), theme.dim()),
+            key, label, Span::styled(val, theme.dim()),
         ])), area);
         return;
     }
@@ -890,8 +895,8 @@ fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &st
     f.set_cursor_position((sub[0].x + 13 + filter.len() as u16, sub[0].y));
     for (i, row) in sub.iter().enumerate().skip(1) {
         if let Some(entry) = opts.get(i - 1) {
-            let name = entry.map(|c| c.title.as_str()).unwrap_or("none");
-            let is_sel = (i - 1) == sel;
+            let name = cake_name(*entry);
+            let is_sel = i - 1 == sel;
             let (cur, cur_sty, row_sty) = if is_sel {
                 (format!("{} ", theme.cursor), Style::new().fg(theme.accent), theme.highlight)
             } else {
