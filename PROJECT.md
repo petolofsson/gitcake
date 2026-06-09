@@ -174,16 +174,16 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `F` | Cycle status (open → in-progress → done, wraps) |
 | `Tab` | Cycle view: Personal → Planner → Backlog → Personal |
 | `Shift+Tab` | Cycle view in reverse |
-| `/` | Filter — matches title, hex ID, owner, type, status, `ai_flagged`, `urgent`, `high`. Esc to clear |
+| `/` | Filter — matches title, hex ID, owner, type, status, `ai_flagged`, `urgent`, `high`. Prefix `@` for owner, `!` to exclude, `#` to filter by cake name. Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice to any user (including yourself) |
 | `Ctrl+R` | Push (commit + push) |
 | `Ctrl+B` | Move to backlog (clears owner, resets status) |
 | `Ctrl+Q` | Quit |
 
-List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` (high, yellow), `⚑` (ai_flagged, red). Tasks are sorted in-progress → open → done, then urgent → high → normal within each group.
+List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` (high, yellow), `⚑` (ai_flagged, red). Tasks are sorted in-progress → open → done, then urgent → high → normal within each group. The owner column is blank in personal view (implied).
 
-Tree layout groups slices by cake then standalone, with `├──`/`└──` connectors and status symbol inline before the title.
+Tree layout groups slices by cake then standalone, with `├──`/`└──` connectors and status symbol inline before the title. Groups are separated by a blank row for readability.
 
 ### Backlog view
 
@@ -195,7 +195,7 @@ Tree layout groups slices by cake then standalone, with `├──`/`└──` 
 | `F` | Claim slice for yourself |
 | `Tab` | Cycle view: Backlog → Personal → Planner |
 | `Shift+Tab` | Cycle view in reverse |
-| `/` | Filter. Esc to clear |
+| `/` | Filter — same match rules as personal view (`@` owner, `!` exclude, `#` cake). Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign slice to any user (opens picker) |
 | `Ctrl+D` | Permanently delete slice |
@@ -242,7 +242,7 @@ Detail view shows five navigable rows (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) wi
 | `Ctrl+C` | Create new slice |
 | `Tab` | Cycle view: Planner → Backlog → Personal |
 | `Shift+Tab` | Cycle view in reverse |
-| `/` | Filter — same match rules as personal view. Esc to clear |
+| `/` | Filter — same match rules as personal view (`@` owner, `!` exclude, `#` cake). Esc to clear |
 | `Shift+R` | Pull |
 | `Ctrl+A` | Assign |
 | `Ctrl+R` | Push |
