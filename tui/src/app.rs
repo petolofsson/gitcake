@@ -1301,7 +1301,7 @@ fn apply_filter_indices(tasks: &[Task], filter: &str) -> Vec<usize> {
 /// Used so Up/Down in tree mode selects tasks in the same order they appear on screen.
 pub(crate) fn tree_visible_indices(tasks: &[Task], cakes: &[Cake], filter: &str, hide_done: bool) -> Vec<usize> {
     let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
-    let is_vis = |t: &Task| (f.is_empty() || filter_matches(t, &f))
+    let is_vis = |t: &Task| (f.is_empty() || filter_matches_with_cakes(t, cakes, &f))
                            && (!hide_done || t.status != TaskStatus::Done);
 
     fn process(result: &mut Vec<usize>, tasks: &[Task], indices: &[usize]) {
@@ -1344,7 +1344,7 @@ pub(crate) fn planner_visible_tasks<'a>(
     tree: bool,
 ) -> Vec<&'a (String, Task)> {
     let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
-    let is_vis = |t: &Task| (f.is_empty() || filter_matches(t, &f))
+    let is_vis = |t: &Task| (f.is_empty() || filter_matches_with_cakes(t, cakes, &f))
                            && (!hide_done || t.status != TaskStatus::Done);
 
     fn process_group<'a>(result: &mut Vec<&'a (String, Task)>, group: &[&'a (String, Task)], tree: bool) {
@@ -1403,6 +1403,17 @@ pub(crate) fn filter_matches(t: &Task, filter: &str) -> bool {
         return t.owner.as_deref().map(|o| o.to_lowercase().contains(owner_q)).unwrap_or(false);
     }
     task_matches(t, filter)
+}
+
+pub(crate) fn filter_matches_with_cakes(t: &Task, cakes: &[Cake], filter: &str) -> bool {
+    if filter.is_empty() { return true; }
+    if let Some(cake_q) = filter.strip_prefix('#') {
+        return t.cake_id.as_deref()
+            .and_then(|cid| cakes.iter().find(|c| c.id == cid))
+            .map(|c| cake_q.is_empty() || c.title.to_lowercase().contains(cake_q))
+            .unwrap_or(false);
+    }
+    filter_matches(t, filter)
 }
 
 fn type_str(t: &gitcake_core::models::task::TaskType) -> &'static str {

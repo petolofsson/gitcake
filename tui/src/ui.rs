@@ -333,7 +333,7 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         let owner = if context == TaskContext::Backlog {
             t.owner.as_deref().unwrap_or("(none)").to_string()
         } else {
-            "(you)".to_string()
+            String::new()
         };
         (owner, t.clone())
     }).collect();
@@ -384,7 +384,7 @@ fn filter_line_widget<'a>(filter: &'a str, filter_active: bool, theme: &Theme) -
                 Span::raw("  "),
                 Span::styled("/ ", dim),
                 Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
-                Span::styled("   you can use '@' for users '!' to exclude", dim),
+                Span::styled("  '@' users  '!' exclude  '#' cake", dim),
             ]))
         } else {
             Paragraph::new(Line::from(vec![
@@ -506,13 +506,14 @@ fn build_tree_items(
     hide_done: bool,
     theme: &Theme,
 ) -> (Vec<Row<'static>>, Vec<Option<usize>>) {
-    use crate::app::filter_matches;
+    use crate::app::filter_matches_with_cakes;
     let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
-    let is_vis = |t: &Task| (f.is_empty() || filter_matches(t, &f))
+    let is_vis = |t: &Task| (f.is_empty() || filter_matches_with_cakes(t, cakes, &f))
                            && (!hide_done || t.status != TaskStatus::Done);
     let mut rows: Vec<Row<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
     let mut vis_idx = 0usize;
+    let mut first_group = true;
     let cake_hdr_sty = Style::new().add_modifier(Modifier::BOLD).fg(theme.accent);
     let rule_sty     = Style::new().fg(theme.muted);
     let make_header  = |title: String, progress: String| -> Row<'static> {
@@ -539,17 +540,18 @@ fn build_tree_items(
         let total  = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id)).count();
         let active = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && t.status != TaskStatus::Done).count();
         let progress = if total > 0 { format!(" {active}/{total}") } else { String::new() };
+        if !first_group { rows.push(Row::new(vec![""; 6])); index_map.push(None); }
+        first_group = false;
         rows.push(make_header(cake.title.clone(), progress));
         index_map.push(None);
         render_tree_rows(&mut rows, &mut index_map, &mut vis_idx, selected, &cake_vis, theme);
-        rows.push(Row::new(vec![""; 6]));
-        index_map.push(None);
     }
     let standalone: Vec<(&str, &Task)> = tasks.iter()
         .filter(|(_, t)| t.cake_id.is_none() && is_vis(t))
         .map(|(o, t)| (o.as_str(), t))
         .collect();
     if !standalone.is_empty() {
+        if !first_group { rows.push(Row::new(vec![""; 6])); index_map.push(None); }
         rows.push(make_header("STANDALONE".to_string(), String::new()));
         index_map.push(None);
         render_tree_rows(&mut rows, &mut index_map, &mut vis_idx, selected, &standalone, theme);
