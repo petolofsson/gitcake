@@ -21,41 +21,21 @@ fn desc_too_long(len: usize) -> String {
 }
 
 const CREATE_EDITOR_TEMPLATE: &str = "\
-#
-<!-- Description starts below this line -->
-<!--
-  Add subtasks (bites) as:   - [ ] Subtask title
-  Mark done:                 - [x] Subtask title
-  Sub-items (crumbs) indent under a bite:
-                             - [ ] Crumb title
--->
+# Write title here
+
+## Description:
+
 ";
 
 fn parse_create_editor_output(s: &str) -> (String, Option<String>) {
     let title = s.lines().next()
         .map(|l| l.trim_start_matches('#').trim().to_string())
         .unwrap_or_default();
-    let marker = "<!-- Description starts below this line -->";
+    let marker = "## Description:";
     let description = s.find(marker).map(|pos| {
-        let after = &s[pos + marker.len()..];
-        let stripped = strip_html_comments(after).trim().to_string();
-        stripped
-    }).filter(|s| !s.is_empty());
+        s[pos + marker.len()..].trim().to_string()
+    }).filter(|d| !d.is_empty());
     (title, description)
-}
-
-fn strip_html_comments(s: &str) -> String {
-    let mut out = s.to_string();
-    loop {
-        match out.find("<!--") {
-            Some(start) => match out[start..].find("-->") {
-                Some(end) => { out.drain(start..start + end + 3); }
-                None      => break,
-            },
-            None => break,
-        }
-    }
-    out
 }
 
 // ── context ───────────────────────────────────────────────────────────────────
