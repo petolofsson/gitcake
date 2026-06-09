@@ -20,6 +20,44 @@ fn desc_too_long(len: usize) -> String {
     format!("{DESC_TOO_LONG_MSG} ({len}/{DESCRIPTION_MAX_CHARS})")
 }
 
+const CREATE_EDITOR_TEMPLATE: &str = "\
+#
+<!-- Description starts below this line -->
+<!--
+  Add subtasks (bites) as:   - [ ] Subtask title
+  Mark done:                 - [x] Subtask title
+  Sub-items (crumbs) indent under a bite:
+                             - [ ] Crumb title
+-->
+";
+
+fn parse_create_editor_output(s: &str) -> (String, Option<String>) {
+    let title = s.lines().next()
+        .map(|l| l.trim_start_matches('#').trim().to_string())
+        .unwrap_or_default();
+    let marker = "<!-- Description starts below this line -->";
+    let description = s.find(marker).map(|pos| {
+        let after = &s[pos + marker.len()..];
+        let stripped = strip_html_comments(after).trim().to_string();
+        stripped
+    }).filter(|s| !s.is_empty());
+    (title, description)
+}
+
+fn strip_html_comments(s: &str) -> String {
+    let mut out = s.to_string();
+    loop {
+        match out.find("<!--") {
+            Some(start) => match out[start..].find("-->") {
+                Some(end) => { out.drain(start..start + end + 3); }
+                None      => break,
+            },
+            None => break,
+        }
+    }
+    out
+}
+
 // ── context ───────────────────────────────────────────────────────────────────
 
 #[derive(PartialEq, Clone, Copy)]
@@ -54,8 +92,6 @@ pub enum Screen {
         from_planner: bool,
     },
     Create {
-        title:       Input,
-        description: String,
         focus:       CreateFocus,
         task_type:   TaskType,
         priority:    Priority,
@@ -104,35 +140,10 @@ pub enum Screen {
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum CreateFocus {
+    /// Default: no field focused for typing; 1–4 cycle metadata, ↵/^C opens editor.
     Title,
-    Description,
-    Type,
-    Priority,
     Assignee,
     Cake,
-}
-
-impl CreateFocus {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Title       => Self::Description,
-            Self::Description => Self::Type,
-            Self::Type        => Self::Priority,
-            Self::Priority    => Self::Assignee,
-            Self::Assignee    => Self::Cake,
-            Self::Cake        => Self::Title,
-        }
-    }
-    pub fn prev(self) -> Self {
-        match self {
-            Self::Title       => Self::Cake,
-            Self::Description => Self::Title,
-            Self::Type        => Self::Description,
-            Self::Priority    => Self::Type,
-            Self::Assignee    => Self::Priority,
-            Self::Cake        => Self::Assignee,
-        }
-    }
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -271,7 +282,7 @@ impl App {
         if let Some((users, user_sel)) = info {
             let cakes = self.cached_cakes.clone();
             self.screen = Screen::Create {
-                title: Input::default(), description: String::new(), focus: CreateFocus::Title,
+                focus: CreateFocus::Title,
                 task_type: TaskType::Task, priority: Priority::Normal,
                 users, user_filter: String::new(), user_sel,
                 cakes, cake_filter: String::new(), cake_sel: 0,
@@ -648,84 +659,81 @@ impl App {
 
     fn handle_create(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.should_quit = true; return; }
-        if key.code == KeyCode::Esc { self.enter_task_list(None, None); return; }
+        let no_mod  = key.modifiers == KeyModifiers::NONE;
+        let is_ctrl = key.modifiers == KeyModifiers::CONTROL;
+        if key.code == KeyCode::Char('c') && is_ctrl { self.open_create_editor(); return; }
         let focus = match &self.screen {
             Screen::Create { focus, .. } => *focus,
             _ => return,
         };
-        if key.code == KeyCode::Tab    { self.create_next_field(false); return; }
-        if key.code == KeyCode::BackTab { self.create_next_field(true); return; }
-        if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE
-            && focus != CreateFocus::Description
-        {
-            self.submit_create(); return;
-        }
-        match focus {
-            CreateFocus::Title       => self.create_title_key(key),
-            CreateFocus::Description => {
-                if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE {
-                    let current = match &self.screen {
-                        Screen::Create { description, .. } => description.clone(),
-                        _ => return,
-                    };
-                    if let Some(new_desc) = open_editor(&current) {
-                        if let Screen::Create { description, focus, .. } = &mut self.screen {
-                            *description = new_desc;
-                            *focus = CreateFocus::Type;
-                        }
+        match key.code {
+            KeyCode::Esc => match focus {
+                CreateFocus::Title => self.enter_task_list(None, None),
+                _ => {
+                    if let Screen::Create { focus, user_filter, cake_filter, .. } = &mut self.screen {
+                        user_filter.clear(); cake_filter.clear();
+                        *focus = CreateFocus::Title;
                     }
-                    self.needs_clear = true;
+                }
+            },
+            KeyCode::Enter if no_mod => self.open_create_editor(),
+            KeyCode::Char('1') if no_mod => {
+                if let Screen::Create { task_type, .. } = &mut self.screen {
+                    *task_type = match task_type {
+                        TaskType::Task     => TaskType::Bug,
+                        TaskType::Bug      => TaskType::Incident,
+                        TaskType::Incident => TaskType::Task,
+                    };
                 }
             }
-            CreateFocus::Type        => self.create_type_key(key),
-            CreateFocus::Priority    => self.create_priority_key(key),
-            CreateFocus::Assignee    => self.create_assignee_key(key),
-            CreateFocus::Cake        => self.create_cake_key(key),
+            KeyCode::Char('2') if no_mod => {
+                if let Screen::Create { priority, .. } = &mut self.screen {
+                    *priority = match priority {
+                        Priority::Normal => Priority::High,
+                        Priority::High   => Priority::Urgent,
+                        Priority::Urgent => Priority::Normal,
+                    };
+                }
+            }
+            KeyCode::Char('3') if no_mod => match focus {
+                CreateFocus::Assignee => self.advance_user_sel(),
+                _ => {
+                    if let Screen::Create { focus, cake_filter, .. } = &mut self.screen {
+                        cake_filter.clear();
+                        *focus = CreateFocus::Assignee;
+                    }
+                }
+            },
+            KeyCode::Char('4') if no_mod => match focus {
+                CreateFocus::Cake => self.advance_cake_sel(),
+                _ => {
+                    if let Screen::Create { focus, user_filter, .. } = &mut self.screen {
+                        user_filter.clear();
+                        *focus = CreateFocus::Cake;
+                    }
+                }
+            },
+            _ => match focus {
+                CreateFocus::Assignee => self.create_assignee_key(key),
+                CreateFocus::Cake     => self.create_cake_key(key),
+                CreateFocus::Title    => {}
+            }
         }
     }
 
-    fn create_next_field(&mut self, backward: bool) {
-        if let Screen::Create { focus, user_filter, cake_filter, .. } = &mut self.screen {
-            user_filter.clear();
-            cake_filter.clear();
-            *focus = if backward { focus.prev() } else { focus.next() };
+    fn advance_user_sel(&mut self) {
+        if let Screen::Create { users, user_filter, user_sel, .. } = &mut self.screen {
+            let f = user_filter.to_lowercase();
+            let fc = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).count();
+            if fc > 0 { *user_sel = (*user_sel + 1) % fc; }
         }
     }
 
-    fn create_title_key(&mut self, key: KeyEvent) {
-        use tui_input::backend::crossterm::EventHandler;
-        if let Screen::Create { title, .. } = &mut self.screen {
-            title.handle_event(&crossterm::event::Event::Key(key));
-        }
-    }
-
-    fn create_type_key(&mut self, key: KeyEvent) {
-        if key.modifiers != KeyModifiers::NONE { return; }
-        let Screen::Create { task_type, .. } = &mut self.screen else { return };
-        if matches!(key.code, KeyCode::Left | KeyCode::Right) {
-            *task_type = match (&task_type, key.code == KeyCode::Right) {
-                (TaskType::Task,     true)  => TaskType::Bug,
-                (TaskType::Task,     false) => TaskType::Incident,
-                (TaskType::Bug,      true)  => TaskType::Incident,
-                (TaskType::Bug,      false) => TaskType::Task,
-                (TaskType::Incident, true)  => TaskType::Task,
-                (TaskType::Incident, false) => TaskType::Bug,
-            };
-        }
-    }
-
-    fn create_priority_key(&mut self, key: KeyEvent) {
-        if key.modifiers != KeyModifiers::NONE { return; }
-        let Screen::Create { priority, .. } = &mut self.screen else { return };
-        if matches!(key.code, KeyCode::Left | KeyCode::Right) {
-            *priority = match (&priority, key.code == KeyCode::Right) {
-                (Priority::Normal, true)  => Priority::High,
-                (Priority::Normal, false) => Priority::Urgent,
-                (Priority::High,   true)  => Priority::Urgent,
-                (Priority::High,   false) => Priority::Normal,
-                (Priority::Urgent, true)  => Priority::Normal,
-                (Priority::Urgent, false) => Priority::High,
-            };
+    fn advance_cake_sel(&mut self) {
+        if let Screen::Create { cakes, cake_filter, cake_sel, .. } = &mut self.screen {
+            let cf = cake_filter.to_lowercase();
+            let fc = 1 + cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).count();
+            *cake_sel = (*cake_sel + 1) % fc;
         }
     }
 
@@ -735,10 +743,10 @@ impl App {
         let f = user_filter.to_lowercase();
         let fc = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).count();
         match key.code {
-            KeyCode::Up    if no_mod => { *user_sel = user_sel.checked_sub(1).unwrap_or(fc.saturating_sub(1)); }
-            KeyCode::Down  if no_mod => { if fc > 0 { *user_sel = (*user_sel + 1) % fc; } }
-            KeyCode::Backspace       => { user_filter.pop(); *user_sel = 0; }
-            KeyCode::Char(c) if no_mod => { user_filter.push(c); *user_sel = 0; }
+            KeyCode::Up        if no_mod => { *user_sel = user_sel.checked_sub(1).unwrap_or(fc.saturating_sub(1)); }
+            KeyCode::Down      if no_mod => { if fc > 0 { *user_sel = (*user_sel + 1) % fc; } }
+            KeyCode::Backspace           => { user_filter.pop(); *user_sel = 0; }
+            KeyCode::Char(c)   if no_mod => { user_filter.push(c); *user_sel = 0; }
             _ => {}
         }
     }
@@ -749,29 +757,32 @@ impl App {
         let cf = cake_filter.to_lowercase();
         let fc = 1 + cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).count();
         match key.code {
-            KeyCode::Up    if no_mod => { *cake_sel = cake_sel.checked_sub(1).unwrap_or(fc - 1); }
-            KeyCode::Down  if no_mod => { *cake_sel = (*cake_sel + 1) % fc; }
-            KeyCode::Backspace       => { cake_filter.pop(); *cake_sel = 0; }
-            KeyCode::Char(c) if no_mod => { cake_filter.push(c); *cake_sel = 0; }
+            KeyCode::Up        if no_mod => { *cake_sel = cake_sel.checked_sub(1).unwrap_or(fc - 1); }
+            KeyCode::Down      if no_mod => { *cake_sel = (*cake_sel + 1) % fc; }
+            KeyCode::Backspace           => { cake_filter.pop(); *cake_sel = 0; }
+            KeyCode::Char(c)   if no_mod => { cake_filter.push(c); *cake_sel = 0; }
             _ => {}
         }
     }
 
-    fn submit_create(&mut self) {
+    fn open_create_editor(&mut self) {
         let extracted = match &self.screen {
-            Screen::Create { title, description, task_type, priority,
-                             users, user_filter, user_sel, cakes, cake_sel, cake_filter, .. } => {
-                let ts = title.value().trim().to_string();
-                if ts.is_empty() { return; }
-                let dt = description.trim().to_string();
-                let desc = if dt.is_empty() { None } else { Some(dt) };
-                Some((ts, desc, task_type.clone(), priority.clone(),
-                      users.clone(), user_filter.clone(), *user_sel, cakes.clone(), *cake_sel, cake_filter.clone()))
+            Screen::Create { task_type, priority, users, user_filter, user_sel,
+                             cakes, cake_sel, cake_filter, .. } => {
+                Some((task_type.clone(), priority.clone(),
+                      users.clone(), user_filter.clone(), *user_sel,
+                      cakes.clone(), *cake_sel, cake_filter.clone()))
             }
             _ => None,
         };
-        let Some((title_str, desc, tt, priority,
-                  users, user_filter, user_sel, cakes, cake_sel, cake_filter)) = extracted else { return };
+        let Some((tt, priority, users, user_filter, user_sel,
+                  cakes, cake_sel, cake_filter)) = extracted else { return };
+        let template = CREATE_EDITOR_TEMPLATE;
+        let content = open_editor(template);
+        self.needs_clear = true;
+        let content = content.unwrap_or_default();
+        let (title_str, desc) = parse_create_editor_output(&content);
+        if title_str.is_empty() { return; }
         if let Some(ref d) = desc {
             let n = d.chars().count();
             if n > DESCRIPTION_MAX_CHARS { self.enter_task_list(Some(desc_too_long(n)), None); return; }

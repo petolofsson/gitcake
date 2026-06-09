@@ -187,9 +187,9 @@ pub fn draw(f: &mut Frame, app: &App) {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
             draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, &t);
         }
-        Screen::Create { title, description, focus, task_type, priority,
+        Screen::Create { focus, task_type, priority,
                          users, user_filter, user_sel, cakes, cake_filter, cake_sel } =>
-            draw_create(f, title, description.as_str(), *focus, task_type, priority,
+            draw_create(f, *focus, task_type, priority,
                         users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t),
         Screen::EditTask { task_id, title, description, context, from_planner, .. } => {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
@@ -539,7 +539,7 @@ fn build_tree_items(
         let total  = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id)).count();
         let active = tasks.iter().filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && t.status != TaskStatus::Done).count();
         let progress = if total > 0 { format!(" {active}/{total}") } else { String::new() };
-        rows.push(make_header(format!(" {}", cake.title), progress));
+        rows.push(make_header(cake.title.clone(), progress));
         index_map.push(None);
         render_tree_rows(&mut rows, &mut index_map, &mut vis_idx, selected, &cake_vis, theme);
         rows.push(Row::new(vec![""; 6]));
@@ -550,7 +550,7 @@ fn build_tree_items(
         .map(|(o, t)| (o.as_str(), t))
         .collect();
     if !standalone.is_empty() {
-        rows.push(make_header(" STANDALONE".to_string(), String::new()));
+        rows.push(make_header("STANDALONE".to_string(), String::new()));
         index_map.push(None);
         render_tree_rows(&mut rows, &mut index_map, &mut vis_idx, selected, &standalone, theme);
     }
@@ -763,67 +763,49 @@ fn create_field_label(active: bool, theme: &Theme) -> Style {
     else       { Style::new().fg(theme.muted).add_modifier(Modifier::BOLD) }
 }
 
+fn num_key_badge(n: &'static str) -> Span<'static> {
+    Span::raw(format!("[{n}]"))
+}
+
+fn num_field_label(s: &'static str) -> Span<'static> {
+    Span::styled(format!(" {s:<8} "), Style::new().add_modifier(Modifier::BOLD))
+}
+
 #[allow(clippy::too_many_arguments)]
-fn draw_create(f: &mut Frame, title: &Input, description: &str, focus: CreateFocus, task_type: &TaskType, priority: &Priority, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
+fn draw_create(f: &mut Frame, focus: CreateFocus, task_type: &TaskType, priority: &Priority, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
     let area = f.area();
     let assign_h: u16 = if focus == CreateFocus::Assignee { 4 } else { 1 };
     let cake_h:   u16 = if focus == CreateFocus::Cake     { 4 } else { 1 };
-    let popup_h = 11 + assign_h + cake_h;
+    let popup_h = 10 + assign_h + cake_h;
     let popup = centered_rect(65, popup_h, area);
     f.render_widget(Clear, popup);
     let block = theme.padded_block("New Task");
     let inner = block.inner(popup);
     f.render_widget(block, popup);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(1),         // TYPE chips
-        Constraint::Length(1),         // PRIORITY chips
-        Constraint::Length(assign_h),  // ASSIGN
-        Constraint::Length(cake_h),    // CAKE
-        Constraint::Length(1),         // TITLE
-        Constraint::Length(1),         // DESC label
-        Constraint::Length(2),         // DESC textarea
+        Constraint::Length(1),         // hint line
+        Constraint::Length(1),         // blank
+        Constraint::Length(1),         // [1] TYPE
+        Constraint::Length(1),         // [2] PRIORITY
+        Constraint::Length(assign_h),  // [3] ASSIGN
+        Constraint::Length(cake_h),    // [4] CAKE
+        Constraint::Length(1),         // blank
         Constraint::Length(1),         // hint bar
     ]).split(inner);
-    draw_create_type_chips(f, rows[0], task_type, focus == CreateFocus::Type, theme);
-    draw_create_priority_chips(f, rows[1], priority, focus == CreateFocus::Priority, theme);
-    draw_create_assign(f, rows[2], users, user_filter, user_sel, focus == CreateFocus::Assignee, theme);
-    draw_create_cake_field(f, rows[3], cakes, cake_filter, cake_sel, focus == CreateFocus::Cake, theme);
-    draw_create_title(f, rows[4], title, focus == CreateFocus::Title, theme);
-    draw_create_desc(f, rows[5], rows[6], description, focus == CreateFocus::Description, theme);
+    f.render_widget(
+        Paragraph::new(Span::styled("Use numbers 1-4 to configure your slice.", theme.dim())),
+        rows[0],
+    );
+    draw_create_type_chips(f, rows[2], task_type, theme);
+    draw_create_priority_chips(f, rows[3], priority, theme);
+    draw_create_assign(f, rows[4], users, user_filter, user_sel, focus == CreateFocus::Assignee, theme);
+    draw_create_cake_field(f, rows[5], cakes, cake_filter, cake_sel, focus == CreateFocus::Cake, theme);
     f.render_widget(Paragraph::new(create_hint_bar_text(rows[7].width, theme)), rows[7]);
 }
 
-fn draw_create_title(f: &mut Frame, area: Rect, input: &Input, active: bool, theme: &Theme) {
-    let label_sty = create_field_label(active, theme);
-    let prefix = "  TITLE   ";
-    let pw = prefix.len() as u16;
-    let iw = area.width.saturating_sub(pw + 2) as usize;
-    let scroll = input.visual_scroll(iw);
-    let display: String = input.value().chars().skip(scroll).take(iw).collect();
-    f.render_widget(Paragraph::new(Line::from(vec![
-        Span::styled(prefix, label_sty),
-        Span::styled(display, if active { Style::new() } else { theme.dim() }),
-    ])), area);
-    if active {
-        let col = (input.visual_cursor().max(scroll) - scroll) as u16;
-        f.set_cursor_position((area.x + pw + col, area.y));
-    }
-}
-
-fn draw_create_desc(f: &mut Frame, label_row: Rect, preview_row: Rect, description: &str, active: bool, theme: &Theme) {
-    let label_sty = create_field_label(active, theme);
-    f.render_widget(Paragraph::new(Line::from(vec![
-        Span::styled("  DESC    ", label_sty),
-        if active { Span::styled("↵ to open editor", theme.dim()) } else { Span::raw("") },
-    ])), label_row);
-    let preview = if description.is_empty() { "(no description)" } else { description };
-    f.render_widget(Paragraph::new(preview).style(theme.dim()), preview_row);
-}
-
-fn draw_create_type_chips(f: &mut Frame, area: Rect, task_type: &TaskType, active: bool, theme: &Theme) {
-    let label_sty = create_field_label(active, theme);
+fn draw_create_type_chips(f: &mut Frame, area: Rect, task_type: &TaskType, theme: &Theme) {
     let types = [TaskType::Task, TaskType::Bug, TaskType::Incident];
-    let mut spans = vec![Span::styled("  TYPE    ", label_sty)];
+    let mut spans = vec![num_key_badge("1"), num_field_label("TYPE")];
     for t in &types {
         if t == task_type {
             spans.push(Span::styled(format!("[{}]", type_label(t)), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
@@ -835,10 +817,9 @@ fn draw_create_type_chips(f: &mut Frame, area: Rect, task_type: &TaskType, activ
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_create_priority_chips(f: &mut Frame, area: Rect, priority: &Priority, active: bool, theme: &Theme) {
-    let label_sty = create_field_label(active, theme);
+fn draw_create_priority_chips(f: &mut Frame, area: Rect, priority: &Priority, theme: &Theme) {
     let priorities = [Priority::Normal, Priority::High, Priority::Urgent];
-    let mut spans = vec![Span::styled("  PRIORITY", label_sty)];
+    let mut spans = vec![num_key_badge("2"), num_field_label("PRIORITY")];
     for p in &priorities {
         if p == priority {
             spans.push(Span::styled(format!("[{}]", priority_label(p)), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
@@ -851,25 +832,26 @@ fn draw_create_priority_chips(f: &mut Frame, area: Rect, priority: &Priority, ac
 }
 
 fn draw_create_assign(f: &mut Frame, area: Rect, users: &[String], filter: &str, sel: usize, active: bool, theme: &Theme) {
-    let label_sty = create_field_label(active, theme);
     let f_lower = filter.to_lowercase();
     let filtered: Vec<&str> = users.iter()
         .filter(|u| f_lower.is_empty() || u.to_lowercase().contains(&f_lower))
         .map(|s| s.as_str()).collect();
+    let label = num_field_label("ASSIGN");
+    let key   = num_key_badge("3");
     if !active {
         let val = filtered.get(sel).copied().unwrap_or("none");
         f.render_widget(Paragraph::new(Line::from(vec![
-            Span::styled("  ASSIGN  ", label_sty), Span::styled(val.to_string(), theme.dim()),
+            key, label, Span::styled(val.to_string(), theme.dim()),
         ])), area);
         return;
     }
     let sub = Layout::default().direction(Direction::Vertical)
         .constraints(vec![Constraint::Length(1); area.height as usize]).split(area);
     f.render_widget(Paragraph::new(Line::from(vec![
-        Span::styled("  ASSIGN  ", label_sty), Span::styled(filter.to_string(), Style::new()),
+        key, label.clone(), Span::styled(filter.to_string(), Style::new()),
     ])), sub[0]);
-    let pw = "  ASSIGN  ".len() as u16;
-    f.set_cursor_position((sub[0].x + pw + filter.len() as u16, sub[0].y));
+    // "[3] ASSIGN   " = 3 + 10 = 13 display cols
+    f.set_cursor_position((sub[0].x + 13 + filter.len() as u16, sub[0].y));
     for (i, row) in sub.iter().enumerate().skip(1) {
         if let Some(name) = filtered.get(i - 1) {
             let is_sel = (i - 1) == sel;
@@ -886,25 +868,26 @@ fn draw_create_assign(f: &mut Frame, area: Rect, users: &[String], filter: &str,
 }
 
 fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &str, sel: usize, active: bool, theme: &Theme) {
-    let label_sty = create_field_label(active, theme);
     let f_lower = filter.to_lowercase();
     let opts: Vec<Option<&Cake>> = std::iter::once(None)
         .chain(cakes.iter().filter(|c| f_lower.is_empty() || c.title.to_lowercase().contains(&f_lower)).map(Some))
         .collect();
+    let label = num_field_label("CAKE");
+    let key   = num_key_badge("4");
     if !active {
         let val = opts.get(sel).and_then(|c| *c).map(|c| c.title.as_str()).unwrap_or("none");
         f.render_widget(Paragraph::new(Line::from(vec![
-            Span::styled("  CAKE    ", label_sty), Span::styled(val.to_string(), theme.dim()),
+            key, label, Span::styled(val.to_string(), theme.dim()),
         ])), area);
         return;
     }
     let sub = Layout::default().direction(Direction::Vertical)
         .constraints(vec![Constraint::Length(1); area.height as usize]).split(area);
     f.render_widget(Paragraph::new(Line::from(vec![
-        Span::styled("  CAKE    ", label_sty), Span::styled(filter.to_string(), Style::new()),
+        key, label.clone(), Span::styled(filter.to_string(), Style::new()),
     ])), sub[0]);
-    let pw = "  CAKE    ".len() as u16;
-    f.set_cursor_position((sub[0].x + pw + filter.len() as u16, sub[0].y));
+    // "[4] CAKE     " = 3 + 10 = 13 display cols
+    f.set_cursor_position((sub[0].x + 13 + filter.len() as u16, sub[0].y));
     for (i, row) in sub.iter().enumerate().skip(1) {
         if let Some(entry) = opts.get(i - 1) {
             let name = entry.map(|c| c.title.as_str()).unwrap_or("none");
@@ -1154,7 +1137,7 @@ fn detail_nav_bar(width: u16, theme: &Theme) -> Text<'static> {
 }
 
 fn create_hint_bar_text(width: u16, theme: &Theme) -> Text<'static> {
-    theme.bar_text(&[("Tab", "next"), ("←→", "cycle"), ("↵", "create"), ("Esc", "cancel")], width)
+    theme.bar_text(&[("↵/^C", "write & create"), ("3/4", "focus+type"), ("Esc", "cancel")], width)
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
