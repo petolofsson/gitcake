@@ -163,48 +163,35 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 
 ## TUI key bindings
 
-### Personal view
+### Personal / Backlog / Planner — shared list bindings
 
 | Key | Action |
 |---|---|
 | `W` / `↑`  `S` / `↓` | Navigate |
-| `D` | View slice detail |
-| `Ctrl+C` | Create new slice (global — works from any non-input view) |
-| `E` | Edit slice in `$EDITOR` |
-| `F` | Cycle status (open → in-progress → done, wraps) |
-| `Tab` | Cycle view: Personal → Planner → Backlog → Personal |
-| `Shift+Tab` | Cycle view in reverse |
-| `/` | Filter — matches title, hex ID, owner, type, status, `ai_flagged`, `urgent`, `high`. Prefix `@` for owner, `!` to exclude, `#` to filter by cake name. Esc to clear |
-| `Shift+R` | Pull |
-| `Ctrl+A` | Assign slice to any user (including yourself) |
-| `Ctrl+R` | Push (commit + push) |
-| `Ctrl+B` | Move to backlog (clears owner, resets status) |
-| `Ctrl+Q` | Quit |
-
-List displays a priority/flag indicator left of the ID: `++` (urgent, red), `+` (high, yellow), `⚑` (ai_flagged, red). Tasks are sorted in-progress → open → done, then urgent → high → normal within each group. The owner column is blank in personal view (implied).
-
-Tree layout groups slices by cake then standalone, with `├──`/`└──` connectors and status symbol inline before the title. Groups are separated by a blank row for readability.
-
-### Backlog view
-
-| Key | Action |
-|---|---|
-| `W` / `↑`  `S` / `↓` | Navigate |
-| `D` | View slice detail |
-| `E` | Edit slice in `$EDITOR` |
-| `F` | Claim slice for yourself |
-| `Tab` | Cycle view: Backlog → Personal → Planner |
-| `Shift+Tab` | Cycle view in reverse |
-| `/` | Filter — same match rules as personal view (`@` owner, `!` exclude, `#` cake). Esc to clear |
-| `Shift+R` | Pull |
-| `Ctrl+A` | Assign slice to any user (opens picker) |
+| `Enter` | View slice detail |
+| `Ctrl+C` | Create new slice |
+| `Q` / `/` | Filter — matches title, hex ID, owner, type, status, `ai_flagged`, `urgent`, `high`. Prefix `@` for owner, `!` to exclude, `#` for cake name. `Esc` to clear |
+| `Ctrl+R` | Assign slice to any user (opens picker) |
+| `Ctrl+B` | Move to backlog (clears owner, resets status to open) |
 | `Ctrl+D` | Permanently delete slice |
-| `Ctrl+R` | Push |
+| `Shift+T` | Pull |
+| `Ctrl+T` | Push (commit + push) |
+| `H` | Toggle DONE section visibility |
+| `Tab` | Cycle view forward: Personal → Planner → Backlog |
+| `Shift+Tab` | Cycle view in reverse |
 | `Ctrl+Q` | Quit |
+
+**Planner only:** `Shift+C` creates a new cake inline.
+
+List displays a priority/flag indicator: `++` (urgent, red), `+` (high, yellow), `⚑` (ai_flagged, red). Tasks are sorted in-progress → open → done, then urgent → high → normal within each group. Personal view owner column is blank (implied). Backlog shows owner.
+
+Tree layout groups slices by cake then standalone, with `├──`/`└──` connectors and status symbol inline before the title.
+
+Planner shows all slices grouped by cake — active slices under their cake header, then a STANDALONE section, then a DONE section at the bottom. Each cake header shows open/total slice count. `H` toggles the DONE section.
 
 ### Create slice view
 
-Full-screen two-pane layout: left = **PROPERTIES** panel (34 cols), right = **PREVIEW** panel.
+Full-screen two-pane layout: left = **PROPERTIES** panel (34 cols), right = **PREVIEW** panel. A `N of 4 set` counter and accent progress bar appear at the bottom of PROPERTIES.
 
 | Key | Action |
 |---|---|
@@ -213,53 +200,37 @@ Full-screen two-pane layout: left = **PROPERTIES** panel (34 cols), right = **PR
 | `2` | Cycle PRIORITY (normal → high → urgent → normal) |
 | `3` | Focus ASSIGN — type to filter, `↑`/`↓` to select |
 | `4` | Focus CAKE — type to filter, `↑`/`↓` to select |
-| `Enter` | Create immediately with typed title |
-| `E` / `Ctrl+C` | Open `$EDITOR` to write body, then create on save |
+| `Enter` | Create immediately |
+| `Ctrl+C` | Open `$EDITOR` to write body, then create on save |
 | `Esc` | If ASSIGN/CAKE focused: return to title. If title: cancel |
+| `Ctrl+Q` | Quit |
 
-PREVIEW panel shows a live rendering of how the slice will appear in the list, plus the file path it will be written to.
+PREVIEW shows a live tree rendering of how the slice will appear in the list (cake header + slice row with type, priority, and title), plus `WRITES <type>/<hash>.md` and `BODY $EDITOR on create · E inline`.
 
 ### Detail view
 
-Three-block layout: left column splits into **SLICE PROPERTIES** (top) and **CAKE SLICES** or **STANDALONE** (bottom); right column is **SLICE CONTENT**. All blocks have 1-line padding on all sides.
+Three-block layout: left column splits into **SLICE PROPERTIES** (top) and **CAKE SLICES** or **STANDALONE** (bottom); right column is **CONTENT**. All blocks have 1-line padding on all sides.
 
 | Key | Action |
 |---|---|
-| `W` / `S` | Move cursor between fields (TYPE, STATUS, PRIORITY, AI FLAG, CAKE, ASSIGN) |
+| `A` / `Esc` | Back to list |
+| `W` / `S` | Move cursor between fields |
 | `1`–`6` | Directly cycle/toggle the corresponding field |
 | `F` | Cycle the focused field's value |
 | `Space` | Cycle status directly |
-| `Tab` / `Shift+Tab` | Cycle to next/previous slice in the same cake (sorted by status then priority) |
+| `B` | Add a bite (sub-task) |
 | `E` | Edit title + description in `$EDITOR` |
-| `R` | Open assign picker |
-| `A` / `Esc` | Back to list |
-| `T` | Push |
+| `Tab` / `Shift+Tab` | Cycle to next/previous slice in the same cake |
+| `Ctrl+R` | Assign slice to any user |
+| `Ctrl+T` | Push |
 | `Shift+T` | Pull |
 | `Ctrl+Q` | Quit |
 
-**SLICE PROPERTIES** shows six navigable fields with a `◀` caret on the focused row and an expand ribbon beneath it (`↳ opt1 · opt2 · opt3`) for fields with discrete options.
+**SLICE PROPERTIES** shows six editable fields (TYPE, STATUS, PRIORITY, AI FLAG, CAKE, ASSIGN) with a focused-row caret and an expand ribbon showing options, plus two read-only rows (FILE, CREATED). A git-ahead status line (`N ahead · push Xd ago`) is pinned to the panel bottom.
 
-**CAKE SLICES** lists all sibling slices in the same cake, sorted in-progress → open → done, then urgent → high → normal within each group. Priority shown as `++`/`+` before the title. The current slice is highlighted. Standalone slices show a **STANDALONE** panel with "Not part of a Cake".
+**CAKE SLICES** lists all sibling slices in the same cake, sorted in-progress → open → done then urgent → high → normal. The current slice is highlighted. Standalone slices show **STANDALONE** with "Not part of a Cake".
 
-**SLICE CONTENT** shows: breadcrumb (`cake ▸ slice · #id`) with creation date (`baked YYYY-MM-DD`) right-aligned on the same line, title in bold, a BITES section (if any), and a BODY section rendering the prose description (bite/crumb lines are excluded from BODY since they appear in BITES).
-
-### Planner view
-
-| Key | Action |
-|---|---|
-| `W` / `S` | Navigate |
-| `D` | View slice detail |
-| `C` | Create new cake |
-| `Ctrl+C` | Create new slice |
-| `Tab` | Cycle view: Planner → Backlog → Personal |
-| `Shift+Tab` | Cycle view in reverse |
-| `/` | Filter — same match rules as personal view (`@` owner, `!` exclude, `#` cake). Esc to clear |
-| `Shift+R` | Pull |
-| `Ctrl+A` | Assign |
-| `Ctrl+R` | Push |
-| `Ctrl+Q` | Quit |
-
-Shows all slices grouped by cake — active slices under their cake header, then a STANDALONE section for unattached active slices, then a DONE section at the bottom for all completed slices. Each cake header shows open/total slice count. Each slice row shows owner + status indicator (`→` in-progress, `·` open, `✓` done) + type + title. `H` toggles the DONE section. `C` creates a new cake (inline title input). `Ctrl+C` creates a new slice. `D` opens detail view for the selected slice.
+**CONTENT** shows: breadcrumb (`cake ▸ slice · #id`) with creation date right-aligned, title in bold, a BITES section (if any), and a BODY section with the prose description.
 
 Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 

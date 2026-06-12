@@ -84,14 +84,6 @@ pub enum Screen {
         cake_filter: String,
         cake_sel:    usize,
     },
-    EditTask {
-        task_id:      String,
-        title:        Input,
-        description:  String,
-        context:      TaskContext,
-        from_detail:  bool,
-        from_planner: bool,
-    },
     CreateCake {
         title: String,
     },
@@ -158,6 +150,8 @@ pub struct App {
     pub needs_clear: bool,
     /// Cached cake list for detail view and pickers. Refreshed when entering planner.
     pub cached_cakes: Vec<Cake>,
+    /// (commits ahead, last push relative time) — refreshed when entering detail view.
+    pub git_ahead: Option<(u32, String)>,
 }
 
 impl App {
@@ -168,7 +162,7 @@ impl App {
                 repo: None, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(),
+                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(), git_ahead: None,
             };
         }
 
@@ -184,7 +178,7 @@ impl App {
                 repo: None, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(),
+                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(), git_ahead: None,
             };
         }
 
@@ -200,7 +194,7 @@ impl App {
             screen, repo, config, context: TaskContext::Personal,
             should_quit: false, exit_message: None,
             pull_error, lock_warning, lock_path,
-            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes,
+            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes, git_ahead: None,
         }
     }
 
@@ -212,7 +206,6 @@ impl App {
             Screen::TaskList { .. }      => self.handle_task_list(key),
             Screen::Detail { .. }        => self.handle_detail(key),
             Screen::Create { .. }        => self.handle_create(key),
-            Screen::EditTask { .. }      => self.handle_edit_task(key),
             Screen::AssignTask { .. }    => self.handle_assign_task(key),
             Screen::DeleteConfirm { .. } => self.handle_delete_confirm(key),
             Screen::SyncConfirm          => self.handle_sync_confirm(key),
@@ -343,18 +336,8 @@ impl App {
         if is_key(&key, &km.detail) {
             if let Some(t) = sel_task {
                 let siblings = self.siblings_for(&t);
-                self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Type, from_planner: false };
+                self.enter_detail(t, siblings, false);
             }
-            return;
-        }
-        if is_key(&key, &km.edit) {
-            if let Some(t) = sel_task {
-                self.enter_edit_task(t.id, t.title, t.description.unwrap_or_default(), false, false);
-            }
-            return;
-        }
-        if is_key(&key, &km.status_cycle) {
-            if let Some(t) = sel_task { self.cycle_status(&t.id); }
             return;
         }
         if is_key(&key, &km.create) {
@@ -382,12 +365,21 @@ impl App {
                     TaskContext::Backlog  => self.enter_planner_view(),
                 }
             }
-            KeyCode::Char('b') if ctrl && self.context == TaskContext::Personal => {
+            KeyCode::Char('b') if ctrl => {
                 if let Some(t) = sel_task {
-                    self.screen = Screen::DeleteConfirm { task_id: t.id, task_title: t.title };
+                    if self.context == TaskContext::Backlog {
+                        // already in backlog — no-op
+                    } else {
+                        let msg = match self.repo.as_ref().map(|r| r.move_task_to_backlog(&t.id)) {
+                            Some(Ok(())) => Some("Moved to backlog.".to_string()),
+                            Some(Err(e)) => Some(e.to_string()),
+                            None         => Some("No repo.".to_string()),
+                        };
+                        self.enter_task_list(msg, None);
+                    }
                 }
             }
-            KeyCode::Char('d') if ctrl && self.context == TaskContext::Backlog => {
+            KeyCode::Char('d') if ctrl => {
                 if let Some(t) = sel_task {
                     self.screen = Screen::DeleteConfirm { task_id: t.id, task_title: t.title };
                 }
@@ -433,6 +425,11 @@ impl App {
     }
 
     // ── detail ────────────────────────────────────────────────────────────────
+
+    fn enter_detail(&mut self, task: Task, siblings: Vec<Task>, from_planner: bool) {
+        self.git_ahead = self.repo.as_ref().and_then(|r| r.git_status());
+        self.screen = Screen::Detail { task, siblings, message: None, selected_field: DetailField::Type, from_planner };
+    }
 
     fn siblings_for(&self, task: &Task) -> Vec<Task> {
         let cake_id = match &task.cake_id { Some(id) => id.clone(), None => return vec![] };
@@ -621,97 +618,6 @@ impl App {
         if let (Some(t), Screen::Detail { task, .. }) = (updated, &mut self.screen) {
             *task = t;
         }
-    }
-
-    // ── edit task ─────────────────────────────────────────────────────────────
-
-    fn enter_edit_task(&mut self, task_id: String, title: String, desc: String, from_detail: bool, from_planner: bool) {
-        self.screen = Screen::EditTask {
-            task_id,
-            title: title.as_str().into(),
-            description: desc,
-            context: self.context,
-            from_detail,
-            from_planner,
-        };
-    }
-
-    fn handle_edit_task(&mut self, key: KeyEvent) {
-        if is_ctrl_q(&key) { self.try_quit(); return; }
-        if key.code == KeyCode::Tab || key.code == KeyCode::BackTab {
-            let current = match &self.screen {
-                Screen::EditTask { description, .. } => description.clone(),
-                _ => return,
-            };
-            if let Some(new_desc) = open_editor(&current) {
-                if let Screen::EditTask { description, .. } = &mut self.screen {
-                    *description = new_desc;
-                }
-            }
-            self.needs_clear = true;
-            return;
-        }
-        if key.code == KeyCode::Esc { self.edit_cancel(); return; }
-        if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE {
-            self.edit_submit(); return;
-        }
-        self.edit_title_key(key);
-    }
-
-    fn edit_title_key(&mut self, key: KeyEvent) {
-        use tui_input::backend::crossterm::EventHandler;
-        if let Screen::EditTask { title, .. } = &mut self.screen {
-            title.handle_event(&crossterm::event::Event::Key(key));
-        }
-    }
-
-    fn edit_cancel(&mut self) {
-        let (from_detail, from_planner, task_id) = match &self.screen {
-            Screen::EditTask { from_detail, from_planner, task_id, .. } =>
-                (*from_detail, *from_planner, task_id.clone()),
-            _ => return,
-        };
-        if from_detail {
-            if let Some(t) = self.repo.as_ref().and_then(|r| r.get_task(&task_id).ok()) {
-                let siblings = self.siblings_for(&t);
-                self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Type, from_planner };
-                return;
-            }
-        }
-        if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, Some(&task_id)); }
-    }
-
-    fn edit_submit(&mut self) {
-        let (task_id, title_str, desc_str, context, from_detail, from_planner) = match &self.screen {
-            Screen::EditTask { task_id, title, description, context, from_detail, from_planner, .. } => {
-                let ts = title.value().trim().to_string();
-                if ts.is_empty() { return; }
-                let ds = description.trim().to_string();
-                (task_id.clone(), ts, ds, *context, *from_detail, *from_planner)
-            }
-            _ => return,
-        };
-        let n = desc_str.chars().count();
-        if n > DESCRIPTION_MAX_CHARS { self.enter_task_list(Some(desc_too_long(n)), Some(&task_id)); return; }
-        let desc = if desc_str.is_empty() { None } else { Some(desc_str) };
-        let patch = TaskPatch { title: Some(title_str), description: Some(desc), ..Default::default() };
-        let result = self.repo.as_ref().map(|r| match context {
-            TaskContext::Personal => r.update_task(&task_id, patch),
-            TaskContext::Backlog  => r.update_backlog_task(&task_id, patch),
-        });
-        let msg = match result {
-            Some(Ok(_))  => Some("Task updated.".to_string()),
-            Some(Err(e)) => Some(e.to_string()),
-            None         => None,
-        };
-        if from_detail {
-            if let Some(t) = self.repo.as_ref().and_then(|r| r.get_task(&task_id).ok()) {
-                let siblings = self.siblings_for(&t);
-                self.screen = Screen::Detail { task: t, siblings, message: msg, selected_field: DetailField::Type, from_planner };
-                return;
-            }
-        }
-        if from_planner { self.enter_planner_view(); } else { self.enter_task_list(msg, Some(&task_id)); }
     }
 
     // ── create ────────────────────────────────────────────────────────────────
@@ -1037,7 +943,7 @@ impl App {
             } else { None };
             if let Some(t) = task {
                 let siblings = self.siblings_for(&t);
-                self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Type, from_planner: true };
+                self.enter_detail(t, siblings, true);
             }
             return;
         }
@@ -1062,6 +968,18 @@ impl App {
         }
         if key.code == KeyCode::Char('b') && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.do_planner_backlog(); return;
+        }
+        if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
+            let hd = self.hide_done;
+            let sel = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
+                planner_visible_tasks(cakes, tasks, &f, hd, true)
+                    .get(*selected).map(|(_, t)| (t.id.clone(), t.title.clone()))
+            } else { None };
+            if let Some((id, title)) = sel {
+                self.screen = Screen::DeleteConfirm { task_id: id, task_title: title };
+            }
+            return;
         }
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let hd = self.hide_done;
@@ -1233,31 +1151,6 @@ impl App {
         self.screen = Screen::TaskList { tasks: sorted, selected, message: msg };
     }
 
-    fn cycle_status(&mut self, task_id: &str) {
-        let Some(repo) = &self.repo else { return };
-        let ctx = self.context;
-        let Ok(task) = repo.get_task(task_id) else { return };
-        let result = match (ctx, &task.status) {
-            (TaskContext::Personal, TaskStatus::Open)       => repo.set_task_in_progress(task_id),
-            (TaskContext::Personal, TaskStatus::InProgress) => repo.mark_task_done(task_id),
-            (TaskContext::Personal, TaskStatus::Done)       => repo.set_task_in_progress(task_id),
-            (TaskContext::Backlog,  TaskStatus::Open)       => repo.set_backlog_task_in_progress(task_id),
-            (TaskContext::Backlog,  TaskStatus::InProgress) => repo.mark_backlog_task_done(task_id),
-            (TaskContext::Backlog,  TaskStatus::Done)       => repo.set_backlog_task_in_progress(task_id),
-        };
-        let msg = match result {
-            Ok(t) => match t.status {
-                TaskStatus::InProgress => Some("Marked in-progress.".into()),
-                TaskStatus::Done       => Some("Marked done.".into()),
-                TaskStatus::Open       => Some("Marked open.".into()),
-            },
-            Err(e) => Some(e.to_string()),
-        };
-        if let Screen::TaskList { .. } = &self.screen {
-            self.enter_task_list(msg, Some(task_id));
-        }
-    }
-
     fn handle_assign_task(&mut self, key: KeyEvent) {
         let Screen::AssignTask { task_id, users, selected, filter } = &mut self.screen else { return };
         let filtered_len = users.iter().filter(|u| u.to_lowercase().starts_with(&filter.to_lowercase())).count();
@@ -1294,12 +1187,8 @@ impl App {
         let id = task_id.clone();
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let (result, msg_ok) = match self.context {
-                    TaskContext::Personal => (self.repo.as_ref().map(|r| r.move_task_to_backlog(&id)), "Moved to backlog."),
-                    TaskContext::Backlog  => (self.repo.as_ref().map(|r| r.delete_backlog_task(&id)), "Deleted."),
-                };
-                let msg = match result {
-                    Some(Ok(())) => Some(msg_ok.into()),
+                let msg = match self.repo.as_ref().map(|r| r.delete_task(&id)) {
+                    Some(Ok(())) => Some("Deleted.".into()),
                     Some(Err(e)) => Some(e.to_string()),
                     None         => None,
                 };
@@ -1337,6 +1226,9 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
     }
     if binding == "space" {
         return event.code == KeyCode::Char(' ');
+    }
+    if binding == "enter" {
+        return event.modifiers == KeyModifiers::NONE && event.code == KeyCode::Enter;
     }
     if let Some(shift_key) = binding.strip_prefix("shift+") {
         let ch = shift_key.chars().next().unwrap_or('\0').to_ascii_uppercase();

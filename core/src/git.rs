@@ -3,6 +3,19 @@ use std::process::Command;
 
 use crate::error::AppError;
 
+fn abbrev_relative(s: &str) -> String {
+    s.replace(" days ago",    "d ago")
+     .replace(" day ago",     "d ago")
+     .replace(" hours ago",   "h ago")
+     .replace(" hour ago",    "h ago")
+     .replace(" minutes ago", "m ago")
+     .replace(" minute ago",  "m ago")
+     .replace(" weeks ago",   "w ago")
+     .replace(" week ago",    "w ago")
+     .replace(" months ago",  "mo ago")
+     .replace(" month ago",   "mo ago")
+}
+
 pub struct GitRepo {
     pub path: PathBuf,
 }
@@ -114,6 +127,16 @@ impl GitRepo {
     /// Runs `git push` and returns stdout.
     pub fn push(&self) -> Result<String, AppError> {
         self.run_git(&["push"])
+    }
+
+    /// Returns (commits_ahead_of_remote, last_push_relative_time).
+    /// Returns None if there is no upstream or the git calls fail.
+    pub fn ahead_status(&self) -> Option<(u32, String)> {
+        let count: u32 = self.run_git(&["rev-list", "--count", "@{u}..HEAD"]).ok()?.trim().parse().ok()?;
+        let raw = self.run_git(&["log", "-1", "--format=%cr", "@{u}"]).ok()?;
+        let time = abbrev_relative(raw.trim());
+        if time.is_empty() { return None; }
+        Some((count, time))
     }
 
     // ── private ──────────────────────────────────────────────────────────────

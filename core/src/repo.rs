@@ -239,6 +239,11 @@ impl TaskRepo {
         self.git.pull()
     }
 
+    /// Returns (commits ahead of remote, last push relative time), or None if no upstream.
+    pub fn git_status(&self) -> Option<(u32, String)> {
+        self.git.ahead_status()
+    }
+
     /// Stages all type folders, commits, and pushes.
     pub fn push(&self) -> Result<String, AppError> {
         let root = Path::new(&self.info.path);
