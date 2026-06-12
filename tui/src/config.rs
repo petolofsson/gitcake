@@ -3,7 +3,6 @@ use std::{collections::HashMap, fs, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Named color aliases — referenced in style strings as bare names.
-/// Example: `[theme.palette]` with `brand = "#268bd2"`, then use `fg:brand` anywhere.
 pub type Palette = HashMap<String, String>;
 
 /// Style strings follow Starship's format: space-separated tokens.
@@ -11,31 +10,34 @@ pub type Palette = HashMap<String, String>;
 /// Colors: ANSI names (`blue`, `cyan` …), hex (`#268bd2`), ANSI index (`21`), palette names, `reset`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeConfig {
-    // interaction — style strings
-    pub highlight:      String,   // e.g. "bold bg:blue fg:white"
-    pub accent:         String,   // e.g. "cyan"  (fg only — used for cursor)
-    pub warning:        String,   // e.g. "yellow"
-    pub danger:         String,   // e.g. "red"
-    // base palette — style strings (fg = text color)
-    pub text:           String,   // e.g. "reset" or "white"
-    pub bg:             String,   // e.g. "reset" or "black"  (drives navbar chip fg)
-    pub border:         String,   // e.g. "reset" or "dim"
-
-    pub muted:          String,   // e.g. "dark_gray" — secondary text, done items, chrome
-    // per-view backgrounds — subtle shading to orient the user
+    // selection / interaction
+    pub highlight:      String,   // full style for selected row — default "bg:#2a2420"
+    pub accent:         String,   // frosting pink — titles, active tab, cursor
+    pub in_progress:    String,   // honey — in-progress status, ahead warning
+    pub flag:           String,   // raspberry — AI flag ⚑, errors, urgent
+    pub priority_color: String,   // caramel — priority + / ++
+    // base palette
+    pub fg:             String,   // primary text
+    pub bg:             String,   // terminal background
+    pub dim:            String,   // secondary text, labels, metadata
+    pub faint:          String,   // rules, dividers, inactive borders
+    pub border:         String,   // panel borders
+    pub sel_bg:         String,   // selection / focused-row background tint
+    pub done_color:     String,   // pistachio — done status ✓
+    pub open_color:     String,   // muted gray — open status ○, tree connectors
+    // per-view backgrounds (subtle tinting for orientation)
     pub bg_personal:    String,
     pub bg_planner:     String,
     pub bg_backlog:     String,
-    // symbols — single display-cell characters
-    pub cursor:       String,
-    pub sym_urgent:   String,
-    pub sym_high:     String,
-    pub sym_blocked:  String,
-    pub sym_done:     String,
-    pub sym_open:     String,
-    pub sym_progress: String,
-    pub sym_dot:      String,
-    // named color aliases
+    // symbols
+    pub cursor:         String,
+    pub sym_urgent:     String,
+    pub sym_high:       String,
+    pub sym_blocked:    String,
+    pub sym_done:       String,
+    pub sym_open:       String,
+    pub sym_progress:   String,
+    pub sym_dot:        String,
     #[serde(default)]
     pub palette: Palette,
 }
@@ -43,56 +45,72 @@ pub struct ThemeConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            highlight:      "bold reversed".into(),
-            accent:         "cyan".into(),
-            warning:        "yellow".into(),
-            danger:         "red".into(),
-            text:           "reset".into(),
-            bg:             "reset".into(),
-            border:         "reset".into(),
-
-            muted:          "dark_gray".into(),
-            bg_personal:    "#141414".into(),
-            bg_planner:     "#141820".into(),
-            bg_backlog:     "#1a1414".into(),
-            cursor:       "⇒".into(),
-            sym_urgent:   "++".into(),
-            sym_high:     "+".into(),
-            sym_blocked:  "⚑".into(),
-            sym_done:     "✓".into(),
-            sym_open:     "○".into(),
-            sym_progress: "●".into(),
-            sym_dot:      "·".into(),
-            palette: HashMap::new(),
+            highlight:      "bg:#2a2420".into(),
+            accent:         "#e6a4b4".into(),
+            in_progress:    "#e6b450".into(),
+            flag:           "#ea7079".into(),
+            priority_color: "#d98c6a".into(),
+            fg:             "#efe2d4".into(),
+            bg:             "#1b1714".into(),
+            dim:            "#9a8a78".into(),
+            faint:          "#352d27".into(),
+            border:         "#4a4039".into(),
+            sel_bg:         "#2a2420".into(),
+            done_color:     "#a7c080".into(),
+            open_color:     "#6f6258".into(),
+            bg_personal:    "#1b1714".into(),
+            bg_planner:     "#1b1714".into(),
+            bg_backlog:     "#1b1714".into(),
+            cursor:         "⇒".into(),
+            sym_urgent:     "++".into(),
+            sym_high:       "+".into(),
+            sym_blocked:    "⚑".into(),
+            sym_done:       "✓".into(),
+            sym_open:       "○".into(),
+            sym_progress:   "●".into(),
+            sym_dot:        "·".into(),
+            palette:        HashMap::new(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyMap {
-    pub up: String,
-    pub down: String,
-    pub detail: String,
-    pub back: String,
-    pub create: String,
-    pub edit: String,
-    pub status_cycle: String,
-    pub push: String,
-    pub quit: String,
+    pub up:           String,
+    pub down:         String,
+    pub detail:       String,
+    pub back:         String,
+    pub create:       String,
+    pub create_cake:  String,
+    pub edit:         String,
+    pub field_cycle:  String,   // cycle focused field value (detail view)
+    pub status_cycle: String,   // advance status
+    pub push:         String,
+    pub pull:         String,
+    pub filter:       String,
+    pub assign:       String,
+    pub add_bite:     String,
+    pub quit:         String,
 }
 
 impl Default for KeyMap {
     fn default() -> Self {
         Self {
-            up: "w".into(),
-            down: "s".into(),
-            detail: "d".into(),
-            back: "a".into(),
-            create: "c".into(),
-            edit: "e".into(),
-            status_cycle: "f".into(),
-            push: "ctrl+r".into(),
-            quit: "ctrl+q".into(),
+            up:           "w".into(),
+            down:         "s".into(),
+            detail:       "d".into(),
+            back:         "a".into(),
+            create:       "c".into(),
+            create_cake:  "shift+c".into(),
+            edit:         "e".into(),
+            field_cycle:  "f".into(),
+            status_cycle: "space".into(),
+            push:         "t".into(),
+            pull:         "shift+t".into(),
+            filter:       "q".into(),
+            assign:       "r".into(),
+            add_bite:     "b".into(),
+            quit:         "ctrl+q".into(),
         }
     }
 }

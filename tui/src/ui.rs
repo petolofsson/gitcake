@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Cell, Clear, List, ListItem, ListState, Padding, Paragraph, Row, Table, TableState},
+    widgets::{Block, BorderType, Cell, Clear, List, ListItem, ListState, Padding, Paragraph, Row, Table, TableState},
     Frame,
 };
 
@@ -48,25 +48,30 @@ fn parse_style(s: &str, palette: &HashMap<String, String>) -> Style {
 // ── theme ─────────────────────────────────────────────────────────────────────
 
 pub struct Theme {
-    pub highlight:    Style,
-    pub accent:       Color,
-    pub warning:      Color,
-    pub danger:       Color,
-    pub text:         Color,
-    pub bg:           Color,
-    pub border:       Color,
-    pub muted:        Color,
-    pub bg_personal:  Color,
-    pub bg_planner:   Color,
-    pub bg_backlog:   Color,
-    pub cursor:       String,
-    pub sym_high:     String,
-    pub sym_urgent:   String,
-    pub sym_blocked:  String,
-    pub sym_done:     String,
-    pub sym_open:     String,
-    pub sym_progress: String,
-    pub sym_dot:      String,
+    pub highlight:      Style,
+    pub accent:         Color,
+    pub in_progress:    Color,
+    pub flag:           Color,
+    pub priority_color: Color,
+    pub fg:             Color,
+    pub bg:             Color,
+    pub dim:            Color,
+    pub faint:          Color,
+    pub border:         Color,
+    pub sel_bg:         Color,
+    pub done_color:     Color,
+    pub open_color:     Color,
+    pub bg_personal:    Color,
+    pub bg_planner:     Color,
+    pub bg_backlog:     Color,
+    pub cursor:         String,
+    pub sym_high:       String,
+    pub sym_urgent:     String,
+    pub sym_blocked:    String,
+    pub sym_done:       String,
+    pub sym_open:       String,
+    pub sym_progress:   String,
+    pub sym_dot:        String,
 }
 
 impl Theme {
@@ -75,63 +80,48 @@ impl Theme {
         let s   = |src: &str| parse_style(src, pal);
         let c   = |src: &str, fb: Color| s(src).fg.unwrap_or(fb);
         Self {
-            highlight:    s(&tc.highlight),
-            accent:       c(&tc.accent,      Color::Cyan),
-            warning:      c(&tc.warning,     Color::Yellow),
-            danger:       c(&tc.danger,      Color::Red),
-            text:         c(&tc.text,        Color::Reset),
-            bg:           c(&tc.bg,          Color::Reset),
-            border:       c(&tc.border,      Color::Reset),
-            muted:        c(&tc.muted,       Color::DarkGray),
-            bg_personal:  c(&tc.bg_personal, Color::Reset),
-            bg_planner:   c(&tc.bg_planner,  Color::Reset),
-            bg_backlog:   c(&tc.bg_backlog,  Color::Reset),
-            cursor:       tc.cursor.clone(),
-            sym_high:     tc.sym_high.clone(),
-            sym_urgent:   tc.sym_urgent.clone(),
-            sym_blocked:  tc.sym_blocked.clone(),
-            sym_done:     tc.sym_done.clone(),
-            sym_open:     tc.sym_open.clone(),
-            sym_progress: tc.sym_progress.clone(),
-            sym_dot:      tc.sym_dot.clone(),
+            highlight:      s(&tc.highlight),
+            accent:         c(&tc.accent,         Color::Rgb(230, 164, 180)),
+            in_progress:    c(&tc.in_progress,    Color::Yellow),
+            flag:           c(&tc.flag,           Color::Red),
+            priority_color: c(&tc.priority_color, Color::Rgb(217, 140, 106)),
+            fg:             c(&tc.fg,             Color::Reset),
+            bg:             c(&tc.bg,             Color::Reset),
+            dim:            c(&tc.dim,            Color::DarkGray),
+            faint:          c(&tc.faint,          Color::DarkGray),
+            border:         c(&tc.border,         Color::DarkGray),
+            sel_bg:         c(&tc.sel_bg,         Color::Reset),
+            done_color:     c(&tc.done_color,     Color::Green),
+            open_color:     c(&tc.open_color,     Color::DarkGray),
+            bg_personal:    c(&tc.bg_personal,    Color::Reset),
+            bg_planner:     c(&tc.bg_planner,     Color::Reset),
+            bg_backlog:     c(&tc.bg_backlog,     Color::Reset),
+            cursor:         tc.cursor.clone(),
+            sym_high:       tc.sym_high.clone(),
+            sym_urgent:     tc.sym_urgent.clone(),
+            sym_blocked:    tc.sym_blocked.clone(),
+            sym_done:       tc.sym_done.clone(),
+            sym_open:       tc.sym_open.clone(),
+            sym_progress:   tc.sym_progress.clone(),
+            sym_dot:        tc.sym_dot.clone(),
         }
     }
 
     // ── style helpers ─────────────────────────────────────────────────────────
 
+    fn dim_style(&self) -> Style { Style::new().fg(self.dim) }
+
+    fn bold_style(&self) -> Style { Style::new().add_modifier(Modifier::BOLD).fg(self.fg) }
+
+    fn chip_style(&self) -> Style { Style::new().bg(self.sel_bg).fg(self.fg) }
+
+    fn label_style(&self) -> Style { Style::new().fg(self.dim) }
+
     fn cursor_style(&self) -> Style {
-        if let Some(hl_bg) = self.highlight.bg {
-            Style::new().add_modifier(Modifier::BOLD).fg(self.accent).bg(hl_bg)
-        } else {
-            Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED)
-        }
+        Style::new().add_modifier(Modifier::BOLD).fg(self.accent).bg(self.sel_bg)
     }
 
-    fn dim(&self) -> Style { Style::new().fg(self.muted) }
-
-    fn bold_style(&self) -> Style { Style::new().add_modifier(Modifier::BOLD).fg(self.text) }
-
-    fn border_style(&self) -> Style { Style::new().fg(self.border) }
-
-    fn chip_style(&self) -> Style {
-        let bg = if self.text == Color::Reset { Color::White } else { self.text };
-        let fg = if self.bg   == Color::Reset { Color::Black } else { self.bg   };
-        Style::new().bg(bg).fg(fg)
-    }
-
-    fn label_style(&self) -> Style { Style::new().fg(self.muted) }
-
-    // ── block factories ───────────────────────────────────────────────────────
-
-    fn block(&self, title: &str) -> Block<'static> {
-        Block::default().title(Span::styled(format!(" {title} "), self.border_style()))
-    }
-
-    fn padded_block(&self, title: &str) -> Block<'static> {
-        self.block(title).padding(Padding::new(1, 1, 1, 1))
-    }
-
-    // ── bar builder ───────────────────────────────────────────────────────────
+    // ── bar builders ──────────────────────────────────────────────────────────
 
     fn bar_line<'a>(&self, items: &[(&'a str, &'a str)]) -> Line<'a> {
         bar_make_line(items, self.chip_style(), self.label_style())
@@ -158,6 +148,19 @@ impl Theme {
             bar_make_line(&items[split..], chip, lbl),
         ])
     }
+}
+
+// ── panel factory ─────────────────────────────────────────────────────────────
+
+fn panel(title: &str, theme: &Theme) -> Block<'static> {
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(theme.border))
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        ))
+        .title_alignment(Alignment::Left)
 }
 
 // ── entry point ───────────────────────────────────────────────────────────────
@@ -232,7 +235,6 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 // ── setup ─────────────────────────────────────────────────────────────────────
 
-
 const LOGO: &str = r#"           o8o      .                       oooo
             `"'    .o8                       `888
  .oooooooo oooo  .o888oo  .ooooo.   .oooo.    888  oooo   .ooooo.
@@ -245,7 +247,7 @@ d"     YD
 
 fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool, theme: &Theme) {
     let area = f.area();
-    let block = theme.padded_block("gitcake - created by peter olofsson");
+    let block = panel("gitcake", theme).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
@@ -260,14 +262,14 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool,
         Constraint::Fill(1), Constraint::Length(67), Constraint::Fill(1),
     ]).split(rows[1]);
     f.render_widget(Paragraph::new(LOGO).style(Style::new().fg(theme.accent)), logo_col[1]);
-    f.render_widget(Paragraph::new("——————————— Everyone Deserves Cake ———————————").alignment(Alignment::Center).style(Style::new().fg(theme.warning)), rows[3]);
+    f.render_widget(Paragraph::new("——————————— Everyone Deserves Cake ———————————").alignment(Alignment::Center).style(Style::new().fg(theme.in_progress)), rows[3]);
     let input_line = Line::from(vec![
         Span::raw("Connect your task repo ⇒ "),
         Span::styled(input, theme.bold_style()),
         Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
     ]);
     f.render_widget(Paragraph::new(input_line).alignment(Alignment::Center), rows[5]);
-    f.render_widget(Paragraph::new("(e.g. ~/tasks or /home/user/your-folder)").alignment(Alignment::Center).style(theme.dim()), rows[6]);
+    f.render_widget(Paragraph::new("(e.g. ~/tasks or /home/user/your-folder)").alignment(Alignment::Center).style(theme.dim_style()), rows[6]);
     draw_error_line(f, rows[7], error, theme);
     let bar = if can_cancel {
         theme.bar_line(&[("Enter", "connect"), ("Esc", "cancel")])
@@ -281,7 +283,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool,
 
 fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>, theme: &Theme) {
     let area = f.area();
-    let block = theme.padded_block("gitcake — initialize repo");
+    let block = panel("gitcake — initialize repo", theme).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
@@ -290,7 +292,7 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>, th
         Constraint::Length(1),
     ]).split(inner);
     f.render_widget(Paragraph::new("Empty git repo detected. Initialize as a gitcake repo?").alignment(Alignment::Center), rows[1]);
-    f.render_widget(Paragraph::new(path).alignment(Alignment::Center).style(theme.dim()), rows[2]);
+    f.render_widget(Paragraph::new(path).alignment(Alignment::Center).style(theme.dim_style()), rows[2]);
     let name_line = Line::from(vec![
         Span::raw("Repo name: "),
         Span::styled(name, theme.bold_style()),
@@ -341,9 +343,9 @@ fn draw_list_view(f: &mut Frame, p: ListViewParams<'_>) {
     let title_col_width = inner.width.saturating_sub(30) as usize;
     let separate_done = active == ActiveView::Planner;
     let (items, index_map) = build_tree_items(cakes, tasks, selected, filter, title_col_width, hide_done, separate_done, theme);
-    let empty_msg = if filter.is_empty() { "No tasks yet. ^C to create one." } else { "No tasks match the filter." };
+    let empty_msg = if filter.is_empty() { "No tasks yet. C to create one." } else { "No tasks match the filter." };
     if items.is_empty() {
-        f.render_widget(Paragraph::new(empty_msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
+        f.render_widget(Paragraph::new(empty_msg).alignment(Alignment::Center).style(theme.dim_style()), rows[0]);
     } else {
         let table = Table::new(items, TREE_COL_WIDTHS)
             .header(tree_column_header(hide_done))
@@ -359,30 +361,34 @@ fn draw_list_view(f: &mut Frame, p: ListViewParams<'_>) {
 }
 
 fn list_view_block(active: ActiveView, filter: &str, filter_active: bool, pull_error: Option<&str>, lock_warning: Option<&str>, theme: &Theme) -> Block<'static> {
-    let mut block = Block::default().padding(Padding::new(1, 1, 1, 1));
-    if active == ActiveView::Planner { return block; }
+    let view_label = match active {
+        ActiveView::Personal => "PERSONAL",
+        ActiveView::Planner  => "PLANNER",
+        ActiveView::Backlog  => "BACKLOG",
+    };
+    let mut block = panel(view_label, theme).padding(Padding::new(1, 1, 0, 0));
     if !filter.is_empty() && !filter_active {
         block = block.title_top(Line::from(vec![
-            Span::styled(format!(" /{filter} "), theme.dim()),
-            Span::styled(" Esc: clear ", theme.dim()),
-        ]).left_aligned());
+            Span::styled(format!(" /{filter} "), theme.dim_style()),
+            Span::styled(" Q: clear ", theme.dim_style()),
+        ]).right_aligned());
     }
     if let Some(err) = pull_error {
         block = block.title_bottom(Line::from(vec![
-            Span::styled(format!(" ⚠ {err} "), Style::new().fg(theme.warning)),
-            Span::styled(" Esc: dismiss ", theme.dim()),
+            Span::styled(format!(" ⚠ {err} "), Style::new().fg(theme.in_progress)),
+            Span::styled(" Esc: dismiss ", theme.dim_style()),
         ]).left_aligned());
     }
     if let Some(warn) = lock_warning {
         block = block.title_bottom(
-            Line::from(Span::styled(format!(" ⚠ {warn} "), Style::new().fg(theme.warning))).right_aligned()
+            Line::from(Span::styled(format!(" ⚠ {warn} "), Style::new().fg(theme.in_progress))).right_aligned()
         );
     }
     block
 }
 
 fn filter_line_widget<'a>(filter: &'a str, filter_active: bool, theme: &Theme) -> Paragraph<'a> {
-    let dim = theme.dim();
+    let dim = theme.dim_style();
     if filter_active {
         if filter.is_empty() {
             Paragraph::new(Line::from(vec![
@@ -403,16 +409,16 @@ fn filter_line_widget<'a>(filter: &'a str, filter_active: bool, theme: &Theme) -
         Paragraph::new(Line::from(vec![
             Span::raw("  "),
             Span::styled(format!("/{filter}"), dim),
-            Span::styled("  Esc: clear", dim),
+            Span::styled("  Q: clear", dim),
         ]))
     } else {
-        Paragraph::new(Line::from(vec![Span::raw("  "), Span::styled("Use '/' to filter", dim)]))
+        Paragraph::new(Line::from(vec![Span::raw("  "), Span::styled("Q or / to filter", dim)]))
     }
 }
 
 fn render_flash_row(f: &mut Frame, area: Rect, message: Option<&str>, theme: &Theme) {
     let line = match message {
-        Some(msg) => Line::from(vec![Span::raw("  "), Span::styled(msg.to_string(), theme.dim())]),
+        Some(msg) => Line::from(vec![Span::raw("  "), Span::styled(msg.to_string(), theme.dim_style())]),
         None      => Line::from(""),
     };
     f.render_widget(Paragraph::new(line), area);
@@ -427,11 +433,11 @@ fn type_char(t: &TaskType) -> &'static str {
 fn task_flag(task: &Task, theme: &Theme) -> (String, Style) {
     if task.status == TaskStatus::Done { return (String::new(), Style::new()); }
     if task.ai_flagged {
-        return (theme.sym_blocked.clone(), Style::new().fg(theme.danger).add_modifier(Modifier::BOLD));
+        return (theme.sym_blocked.clone(), Style::new().fg(theme.flag).add_modifier(Modifier::BOLD));
     }
     match task.priority {
-        Priority::Urgent => (theme.sym_urgent.clone(), Style::new().fg(theme.danger).add_modifier(Modifier::BOLD)),
-        Priority::High   => (theme.sym_high.clone(),   Style::new().fg(theme.warning).add_modifier(Modifier::BOLD)),
+        Priority::Urgent => (theme.sym_urgent.clone(), Style::new().fg(theme.flag).add_modifier(Modifier::BOLD)),
+        Priority::High   => (theme.sym_high.clone(),   Style::new().fg(theme.priority_color).add_modifier(Modifier::BOLD)),
         Priority::Normal => (String::new(),            Style::new()),
     }
 }
@@ -467,25 +473,25 @@ fn tree_column_header(hide_done: bool) -> Row<'static> {
 
 fn task_row_tree(task: &Task, owner: &str, is_sel: bool, prefix: &str, theme: &Theme) -> Row<'static> {
     let base = match task.status {
-        TaskStatus::Done       => Style::new().add_modifier(Modifier::DIM),
+        TaskStatus::Done       => Style::new().fg(theme.done_color).add_modifier(Modifier::DIM),
         TaskStatus::InProgress => Style::new().add_modifier(Modifier::BOLD),
         TaskStatus::Open       => Style::new(),
     };
     let cursor_sty = if is_sel {
         Style::new().add_modifier(Modifier::BOLD).fg(theme.accent)
     } else {
-        Style::new().fg(theme.muted)
+        Style::new().fg(theme.dim)
     };
     let (flag_str, flag_sty) = task_flag(task, theme);
     let (status_sym, status_sty) = match task.status {
-        TaskStatus::InProgress => (theme.sym_progress.clone(), Style::new().add_modifier(Modifier::BOLD).fg(theme.warning)),
-        TaskStatus::Open       => (theme.sym_open.clone(),     Style::new().fg(theme.text)),
-        TaskStatus::Done       => (theme.sym_done.clone(),     Style::new().add_modifier(Modifier::DIM)),
+        TaskStatus::InProgress => (theme.sym_progress.clone(), Style::new().add_modifier(Modifier::BOLD).fg(theme.in_progress)),
+        TaskStatus::Open       => (theme.sym_open.clone(),     Style::new().fg(theme.open_color)),
+        TaskStatus::Done       => (theme.sym_done.clone(),     Style::new().add_modifier(Modifier::DIM).fg(theme.done_color)),
     };
     let cursor_char = if is_sel { theme.cursor.clone() } else { " ".to_string() };
     let mut title_spans: Vec<Span<'static>> = Vec::new();
     if !prefix.is_empty() {
-        title_spans.push(Span::styled(prefix.to_string(), theme.dim()));
+        title_spans.push(Span::styled(prefix.to_string(), Style::new().fg(theme.faint)));
     }
     title_spans.extend([
         Span::styled(status_sym, status_sty),
@@ -502,6 +508,7 @@ fn task_row_tree(task: &Task, owner: &str, is_sel: bool, prefix: &str, theme: &T
     ]).style(base)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_tree_items(
     cakes: &[Cake],
     tasks: &[(String, Task)],
@@ -521,13 +528,13 @@ fn build_tree_items(
     let mut vis_idx = 0usize;
     let mut first_group = true;
     let cake_hdr_sty = Style::new().add_modifier(Modifier::BOLD).fg(theme.accent);
-    let rule_sty     = Style::new().fg(theme.muted);
+    let rule_sty     = Style::new().fg(theme.faint);
     let make_header  = |title: String, progress: String| -> Row<'static> {
         let rule_len = title_col_width
             .saturating_sub(UnicodeWidthStr::width(title.as_str()) + UnicodeWidthStr::width(progress.as_str()) + 1);
         let hdr_line = Line::from(vec![
             Span::styled(title,                cake_hdr_sty),
-            Span::styled(progress,             rule_sty),
+            Span::styled(progress,             Style::new().fg(theme.dim)),
             Span::styled(" ",                  rule_sty),
             Span::styled("─".repeat(rule_len), rule_sty),
         ]);
@@ -589,7 +596,7 @@ fn render_tree_rows(
 ) {
     let roots: Vec<(&str, &Task)> = group.iter()
         .filter(|(_, t)| t.parent_id.as_ref()
-            .map_or(true, |pid| !group.iter().any(|(_, pt)| pt.id == *pid)))
+            .is_none_or(|pid| !group.iter().any(|(_, pt)| pt.id == *pid)))
         .copied()
         .collect();
     let root_count = roots.len();
@@ -617,6 +624,7 @@ fn render_tree_rows(
 
 // ── detail ────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField, cakes: &[Cake], from_planner: bool, repo_name: &str, username: &str, theme: &Theme) {
     let area = f.area();
     let [top_row, rest] = Layout::default().direction(Direction::Vertical)
@@ -630,13 +638,13 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     };
     let crumb = format!("{crumb_label} › {}", task.id);
     render_top_bar(f, top_row, active_tab, repo_name, username, Some(&crumb), theme);
-    let sty = theme.border_style();
-    let block = Block::default()
-        .title(Line::from(vec![
-            Span::styled(" Task ", sty),
-            Span::styled(task.id.clone(), sty.add_modifier(Modifier::BOLD)),
-            Span::styled(" ", sty),
-        ]))
+    let block = panel("TASK", theme)
+        .title(
+            Line::from(Span::styled(
+                format!(" {} ", task.id),
+                Style::new().fg(theme.dim).add_modifier(Modifier::BOLD),
+            )).right_aligned()
+        )
         .padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(rest);
     f.render_widget(block, rest);
@@ -652,23 +660,23 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     f.render_widget(Paragraph::new(detail_nav_bar(rows[13].width, theme)), rows[13]);
 }
 
-fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, _selected: DetailField, cakes: &[Cake], theme: &Theme) {
-    draw_detail_chips(f, rows[1], "1", "TYPE", &[
+fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField, cakes: &[Cake], theme: &Theme) {
+    draw_detail_chips(f, rows[1], "1", "TYPE", selected == DetailField::Type, &[
         (task.task_type == TaskType::Task,     "task"),
         (task.task_type == TaskType::Bug,      "bug"),
         (task.task_type == TaskType::Incident, "incident"),
     ], theme);
-    draw_detail_chips(f, rows[2], "2", "STATUS", &[
+    draw_detail_chips(f, rows[2], "2", "STATUS", selected == DetailField::Status, &[
         (task.status == TaskStatus::Open,       "open"),
         (task.status == TaskStatus::InProgress, "in-progress"),
         (task.status == TaskStatus::Done,       "done"),
     ], theme);
-    draw_detail_chips(f, rows[3], "3", "PRIORITY", &[
+    draw_detail_chips(f, rows[3], "3", "PRIORITY", selected == DetailField::Priority, &[
         (task.priority == Priority::Normal, "normal"),
         (task.priority == Priority::High,   "high"),
         (task.priority == Priority::Urgent, "urgent"),
     ], theme);
-    draw_detail_chips(f, rows[4], "4", "AI FLAG", &[
+    draw_detail_chips(f, rows[4], "4", "AI FLAG", selected == DetailField::AiFlagged, &[
         (!task.ai_flagged, "no"),
         (task.ai_flagged,  "yes"),
     ], theme);
@@ -676,36 +684,47 @@ fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, _selected: De
         .and_then(|id| cakes.iter().find(|c| c.id == id))
         .map(|c| c.title.as_str()).unwrap_or("none");
     let owner_val = task.owner.as_deref().unwrap_or("none");
-    draw_detail_value(f, rows[5], "5", "CAKE",   cake_title, theme);
-    draw_detail_value(f, rows[6], "6", "ASSIGN", owner_val,  theme);
+    draw_detail_value(f, rows[5], "5", "CAKE",   selected == DetailField::Cake,   cake_title, theme);
+    draw_detail_value(f, rows[6], "6", "ASSIGN", selected == DetailField::Assign, owner_val,  theme);
     let file_path = format!("{}s/{}.md", type_label(&task.task_type), task.id);
     let ro = |label: &str, value: String| Paragraph::new(Line::from(vec![
         Span::raw("  "),
         Span::styled(format!("{:<12}", label), theme.bold_style()),
-        Span::styled(value, theme.dim()),
+        Span::styled(value, theme.dim_style()),
     ]));
     f.render_widget(ro("FILE:",    file_path), rows[7]);
     f.render_widget(ro("CREATED:", task.created.format("%Y-%m-%d %H:%M").to_string()), rows[8]);
     f.render_widget(ro("TITLE:",   task.title.clone()), rows[10]);
 }
 
-fn draw_detail_chips(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, opts: &[(bool, &'static str)], theme: &Theme) {
-    let mut spans = vec![num_key_badge(badge), num_field_label(label)];
+fn draw_detail_chips(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, focused: bool, opts: &[(bool, &'static str)], theme: &Theme) {
+    let label_sty = if focused {
+        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().add_modifier(Modifier::BOLD)
+    };
+    let mut spans = vec![num_key_badge(badge), Span::styled(format!(" {label:<8} "), label_sty)];
     for (active, name) in opts {
         if *active {
             spans.push(Span::styled(format!("[{name}]"), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
         } else {
-            spans.push(Span::styled(format!(" {name} "), theme.dim()));
+            spans.push(Span::styled(format!(" {name} "), theme.dim_style()));
         }
         spans.push(Span::raw("  "));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_detail_value(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, value: &str, theme: &Theme) {
+fn draw_detail_value(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, focused: bool, value: &str, theme: &Theme) {
+    let label_sty = if focused {
+        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().add_modifier(Modifier::BOLD)
+    };
     f.render_widget(Paragraph::new(Line::from(vec![
-        num_key_badge(badge), num_field_label(label),
-        Span::styled(value.to_string(), theme.dim()),
+        num_key_badge(badge),
+        Span::styled(format!(" {label:<8} "), label_sty),
+        Span::styled(value.to_string(), theme.dim_style()),
     ])), area);
 }
 
@@ -714,11 +733,11 @@ fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task, theme: &Theme) {
     let desc_str = task.description.as_deref().unwrap_or_default();
     let count = desc_str.chars().count();
     let counter_sty = if count > MAX {
-        Style::new().fg(theme.danger).add_modifier(Modifier::BOLD)
+        Style::new().fg(theme.flag).add_modifier(Modifier::BOLD)
     } else if count > MAX * 7 / 10 {
-        Style::new().fg(theme.warning)
+        Style::new().fg(theme.in_progress)
     } else {
-        theme.dim()
+        theme.dim_style()
     };
     let mut lines: Vec<Line> = Vec::new();
     if !desc_str.is_empty() {
@@ -736,18 +755,19 @@ fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task, theme: &Theme) {
 
 fn desc_line_render(line: &str, theme: &Theme) -> Line<'static> {
     if let Some(t) = line.strip_prefix("!!bite ") {
-        Line::from(vec![Span::styled(format!("  {} ", theme.sym_done), theme.dim()), Span::styled(t.to_string(), theme.dim())])
+        Line::from(vec![Span::styled(format!("  {} ", theme.sym_done), theme.dim_style()), Span::styled(t.to_string(), theme.dim_style())])
     } else if let Some(t) = line.strip_prefix("!bite ") {
         Line::from(vec![Span::styled(format!("  {} ", theme.sym_open), theme.bold_style()), Span::styled(t.to_string(), theme.bold_style())])
     } else if let Some(t) = line.strip_prefix("!!crumb ").or_else(|| line.strip_prefix("!crumb ")) {
-        Line::from(vec![Span::styled(format!("  {} ", theme.sym_dot), theme.dim()), Span::styled(t.to_string(), theme.dim())])
+        Line::from(vec![Span::styled(format!("  {} ", theme.sym_dot), theme.dim_style()), Span::styled(t.to_string(), theme.dim_style())])
     } else {
-        Line::from(vec![Span::raw("  "), Span::styled(line.to_string(), theme.dim())])
+        Line::from(vec![Span::raw("  "), Span::styled(line.to_string(), theme.dim_style())])
     }
 }
 
 // ── edit task ─────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn draw_edit_task(f: &mut Frame, context: TaskContext, task_id: &str, title: &Input, description: &str, from_planner: bool, repo_name: &str, username: &str, theme: &Theme) {
     let area = f.area();
     let [top_row, rest] = Layout::default().direction(Direction::Vertical)
@@ -757,24 +777,24 @@ fn draw_edit_task(f: &mut Frame, context: TaskContext, task_id: &str, title: &In
         else { ActiveView::Personal };
     let crumb = format!("EDIT › {task_id}");
     render_top_bar(f, top_row, active_tab, repo_name, username, Some(&crumb), theme);
-    let block = theme.padded_block("Edit Task");
+    let block = panel("Edit Task", theme).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(1),  // TITLE
-        Constraint::Length(1),  // blank
-        Constraint::Length(1),  // DESC label
-        Constraint::Fill(1),    // DESC preview
-        Constraint::Length(2),  // hint bar
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(2),
     ]).split(inner);
     draw_edit_title(f, rows[0], title, true, theme);
     let desc_lbl = create_field_label(false, theme);
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::styled("  DESC    ", desc_lbl),
-        Span::styled("Tab to open editor", theme.dim()),
+        Span::styled("Tab to open editor", theme.dim_style()),
     ])), rows[2]);
     let preview = if description.is_empty() { "(no description)" } else { description };
-    f.render_widget(Paragraph::new(preview).style(theme.dim()), rows[3]);
+    f.render_widget(Paragraph::new(preview).style(theme.dim_style()), rows[3]);
     f.render_widget(Paragraph::new(theme.bar_text(&[
         ("Tab", "edit desc"), ("↵", "save"), ("Esc", "cancel"), ("^Q", "quit"),
     ], rows[4].width)), rows[4]);
@@ -789,7 +809,7 @@ fn draw_edit_title(f: &mut Frame, area: Rect, input: &Input, active: bool, theme
     let display: String = input.value().chars().skip(scroll).take(iw).collect();
     f.render_widget(Paragraph::new(Line::from(vec![
         Span::styled(prefix, label_sty),
-        Span::styled(display, if active { Style::new() } else { theme.dim() }),
+        Span::styled(display, if active { Style::new() } else { theme.dim_style() }),
     ])), area);
     if active {
         let col = (input.visual_cursor().max(scroll) - scroll) as u16;
@@ -801,7 +821,7 @@ fn draw_edit_title(f: &mut Frame, area: Rect, input: &Input, active: bool, theme
 
 fn create_field_label(active: bool, theme: &Theme) -> Style {
     if active { Style::new().fg(theme.accent).add_modifier(Modifier::BOLD) }
-    else       { Style::new().fg(theme.muted).add_modifier(Modifier::BOLD) }
+    else       { Style::new().fg(theme.dim).add_modifier(Modifier::BOLD) }
 }
 
 fn num_key_badge(n: &'static str) -> Span<'static> {
@@ -820,21 +840,21 @@ fn draw_create(f: &mut Frame, focus: CreateFocus, task_type: &TaskType, priority
     let popup_h = 10 + assign_h + cake_h;
     let popup = centered_rect(65, popup_h, area);
     f.render_widget(Clear, popup);
-    let block = theme.padded_block("New Task");
+    let block = panel("New Slice", theme).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(1),         // hint line
-        Constraint::Length(1),         // blank
-        Constraint::Length(1),         // [1] TYPE
-        Constraint::Length(1),         // [2] PRIORITY
-        Constraint::Length(assign_h),  // [3] ASSIGN
-        Constraint::Length(cake_h),    // [4] CAKE
-        Constraint::Length(1),         // blank
-        Constraint::Length(1),         // hint bar
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(assign_h),
+        Constraint::Length(cake_h),
+        Constraint::Length(1),
+        Constraint::Length(1),
     ]).split(inner);
     f.render_widget(
-        Paragraph::new(Span::styled("Use numbers 1-4 to configure your slice.", theme.dim())),
+        Paragraph::new(Span::styled("Use numbers 1-4 to configure your slice.", theme.dim_style())),
         rows[0],
     );
     draw_create_type_chips(f, rows[2], task_type, theme);
@@ -851,7 +871,7 @@ fn draw_create_type_chips(f: &mut Frame, area: Rect, task_type: &TaskType, theme
         if t == task_type {
             spans.push(Span::styled(format!("[{}]", type_label(t)), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
         } else {
-            spans.push(Span::styled(format!(" {} ", type_label(t)), theme.dim()));
+            spans.push(Span::styled(format!(" {} ", type_label(t)), theme.dim_style()));
         }
         spans.push(Span::raw("  "));
     }
@@ -865,7 +885,7 @@ fn draw_create_priority_chips(f: &mut Frame, area: Rect, priority: &Priority, th
         if p == priority {
             spans.push(Span::styled(format!("[{}]", priority_label(p)), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
         } else {
-            spans.push(Span::styled(format!(" {} ", priority_label(p)), theme.dim()));
+            spans.push(Span::styled(format!(" {} ", priority_label(p)), theme.dim_style()));
         }
         spans.push(Span::raw("  "));
     }
@@ -882,7 +902,7 @@ fn draw_create_assign(f: &mut Frame, area: Rect, users: &[String], filter: &str,
     if !active {
         let val = filtered.get(sel).copied().unwrap_or("none");
         f.render_widget(Paragraph::new(Line::from(vec![
-            key, label, Span::styled(val.to_string(), theme.dim()),
+            key, label, Span::styled(val.to_string(), theme.dim_style()),
         ])), area);
         return;
     }
@@ -899,7 +919,7 @@ fn draw_create_assign(f: &mut Frame, area: Rect, users: &[String], filter: &str,
             let (cur, cur_sty, row_sty) = if is_sel {
                 (format!("{} ", theme.cursor), Style::new().fg(theme.accent), theme.highlight)
             } else {
-                ("  ".to_string(), theme.dim(), Style::new())
+                ("  ".to_string(), theme.dim_style(), Style::new())
             };
             f.render_widget(Paragraph::new(Line::from(vec![
                 Span::raw("    "), Span::styled(cur, cur_sty), Span::styled(name.to_string(), row_sty),
@@ -923,7 +943,7 @@ fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &st
     if !active {
         let val = opts.get(sel).map(|e| cake_name(*e)).unwrap_or_else(|| "None (default)".to_string());
         f.render_widget(Paragraph::new(Line::from(vec![
-            key, label, Span::styled(val, theme.dim()),
+            key, label, Span::styled(val, theme.dim_style()),
         ])), area);
         return;
     }
@@ -941,7 +961,7 @@ fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &st
             let (cur, cur_sty, row_sty) = if is_sel {
                 (format!("{} ", theme.cursor), Style::new().fg(theme.accent), theme.highlight)
             } else {
-                ("  ".to_string(), theme.dim(), Style::new())
+                ("  ".to_string(), theme.dim_style(), Style::new())
             };
             f.render_widget(Paragraph::new(Line::from(vec![
                 Span::raw("    "), Span::styled(cur, cur_sty), Span::styled(name.to_string(), row_sty),
@@ -952,7 +972,7 @@ fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &st
 
 fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {
     let area = f.area();
-    let block = theme.padded_block("New cake");
+    let block = panel("New Cake", theme).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
@@ -964,8 +984,8 @@ fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {
         Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
     ])), rows[1]);
     f.render_widget(Paragraph::new(Line::from(vec![
-        Span::styled("  Enter: create  ", theme.dim()),
-        Span::styled("  Esc: cancel",     theme.dim()),
+        Span::styled("  Enter: create  ", theme.dim_style()),
+        Span::styled("  Esc: cancel",     theme.dim_style()),
     ])), rows[3]);
 }
 
@@ -976,11 +996,11 @@ fn draw_pick_cake(f: &mut Frame, cakes: &[Cake], selected: usize, filter: &str, 
         .chain(cakes.iter().map(|c| c.title.clone()))
         .filter(|t| filter.is_empty() || t.to_lowercase().contains(&filter.to_lowercase()))
         .collect();
-    draw_user_picker(f, "Pick cake", &items, selected, filter, theme);
+    draw_user_picker(f, "Pick Cake", &items, selected, filter, theme);
 }
 
 fn draw_assign_task(f: &mut Frame, users: &[String], selected: usize, filter: &str, theme: &Theme) {
-    draw_user_picker(f, " Assign to ", users, selected, filter, theme);
+    draw_user_picker(f, "Assign To", users, selected, filter, theme);
 }
 
 fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usize, filter: &str, theme: &Theme) {
@@ -995,19 +1015,19 @@ fn draw_user_picker(f: &mut Frame, title: &str, users: &[String], selected: usiz
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
     ]).split(inner);
     f.render_widget(Paragraph::new(Line::from(vec![
-        Span::styled("/ ", theme.dim()),
+        Span::styled("/ ", theme.dim_style()),
         Span::styled(filter, theme.bold_style()),
         Span::styled("_", Style::new().add_modifier(Modifier::SLOW_BLINK)),
     ])), rows[0]);
     if filtered.is_empty() {
-        f.render_widget(Paragraph::new("No matching users.").style(theme.dim()), rows[2]);
+        f.render_widget(Paragraph::new("No matching users.").style(theme.dim_style()), rows[2]);
     } else {
         let items = user_picker_items(&filtered, selected, theme);
         let mut state = ListState::default();
         state.select(Some(selected));
         f.render_stateful_widget(List::new(items), rows[2], &mut state);
     }
-    f.render_widget(Paragraph::new("↑↓: navigate  Type to filter  Enter: select  Esc: cancel").style(theme.dim()), rows[3]);
+    f.render_widget(Paragraph::new("↑↓: navigate  Type to filter  Enter: select  Esc: cancel").style(theme.dim_style()), rows[3]);
 }
 
 fn user_picker_items(filtered: &[&String], selected: usize, theme: &Theme) -> Vec<ListItem<'static>> {
@@ -1023,9 +1043,6 @@ fn user_picker_items(filtered: &[&String], selected: usize, theme: &Theme) -> Ve
     }).collect()
 }
 
-// ── planner view ──────────────────────────────────────────────────────────────
-
-
 // ── confirm dialogs ───────────────────────────────────────────────────────────
 
 fn draw_sync_confirm(f: &mut Frame, context: TaskContext, theme: &Theme) {
@@ -1037,9 +1054,9 @@ fn draw_sync_confirm(f: &mut Frame, context: TaskContext, theme: &Theme) {
         TaskContext::Personal => "This will commit and push your tasks.",
         TaskContext::Backlog  => "This will commit and push the shared backlog.",
     };
-    f.render_widget(Paragraph::new(what).style(theme.dim()), rows[0]);
+    f.render_widget(Paragraph::new(what).style(theme.dim_style()), rows[0]);
     f.render_widget(Paragraph::new("Continue? [y/N]"), rows[1]);
-    f.render_widget(Paragraph::new("y: push  Enter/n/q: cancel").style(theme.dim()), rows[3]);
+    f.render_widget(Paragraph::new("y: push  Enter/n/q: cancel").style(theme.dim_style()), rows[3]);
 }
 
 fn draw_delete_confirm(f: &mut Frame, task_title: &str, context: TaskContext, theme: &Theme) {
@@ -1061,7 +1078,7 @@ fn draw_delete_confirm(f: &mut Frame, task_title: &str, context: TaskContext, th
         ]),
     };
     f.render_widget(Paragraph::new(question_line).wrap(ratatui::widgets::Wrap { trim: true }), rows[0]);
-    f.render_widget(Paragraph::new(subtext).style(theme.dim()), rows[2]);
+    f.render_widget(Paragraph::new(subtext).style(theme.dim_style()), rows[2]);
     f.render_widget(Paragraph::new("[y/N]"), rows[4]);
 }
 
@@ -1070,7 +1087,7 @@ fn draw_push_prompt(f: &mut Frame, theme: &Theme) {
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1), Constraint::Length(2),
     ]).split(inner);
-    f.render_widget(Paragraph::new("You have uncommitted task changes.").style(theme.dim()), rows[0]);
+    f.render_widget(Paragraph::new("You have uncommitted task changes.").style(theme.dim_style()), rows[0]);
     f.render_widget(Paragraph::new("Push before quitting? [y/N]"), rows[1]);
     f.render_widget(Paragraph::new(theme.bar_text(&[
         ("y", "push + quit"), ("Enter/n", "quit"), ("Esc", "cancel"),
@@ -1083,12 +1100,10 @@ fn draw_push_prompt(f: &mut Frame, theme: &Theme) {
 enum ActiveView { Personal, Planner, Backlog }
 
 fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str, username: &str, breadcrumb: Option<&str>, theme: &Theme) {
-    let bar_bg = if theme.text == Color::Reset { Color::White } else { theme.text };
-    f.render_widget(Block::default().style(Style::new().bg(bar_bg)), area);
+    f.render_widget(Block::default().style(Style::new().bg(theme.bg)), area);
     let tabs = [(ActiveView::Personal, "PERSONAL"), (ActiveView::Planner, "PLANNER"), (ActiveView::Backlog, "BACKLOG")];
-    let active_fg    = theme.highlight.bg.unwrap_or(Color::Rgb(0, 31, 96));
-    let inactive_sty = Style::new().bg(bar_bg).fg(Color::DarkGray);
-    let active_sty   = Style::new().bg(bar_bg).fg(active_fg).add_modifier(Modifier::BOLD);
+    let inactive_sty = Style::new().bg(theme.bg).fg(theme.dim);
+    let active_sty   = Style::new().bg(theme.bg).fg(theme.accent).add_modifier(Modifier::BOLD);
     let mut spans = vec![Span::raw("  ")];
     for (view, label) in &tabs {
         if *view == active {
@@ -1100,12 +1115,12 @@ fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
     let right = if let Some(crumb) = breadcrumb {
-        format!(" {} ", crumb)
+        format!(" {crumb} ")
     } else {
-        format!(" {} · {} ", repo_name, username)
+        format!(" {repo_name} · {username} ")
     };
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(right, Style::new().bg(bar_bg).fg(Color::DarkGray)))).alignment(Alignment::Right),
+        Paragraph::new(Line::from(Span::styled(right, Style::new().bg(theme.bg).fg(theme.dim)))).alignment(Alignment::Right),
         area,
     );
 }
@@ -1122,27 +1137,28 @@ fn bar_make_line<'a>(items: &[(&'a str, &'a str)], chip: Style, lbl: Style) -> L
 fn list_view_hint_bar(active: ActiveView, width: u16, theme: &Theme) -> Text<'static> {
     match active {
         ActiveView::Personal => theme.bar_text(&[
-            ("WASD", "nav"), ("^C", "create"), ("E", "edit"), ("F", "cycle"),
-            ("^A", "assign"), ("^B", "backlog"), ("H", "done"),
-            ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+            ("WS", "nav"), ("D", "open"), ("C", "create"), ("Spc", "status"),
+            ("Q", "filter"), ("E", "edit"), ("R", "assign"), ("^B", "backlog"),
+            ("⇧T", "pull"), ("T", "push"), ("^Q", "quit"),
         ], width),
         ActiveView::Backlog => theme.bar_text(&[
-            ("WASD", "nav"), ("^C", "create"), ("E", "edit"),
-            ("^A", "assign"), ("^D", "delete"), ("H", "done"),
-            ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+            ("WS", "nav"), ("D", "open"), ("C", "create"),
+            ("Q", "filter"), ("E", "edit"), ("R", "assign"), ("^D", "delete"),
+            ("⇧T", "pull"), ("T", "push"), ("^Q", "quit"),
         ], width),
         ActiveView::Planner => theme.bar_text(&[
-            ("WASD", "nav"), ("^C", "create"), ("C", "cake"),
-            ("^A", "assign"), ("^B", "backlog"), ("H", "done"),
-            ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+            ("WS", "nav"), ("D", "open"), ("C", "create"), ("⇧C", "cake"),
+            ("Spc", "status"), ("Q", "filter"), ("R", "assign"),
+            ("⇧T", "pull"), ("T", "push"), ("^Q", "quit"),
         ], width),
     }
 }
 
 fn detail_nav_bar(width: u16, theme: &Theme) -> Text<'static> {
     theme.bar_text(&[
-        ("1-6", "fields"), ("^E", "edit"),
-        ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+        ("WS", "nav"), ("1-6", "fields"), ("F", "cycle"), ("Spc", "status"),
+        ("B", "bite"), ("E", "edit"), ("R", "assign"),
+        ("T", "push"), ("^Q", "quit"),
     ], width)
 }
 
@@ -1155,7 +1171,7 @@ fn create_hint_bar_text(width: u16, theme: &Theme) -> Text<'static> {
 fn draw_error_line(f: &mut Frame, area: Rect, err: Option<&str>, theme: &Theme) {
     if let Some(e) = err {
         f.render_widget(
-            Paragraph::new(format!("✗ {e}")).alignment(Alignment::Center).style(Style::new().fg(theme.danger)),
+            Paragraph::new(format!("✗ {e}")).alignment(Alignment::Center).style(Style::new().fg(theme.flag)),
             area,
         );
     }
@@ -1165,7 +1181,7 @@ fn render_popup(f: &mut Frame, title: &str, percent_x: u16, height: u16, theme: 
     let area  = f.area();
     let popup = centered_rect(percent_x, height, area);
     f.render_widget(Clear, popup);
-    let block = theme.padded_block(title);
+    let block = panel(title, theme).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
     inner
@@ -1183,8 +1199,6 @@ fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
 fn type_label(t: &TaskType) -> &'static str {
     match t { TaskType::Task => "task", TaskType::Bug => "bug", TaskType::Incident => "incident" }
 }
-
-
 
 fn priority_label(p: &Priority) -> &'static str {
     match p { Priority::Urgent => "urgent", Priority::High => "high", Priority::Normal => "normal" }

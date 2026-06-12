@@ -204,15 +204,6 @@ impl App {
 
     pub fn handle_event(&mut self, event: Event) {
         let Event::Key(key) = event else { return };
-        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
-            let input_screen = matches!(&self.screen,
-                Screen::Setup { .. } | Screen::InitRepo { .. } | Screen::Create { .. }
-                | Screen::EditTask { .. } | Screen::CreateCake { .. }
-                | Screen::AssignTask { .. } | Screen::DeleteConfirm { .. }
-                | Screen::SyncConfirm | Screen::PushPrompt | Screen::PickCake { .. }
-            );
-            if !input_screen { self.open_create_screen(); return; }
-        }
         match &self.screen {
             Screen::Setup { .. }         => self.handle_setup(key),
             Screen::InitRepo { .. }      => self.handle_init_repo(key),
@@ -306,6 +297,7 @@ impl App {
         if is_key(&key, &self.config.keys.quit) { self.try_quit(); return; }
         if self.filter_active { self.handle_filter_input(key); return; }
         if is_key(&key, &self.config.keys.push) { self.screen = Screen::SyncConfirm; return; }
+        if is_key(&key, &self.config.keys.pull) { self.handle_list_pull(); return; }
         if key.code == KeyCode::Esc {
             if !self.filter.is_empty() {
                 self.filter.clear();
@@ -315,12 +307,12 @@ impl App {
             self.pull_error = None;
             return;
         }
-        if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            self.handle_list_pull(); return;
-        }
         let Screen::TaskList { tasks, selected, message } = &mut self.screen else { return };
-        if key.code == KeyCode::Char('/') && key.modifiers == KeyModifiers::NONE {
-            self.filter_active = true; self.filter.clear(); *selected = 0; return;
+        {
+            let km = &self.config.keys;
+            if is_key(&key, &km.filter) || key.code == KeyCode::Char('/') {
+                self.filter_active = true; self.filter.clear(); *selected = 0; return;
+            }
         }
         let no_mod = key.modifiers == KeyModifiers::NONE;
         if key.code == KeyCode::Char('H') && !key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -342,23 +334,36 @@ impl App {
         self.handle_list_action_keys(key, sel_task, no_mod);
     }
 
-    fn handle_list_action_keys(&mut self, key: KeyEvent, sel_task: Option<Task>, no_mod: bool) {
-        let km = &self.config.keys;
+    fn handle_list_action_keys(&mut self, key: KeyEvent, sel_task: Option<Task>, _no_mod: bool) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let km = self.config.keys.clone();
+        if is_key(&key, &km.detail) {
+            if let Some(t) = sel_task {
+                self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: false };
+            }
+            return;
+        }
+        if is_key(&key, &km.edit) {
+            if let Some(t) = sel_task {
+                self.enter_edit_task(t.id, t.title, t.description.unwrap_or_default(), false, false);
+            }
+            return;
+        }
+        if is_key(&key, &km.status_cycle) {
+            if let Some(t) = sel_task { self.cycle_status(&t.id); }
+            return;
+        }
+        if is_key(&key, &km.create) {
+            self.open_create_screen(); return;
+        }
+        if is_key(&key, &km.assign) {
+            if let Some(t) = sel_task {
+                let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
+                self.screen = Screen::AssignTask { task_id: t.id, users, selected: 0, filter: String::new() };
+            }
+            return;
+        }
         match key.code {
-            KeyCode::Char(c) if c == km.detail.chars().next().unwrap_or('d') && km.detail.len() == 1 && no_mod => {
-                if let Some(t) = sel_task {
-                    self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: false };
-                }
-            }
-            KeyCode::Char(c) if c == km.edit.chars().next().unwrap_or('e') && km.edit.len() == 1 && no_mod => {
-                if let Some(t) = sel_task {
-                    self.enter_edit_task(t.id, t.title, t.description.unwrap_or_default(), false, false);
-                }
-            }
-            KeyCode::Char(c) if c == km.status_cycle.chars().next().unwrap_or('f') && km.status_cycle.len() == 1 && no_mod && self.context == TaskContext::Personal => {
-                if let Some(t) = sel_task { self.cycle_status(&t.id); }
-            }
             KeyCode::Tab => {
                 self.filter.clear(); self.filter_active = false;
                 match self.context {
@@ -371,12 +376,6 @@ impl App {
                 match self.context {
                     TaskContext::Personal => { self.context = TaskContext::Backlog; self.enter_task_list(None, None); }
                     TaskContext::Backlog  => self.enter_planner_view(),
-                }
-            }
-            KeyCode::Char('a') if ctrl => {
-                if let Some(t) = sel_task {
-                    let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
-                    self.screen = Screen::AssignTask { task_id: t.id, users, selected: 0, filter: String::new() };
                 }
             }
             KeyCode::Char('b') if ctrl && self.context == TaskContext::Personal => {
@@ -432,29 +431,58 @@ impl App {
     // ── detail ────────────────────────────────────────────────────────────────
 
     fn handle_detail(&mut self, key: KeyEvent) {
-        let km = &self.config.keys;
-        if is_ctrl_q(&key) { self.try_quit(); return; }
+        let km = self.config.keys.clone();
+        if is_key(&key, &km.quit) { self.try_quit(); return; }
         if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
-        if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            self.do_detail_pull(); return;
-        }
-        let (task_id, task_type, task_status, task_priority, task_ai_flagged, from_planner) =
+        if is_key(&key, &km.pull) { self.do_detail_pull(); return; }
+        let (task_id, task_type, task_status, task_priority, task_ai_flagged, from_planner, sel_field) =
             match &self.screen {
-                Screen::Detail { task, from_planner, .. } => (
+                Screen::Detail { task, from_planner, selected_field, .. } => (
                     task.id.clone(),
                     task.task_type.clone(), task.status.clone(),
                     task.priority.clone(), task.ai_flagged,
-                    *from_planner,
+                    *from_planner, *selected_field,
                 ),
                 _ => return,
             };
         let no_mod = key.modifiers == KeyModifiers::NONE;
-        if is_key(&key, &km.back) || key.code == KeyCode::Char('q') {
+        if is_key(&key, &km.back) || key.code == KeyCode::Esc {
             if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, Some(&task_id)); }
             return;
         }
-        if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::CONTROL {
+        if is_key(&key, &km.edit) {
             self.open_detail_editor(task_id, from_planner); return;
+        }
+        // W/S navigate fields
+        if is_key(&key, &km.up) || is_key(&key, &km.down) {
+            let fields = [DetailField::Type, DetailField::Status, DetailField::Priority,
+                          DetailField::AiFlagged, DetailField::Cake, DetailField::Assign];
+            let cur = fields.iter().position(|f| *f == sel_field).unwrap_or(0);
+            let next = if is_key(&key, &km.up) {
+                cur.checked_sub(1).unwrap_or(fields.len() - 1)
+            } else {
+                (cur + 1) % fields.len()
+            };
+            if let Screen::Detail { selected_field, .. } = &mut self.screen {
+                *selected_field = fields[next];
+            }
+            return;
+        }
+        // F cycles the focused field
+        if is_key(&key, &km.field_cycle) {
+            self.do_detail_field_cycle(task_id, sel_field, task_type, task_status, task_priority, task_ai_flagged);
+            return;
+        }
+        // Space cycles status directly
+        if is_key(&key, &km.status_cycle) {
+            self.do_detail_field_cycle(task_id, DetailField::Status, task_type, task_status, task_priority, task_ai_flagged);
+            return;
+        }
+        // R opens assign picker
+        if is_key(&key, &km.assign) {
+            let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
+            self.screen = Screen::AssignTask { task_id, users, selected: 0, filter: String::new() };
+            return;
         }
         let mut cycle = |field| self.do_detail_field_cycle(task_id.clone(), field, task_type.clone(), task_status.clone(), task_priority.clone(), task_ai_flagged);
         match key.code {
@@ -867,11 +895,10 @@ impl App {
     // ── planner ───────────────────────────────────────────────────────────────
 
     fn handle_planner_view(&mut self, key: KeyEvent) {
-        if is_ctrl_q(&key) { self.try_quit(); return; }
-        if is_key(&key, &self.config.keys.push) { self.screen = Screen::SyncConfirm; return; }
-        if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            self.handle_list_pull(); return;
-        }
+        let km = self.config.keys.clone();
+        if is_key(&key, &km.quit) { self.try_quit(); return; }
+        if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
+        if is_key(&key, &km.pull) { self.handle_list_pull(); return; }
         if self.filter_active {
             let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
             match key.code {
@@ -893,10 +920,9 @@ impl App {
             if let Screen::PlannerView { selected, .. } = &mut self.screen { *selected = 0; }
             return;
         }
-        if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::NONE {
+        if is_key(&key, &km.detail) {
             let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
             let hd = self.hide_done;
-    
             let task = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
                 planner_visible_tasks(cakes, tasks, &f, hd, true)
                     .get(*selected).map(|(_, t)| t.clone())
@@ -906,28 +932,43 @@ impl App {
             }
             return;
         }
-        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::NONE {
+        if is_key(&key, &km.create_cake) {
             self.screen = Screen::CreateCake { title: String::new() }; return;
+        }
+        if is_key(&key, &km.create) {
+            self.open_create_screen(); return;
+        }
+        if is_key(&key, &km.assign) {
+            let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
+            let hd = self.hide_done;
+            let task_id = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
+                planner_visible_tasks(cakes, tasks, &f, hd, true)
+                    .get(*selected).map(|(_, t)| t.id.clone())
+            } else { None };
+            if let Some(id) = task_id {
+                let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
+                self.screen = Screen::AssignTask { task_id: id, users, selected: 0, filter: String::new() };
+            }
+            return;
         }
         if key.code == KeyCode::Char('b') && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.do_planner_backlog(); return;
         }
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let hd = self.hide_done;
-
         let visible_count = if let Screen::PlannerView { cakes, tasks, .. } = &self.screen {
             planner_visible_tasks(cakes, tasks, &f, hd, true).len()
         } else { return };
         let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
+        if is_key(&key, &km.filter) || key.code == KeyCode::Char('/') {
+            self.filter_active = true; self.filter.clear(); *selected = 0; return;
+        }
         match key.code {
             KeyCode::Char('w') | KeyCode::Up => {
                 if visible_count > 0 { *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); }
             }
             KeyCode::Char('s') | KeyCode::Down => {
                 if visible_count > 0 { *selected = (*selected + 1) % visible_count; }
-            }
-            KeyCode::Char('/') if key.modifiers == KeyModifiers::NONE => {
-                self.filter_active = true; self.filter.clear(); *selected = 0;
             }
             KeyCode::Tab => {
                 self.filter.clear(); self.filter_active = false;
@@ -1182,6 +1223,13 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
         let ch = ctrl_key.chars().next().unwrap_or('\0');
         return event.modifiers.contains(KeyModifiers::CONTROL)
             && event.code == KeyCode::Char(ch);
+    }
+    if binding == "space" {
+        return event.code == KeyCode::Char(' ');
+    }
+    if let Some(shift_key) = binding.strip_prefix("shift+") {
+        let ch = shift_key.chars().next().unwrap_or('\0').to_ascii_uppercase();
+        return event.code == KeyCode::Char(ch);
     }
     if binding.len() == 1 {
         let ch = binding.chars().next().unwrap_or('\0');
