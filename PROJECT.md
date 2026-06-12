@@ -248,7 +248,7 @@ Detail view shows five navigable rows (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) wi
 | `Ctrl+R` | Push |
 | `Ctrl+Q` | Quit |
 
-Shows all active (non-done) slices grouped by cake. Each cake header shows open/total slice count. Unattached slices appear in a STANDALONE section. Each slice row shows owner + status indicator (`→` in-progress, `·` open) + type + title. `C` creates a new cake (inline title input). `Ctrl+C` creates a new slice. `D` opens detail view for the selected slice.
+Shows all slices grouped by cake — active slices under their cake header, then a STANDALONE section for unattached active slices, then a DONE section at the bottom for all completed slices. Each cake header shows open/total slice count. Each slice row shows owner + status indicator (`→` in-progress, `·` open, `✓` done) + type + title. `H` toggles the DONE section. `C` creates a new cake (inline title input). `Ctrl+C` creates a new slice. `D` opens detail view for the selected slice.
 
 Filter persists across screen transitions (detail, edit, assign) until Esc is pressed.
 

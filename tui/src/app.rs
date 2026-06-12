@@ -136,28 +136,6 @@ pub enum DetailField {
     Assign,
 }
 
-impl DetailField {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Type      => Self::Status,
-            Self::Status    => Self::Priority,
-            Self::Priority  => Self::AiFlagged,
-            Self::AiFlagged => Self::Cake,
-            Self::Cake      => Self::Assign,
-            Self::Assign    => Self::Type,
-        }
-    }
-    pub fn prev(self) -> Self {
-        match self {
-            Self::Type      => Self::Assign,
-            Self::Status    => Self::Type,
-            Self::Priority  => Self::Status,
-            Self::AiFlagged => Self::Priority,
-            Self::Cake      => Self::AiFlagged,
-            Self::Assign    => Self::Cake,
-        }
-    }
-}
 
 // ── app ───────────────────────────────────────────────────────────────────────
 
@@ -460,34 +438,60 @@ impl App {
         if key.code == KeyCode::Char('R') && !key.modifiers.contains(KeyModifiers::CONTROL) {
             self.do_detail_pull(); return;
         }
-        let (task_id, field, task_type, task_status, task_priority, task_ai_flagged, title, desc, from_planner) =
+        let (task_id, task_type, task_status, task_priority, task_ai_flagged, from_planner) =
             match &self.screen {
-                Screen::Detail { task, selected_field, from_planner, .. } => (
-                    task.id.clone(), *selected_field,
+                Screen::Detail { task, from_planner, .. } => (
+                    task.id.clone(),
                     task.task_type.clone(), task.status.clone(),
                     task.priority.clone(), task.ai_flagged,
-                    task.title.clone(), task.description.clone().unwrap_or_default(),
                     *from_planner,
                 ),
                 _ => return,
             };
+        let no_mod = key.modifiers == KeyModifiers::NONE;
         if is_key(&key, &km.back) || key.code == KeyCode::Char('q') {
             if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, Some(&task_id)); }
             return;
         }
-        if is_key(&key, &km.edit) {
-            self.enter_edit_task(task_id, title, desc, true, from_planner); return;
+        if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::CONTROL {
+            self.open_detail_editor(task_id, from_planner); return;
         }
-        if matches!(key.code, KeyCode::Char('w') | KeyCode::Up) && key.modifiers == KeyModifiers::NONE {
-            if let Screen::Detail { selected_field, .. } = &mut self.screen { *selected_field = selected_field.prev(); }
-            return;
+        let mut cycle = |field| self.do_detail_field_cycle(task_id.clone(), field, task_type.clone(), task_status.clone(), task_priority.clone(), task_ai_flagged);
+        match key.code {
+            KeyCode::Char('1') if no_mod => cycle(DetailField::Type),
+            KeyCode::Char('2') if no_mod => cycle(DetailField::Status),
+            KeyCode::Char('3') if no_mod => cycle(DetailField::Priority),
+            KeyCode::Char('4') if no_mod => cycle(DetailField::AiFlagged),
+            KeyCode::Char('5') if no_mod => cycle(DetailField::Cake),
+            KeyCode::Char('6') if no_mod => cycle(DetailField::Assign),
+            _ => {}
         }
-        if matches!(key.code, KeyCode::Char('s') | KeyCode::Down) && key.modifiers == KeyModifiers::NONE {
-            if let Screen::Detail { selected_field, .. } = &mut self.screen { *selected_field = selected_field.next(); }
-            return;
-        }
-        if is_key(&key, &km.status_cycle) {
-            self.do_detail_field_cycle(task_id, field, task_type, task_status, task_priority, task_ai_flagged);
+    }
+
+    fn open_detail_editor(&mut self, task_id: String, from_planner: bool) {
+        let (title_str, desc_str, context) = match &self.screen {
+            Screen::Detail { task, .. } => (task.title.clone(), task.description.clone().unwrap_or_default(), self.context),
+            _ => return,
+        };
+        let template = format!("# {}\n\n## Description:\n\n{}\n", title_str, desc_str);
+        let content = open_editor(&template);
+        self.needs_clear = true;
+        let Some(content) = content else { return };
+        let (new_title, new_desc) = parse_create_editor_output(&content);
+        if new_title.is_empty() { return; }
+        let desc = if new_desc.as_ref().map(|d| d.is_empty()).unwrap_or(true) { None } else { new_desc };
+        let patch = TaskPatch { title: Some(new_title), description: Some(desc), ..Default::default() };
+        let result = self.repo.as_ref().map(|r| match context {
+            TaskContext::Personal => r.update_task(&task_id, patch),
+            TaskContext::Backlog  => r.update_backlog_task(&task_id, patch),
+        });
+        let msg = match result {
+            Some(Ok(_))  => Some("Task updated.".to_string()),
+            Some(Err(e)) => Some(e.to_string()),
+            None         => None,
+        };
+        if let Some(t) = self.repo.as_ref().and_then(|r| r.get_task(&task_id).ok()) {
+            self.screen = Screen::Detail { task: t, message: msg, selected_field: DetailField::Type, from_planner };
         }
     }
 
@@ -1345,8 +1349,8 @@ pub(crate) fn planner_visible_tasks<'a>(
     tree: bool,
 ) -> Vec<&'a (String, Task)> {
     let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
-    let is_vis = |t: &Task| (f.is_empty() || filter_matches_with_cakes(t, cakes, &f))
-                           && (!hide_done || t.status != TaskStatus::Done);
+    let matches_f = |t: &Task| f.is_empty() || filter_matches_with_cakes(t, cakes, &f);
+    let is_active = |t: &Task| matches_f(t) && t.status != TaskStatus::Done;
 
     fn process_group<'a>(result: &mut Vec<&'a (String, Task)>, group: &[&'a (String, Task)], tree: bool) {
         if !tree { result.extend_from_slice(group); return; }
@@ -1366,14 +1370,20 @@ pub(crate) fn planner_visible_tasks<'a>(
     let mut result = Vec::new();
     for cake in cakes {
         let group: Vec<&(String, Task)> = tasks.iter()
-            .filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && is_vis(t))
+            .filter(|(_, t)| t.cake_id.as_deref() == Some(&cake.id) && is_active(t))
             .collect();
         if !group.is_empty() { process_group(&mut result, &group, tree); }
     }
     let standalone: Vec<&(String, Task)> = tasks.iter()
-        .filter(|(_, t)| t.cake_id.is_none() && is_vis(t))
+        .filter(|(_, t)| t.cake_id.is_none() && is_active(t))
         .collect();
     if !standalone.is_empty() { process_group(&mut result, &standalone, tree); }
+    if !hide_done {
+        let done: Vec<&(String, Task)> = tasks.iter()
+            .filter(|(_, t)| matches_f(t) && t.status == TaskStatus::Done)
+            .collect();
+        if !done.is_empty() { process_group(&mut result, &done, tree); }
+    }
     result
 }
 

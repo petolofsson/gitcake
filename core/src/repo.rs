@@ -96,13 +96,13 @@ impl TaskRepo {
         Ok((backlog, warnings))
     }
 
-    /// Returns all active (non-done) tasks grouped by owner. Used for team view.
+    /// Returns all owned tasks grouped by owner. Used for planner view.
     pub fn list_team_tasks(&self) -> Result<Vec<(String, Task)>, AppError> {
         let root = Path::new(&self.info.path);
         let (all, _) = scan_all(root);
         let result = all
             .into_iter()
-            .filter(|t| t.owner.is_some() && t.status != TaskStatus::Done)
+            .filter(|t| t.owner.is_some())
             .map(|t| (t.owner.clone().expect("owner is Some — filtered above"), t))
             .collect();
         Ok(result)

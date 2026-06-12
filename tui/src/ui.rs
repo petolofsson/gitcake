@@ -181,8 +181,22 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_setup(f, input, error.as_deref(), *can_cancel, &t),
         Screen::InitRepo { path, name, error } =>
             draw_init_repo(f, path, name, error.as_deref(), &t),
-        Screen::TaskList { tasks, selected, message } =>
-            draw_task_list(f, task_list_params(app, tasks, *selected, message.as_deref(), &t)),
+        Screen::TaskList { tasks, selected, message } => {
+            let active = if app.context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
+            let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
+            let owned: Vec<(String, Task)> = tasks.iter().map(|t| {
+                let owner = if active == ActiveView::Backlog {
+                    t.owner.as_deref().unwrap_or("(none)").to_string()
+                } else { String::new() };
+                (owner, t.clone())
+            }).collect();
+            draw_list_view(f, ListViewParams {
+                active, tasks: &owned, selected: *selected, message: message.as_deref(),
+                pull_error: app.pull_error.as_deref(), lock_warning: app.lock_warning.as_deref(),
+                filter: &app.filter, filter_active: app.filter_active, hide_done: app.hide_done,
+                cakes: &app.cached_cakes, repo_name: rn, username: un, theme: &t,
+            });
+        }
         Screen::Detail { task, message, selected_field, from_planner } => {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
             draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, &t);
@@ -204,25 +218,20 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_delete_confirm(f, task_title, app.context, &t),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context, &t),
         Screen::PushPrompt  => draw_push_prompt(f, &t),
-        Screen::PlannerView { cakes, tasks, selected } =>
-            draw_planner_view(f, app, cakes, tasks, *selected, &t),
+        Screen::PlannerView { cakes, tasks, selected } => {
+            let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
+            draw_list_view(f, ListViewParams {
+                active: ActiveView::Planner, tasks, selected: *selected, message: None,
+                pull_error: None, lock_warning: None,
+                filter: &app.filter, filter_active: app.filter_active, hide_done: app.hide_done,
+                cakes, repo_name: rn, username: un, theme: &t,
+            });
+        }
     }
 }
 
 // ── setup ─────────────────────────────────────────────────────────────────────
 
-fn task_list_params<'a>(app: &'a App, tasks: &'a [Task], selected: usize, message: Option<&'a str>, theme: &'a Theme) -> TaskListParams<'a> {
-    let (repo_name, username) = app.repo.as_ref()
-        .map(|r| (r.info.name.as_str(), r.info.username.as_str()))
-        .unwrap_or(("", ""));
-    TaskListParams {
-        context: app.context, tasks, selected, message,
-        pull_error: app.pull_error.as_deref(), lock_warning: app.lock_warning.as_deref(),
-        filter: &app.filter, filter_active: app.filter_active, hide_done: app.hide_done,
-        cakes: &app.cached_cakes,
-        repo_name, username, theme,
-    }
-}
 
 const LOGO: &str = r#"           o8o      .                       oooo
             `"'    .o8                       `888
@@ -294,9 +303,9 @@ fn draw_init_repo(f: &mut Frame, path: &str, name: &str, error: Option<&str>, th
 
 // ── task list ─────────────────────────────────────────────────────────────────
 
-struct TaskListParams<'a> {
-    context:       TaskContext,
-    tasks:         &'a [Task],
+struct ListViewParams<'a> {
+    active:        ActiveView,
+    tasks:         &'a [(String, Task)],
     selected:      usize,
     message:       Option<&'a str>,
     pull_error:    Option<&'a str>,
@@ -310,34 +319,29 @@ struct TaskListParams<'a> {
     theme:         &'a Theme,
 }
 
-fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
-    let TaskListParams { context, tasks, selected, message, pull_error, lock_warning,
+fn draw_list_view(f: &mut Frame, p: ListViewParams<'_>) {
+    let ListViewParams { active, tasks, selected, message, pull_error, lock_warning,
                          filter, filter_active, hide_done, cakes, repo_name, username, theme } = p;
     let area = f.area();
     let [top_row, rest] = Layout::default().direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-    let active = if context == TaskContext::Backlog { ActiveView::Backlog } else { ActiveView::Personal };
     render_top_bar(f, top_row, active, repo_name, username, None, theme);
-    let view_bg = if context == TaskContext::Backlog { theme.bg_backlog } else { theme.bg_personal };
-    let block = task_list_block(filter, filter_active, pull_error, lock_warning, theme)
+    let view_bg = match active {
+        ActiveView::Personal => theme.bg_personal,
+        ActiveView::Backlog  => theme.bg_backlog,
+        ActiveView::Planner  => theme.bg_planner,
+    };
+    let block = list_view_block(active, filter, filter_active, pull_error, lock_warning, theme)
         .style(Style::new().bg(view_bg));
     let inner = block.inner(rest);
     f.render_widget(block, rest);
     let rows = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
     ]).split(inner);
-    let empty_msg = if filter.is_empty() { "No tasks yet. ^C to create one." } else { "No tasks match the filter." };
-    // title col = inner - (cursor1+flag3+type4+bites5+owner12=25 fixed + 5 gaps)
     let title_col_width = inner.width.saturating_sub(30) as usize;
-    let tasks_owned: Vec<(String, Task)> = tasks.iter().map(|t| {
-        let owner = if context == TaskContext::Backlog {
-            t.owner.as_deref().unwrap_or("(none)").to_string()
-        } else {
-            String::new()
-        };
-        (owner, t.clone())
-    }).collect();
-    let (items, index_map) = build_tree_items(cakes, &tasks_owned, selected, filter, title_col_width, hide_done, theme);
+    let separate_done = active == ActiveView::Planner;
+    let (items, index_map) = build_tree_items(cakes, tasks, selected, filter, title_col_width, hide_done, separate_done, theme);
+    let empty_msg = if filter.is_empty() { "No tasks yet. ^C to create one." } else { "No tasks match the filter." };
     if items.is_empty() {
         f.render_widget(Paragraph::new(empty_msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
     } else {
@@ -350,12 +354,13 @@ fn draw_task_list(f: &mut Frame, p: TaskListParams<'_>) {
         f.render_stateful_widget(table, rows[0], &mut state);
     }
     f.render_widget(filter_line_widget(filter, filter_active, theme), rows[1]);
-    f.render_widget(Paragraph::new(hint_bar(context, rows[2].width, theme)), rows[2]);
+    f.render_widget(Paragraph::new(list_view_hint_bar(active, rows[2].width, theme)), rows[2]);
     render_flash_row(f, rows[3], message, theme);
 }
 
-fn task_list_block(filter: &str, filter_active: bool, pull_error: Option<&str>, lock_warning: Option<&str>, theme: &Theme) -> Block<'static> {
+fn list_view_block(active: ActiveView, filter: &str, filter_active: bool, pull_error: Option<&str>, lock_warning: Option<&str>, theme: &Theme) -> Block<'static> {
     let mut block = Block::default().padding(Padding::new(1, 1, 1, 1));
+    if active == ActiveView::Planner { return block; }
     if !filter.is_empty() && !filter_active {
         block = block.title_top(Line::from(vec![
             Span::styled(format!(" /{filter} "), theme.dim()),
@@ -504,12 +509,13 @@ fn build_tree_items(
     filter: &str,
     title_col_width: usize,
     hide_done: bool,
+    separate_done: bool,
     theme: &Theme,
 ) -> (Vec<Row<'static>>, Vec<Option<usize>>) {
     use crate::app::filter_matches_with_cakes;
     let f = if filter.is_empty() { String::new() } else { filter.to_lowercase() };
     let is_vis = |t: &Task| (f.is_empty() || filter_matches_with_cakes(t, cakes, &f))
-                           && (!hide_done || t.status != TaskStatus::Done);
+                           && (!(hide_done || separate_done) || t.status != TaskStatus::Done);
     let mut rows: Vec<Row<'static>> = Vec::new();
     let mut index_map: Vec<Option<usize>> = Vec::new();
     let mut vis_idx = 0usize;
@@ -555,6 +561,20 @@ fn build_tree_items(
         rows.push(make_header("STANDALONE".to_string(), String::new()));
         index_map.push(None);
         render_tree_rows(&mut rows, &mut index_map, &mut vis_idx, selected, &standalone, theme);
+        first_group = false;
+    }
+    if separate_done && !hide_done {
+        let done_vis: Vec<(&str, &Task)> = tasks.iter()
+            .filter(|(_, t)| (f.is_empty() || filter_matches_with_cakes(t, cakes, &f))
+                             && t.status == TaskStatus::Done)
+            .map(|(o, t)| (o.as_str(), t))
+            .collect();
+        if !done_vis.is_empty() {
+            if !first_group { rows.push(Row::new(vec![""; 6])); index_map.push(None); }
+            rows.push(make_header("DONE".to_string(), String::new()));
+            index_map.push(None);
+            render_tree_rows(&mut rows, &mut index_map, &mut vis_idx, selected, &done_vis, theme);
+        }
     }
     (rows, index_map)
 }
@@ -632,33 +652,32 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Optio
     f.render_widget(Paragraph::new(detail_nav_bar(rows[13].width, theme)), rows[13]);
 }
 
-fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField, cakes: &[Cake], theme: &Theme) {
-    let render_field = |f: &mut Frame, row: Rect, field: DetailField, label: &str, value: &str| {
-        let is_sel = selected == field;
-        let cur = if is_sel { format!("{} ", theme.cursor) } else { "  ".to_string() };
-        let (cur_sty, lbl_sty, val_sty) = if is_sel {
-            (Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-             Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-             theme.highlight)
-        } else {
-            (theme.dim(), Style::new().fg(theme.muted).add_modifier(Modifier::BOLD), theme.dim())
-        };
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::styled(cur, cur_sty),
-            Span::styled(format!("{:<12}", label), lbl_sty),
-            Span::styled(value.to_string(), val_sty),
-        ])), row);
-    };
+fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, _selected: DetailField, cakes: &[Cake], theme: &Theme) {
+    draw_detail_chips(f, rows[1], "1", "TYPE", &[
+        (task.task_type == TaskType::Task,     "task"),
+        (task.task_type == TaskType::Bug,      "bug"),
+        (task.task_type == TaskType::Incident, "incident"),
+    ], theme);
+    draw_detail_chips(f, rows[2], "2", "STATUS", &[
+        (task.status == TaskStatus::Open,       "open"),
+        (task.status == TaskStatus::InProgress, "in-progress"),
+        (task.status == TaskStatus::Done,       "done"),
+    ], theme);
+    draw_detail_chips(f, rows[3], "3", "PRIORITY", &[
+        (task.priority == Priority::Normal, "normal"),
+        (task.priority == Priority::High,   "high"),
+        (task.priority == Priority::Urgent, "urgent"),
+    ], theme);
+    draw_detail_chips(f, rows[4], "4", "AI FLAG", &[
+        (!task.ai_flagged, "no"),
+        (task.ai_flagged,  "yes"),
+    ], theme);
     let cake_title = task.cake_id.as_deref()
         .and_then(|id| cakes.iter().find(|c| c.id == id))
         .map(|c| c.title.as_str()).unwrap_or("none");
     let owner_val = task.owner.as_deref().unwrap_or("none");
-    render_field(f, rows[1],  DetailField::Type,      "TYPE:",       type_label(&task.task_type));
-    render_field(f, rows[2],  DetailField::Status,    "STATUS:",     status_label(&task.status));
-    render_field(f, rows[3],  DetailField::Priority,  "PRIORITY:",   priority_label(&task.priority));
-    render_field(f, rows[4],  DetailField::AiFlagged, "AI FLAGGED:", if task.ai_flagged { "yes" } else { "no" });
-    render_field(f, rows[5],  DetailField::Cake,      "CAKE:",       cake_title);
-    render_field(f, rows[6],  DetailField::Assign,    "ASSIGN:",     owner_val);
+    draw_detail_value(f, rows[5], "5", "CAKE",   cake_title, theme);
+    draw_detail_value(f, rows[6], "6", "ASSIGN", owner_val,  theme);
     let file_path = format!("{}s/{}.md", type_label(&task.task_type), task.id);
     let ro = |label: &str, value: String| Paragraph::new(Line::from(vec![
         Span::raw("  "),
@@ -668,6 +687,26 @@ fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: Det
     f.render_widget(ro("FILE:",    file_path), rows[7]);
     f.render_widget(ro("CREATED:", task.created.format("%Y-%m-%d %H:%M").to_string()), rows[8]);
     f.render_widget(ro("TITLE:",   task.title.clone()), rows[10]);
+}
+
+fn draw_detail_chips(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, opts: &[(bool, &'static str)], theme: &Theme) {
+    let mut spans = vec![num_key_badge(badge), num_field_label(label)];
+    for (active, name) in opts {
+        if *active {
+            spans.push(Span::styled(format!("[{name}]"), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
+        } else {
+            spans.push(Span::styled(format!(" {name} "), theme.dim()));
+        }
+        spans.push(Span::raw("  "));
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_detail_value(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, value: &str, theme: &Theme) {
+    f.render_widget(Paragraph::new(Line::from(vec![
+        num_key_badge(badge), num_field_label(label),
+        Span::styled(value.to_string(), theme.dim()),
+    ])), area);
 }
 
 fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task, theme: &Theme) {
@@ -986,38 +1025,6 @@ fn user_picker_items(filtered: &[&String], selected: usize, theme: &Theme) -> Ve
 
 // ── planner view ──────────────────────────────────────────────────────────────
 
-fn draw_planner_view(f: &mut Frame, app: &App, cakes: &[Cake], tasks: &[(String, Task)], selected: usize, theme: &Theme) {
-    let area = f.area();
-    let (repo_name, username) = app.repo.as_ref()
-        .map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
-    let [top_row, rest] = Layout::default().direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-    render_top_bar(f, top_row, ActiveView::Planner, repo_name, username, None, theme);
-    let block = Block::default().padding(Padding::new(1, 1, 1, 1)).style(Style::new().bg(theme.bg_planner));
-    let inner = block.inner(rest);
-    f.render_widget(block, rest);
-    let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Fill(1), Constraint::Length(1), Constraint::Length(2), Constraint::Length(1),
-    ]).split(inner);
-    let empty_msg = if app.filter.is_empty() { "No active tasks. ^C to create one." } else { "No tasks match the filter." };
-    // title col = inner - fixed (1+3+4+5+12=25) - 5 gaps = 30
-    let title_col_width = inner.width.saturating_sub(30) as usize;
-    let (items, index_map) = build_tree_items(cakes, tasks, selected, &app.filter, title_col_width, app.hide_done, theme);
-    if items.is_empty() {
-        f.render_widget(Paragraph::new(empty_msg).alignment(Alignment::Center).style(theme.dim()), rows[0]);
-    } else {
-        let table = Table::new(items, TREE_COL_WIDTHS)
-            .header(tree_column_header(app.hide_done))
-            .column_spacing(1)
-            .row_highlight_style(theme.highlight);
-        let mut state = TableState::default();
-        state.select(index_map.iter().position(|e| *e == Some(selected)));
-        f.render_stateful_widget(table, rows[0], &mut state);
-    }
-    f.render_widget(filter_line_widget(&app.filter, app.filter_active, theme), rows[1]);
-    f.render_widget(Paragraph::new(planner_hint_bar(rows[2].width, theme)), rows[2]);
-    render_flash_row(f, rows[3], None, theme);
-}
 
 // ── confirm dialogs ───────────────────────────────────────────────────────────
 
@@ -1112,33 +1119,29 @@ fn bar_make_line<'a>(items: &[(&'a str, &'a str)], chip: Style, lbl: Style) -> L
     Line::from(spans)
 }
 
-fn hint_bar(context: TaskContext, width: u16, theme: &Theme) -> Text<'static> {
-    if context == TaskContext::Backlog {
-        theme.bar_text(&[
-            ("WASD", "nav"), ("^C", "create"), ("E", "edit"),
-            ("^A", "assign"), ("^D", "delete"), ("H", "done"),
-            ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
-        ], width)
-    } else {
-        theme.bar_text(&[
+fn list_view_hint_bar(active: ActiveView, width: u16, theme: &Theme) -> Text<'static> {
+    match active {
+        ActiveView::Personal => theme.bar_text(&[
             ("WASD", "nav"), ("^C", "create"), ("E", "edit"), ("F", "cycle"),
             ("^A", "assign"), ("^B", "backlog"), ("H", "done"),
             ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
-        ], width)
+        ], width),
+        ActiveView::Backlog => theme.bar_text(&[
+            ("WASD", "nav"), ("^C", "create"), ("E", "edit"),
+            ("^A", "assign"), ("^D", "delete"), ("H", "done"),
+            ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+        ], width),
+        ActiveView::Planner => theme.bar_text(&[
+            ("WASD", "nav"), ("^C", "create"), ("C", "cake"),
+            ("^A", "assign"), ("^B", "backlog"), ("H", "done"),
+            ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
+        ], width),
     }
-}
-
-fn planner_hint_bar(width: u16, theme: &Theme) -> Text<'static> {
-    theme.bar_text(&[
-        ("WASD", "nav"), ("^C", "create"), ("C", "cake"),
-        ("^A", "assign"), ("^B", "backlog"), ("H", "done"),
-        ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
-    ], width)
 }
 
 fn detail_nav_bar(width: u16, theme: &Theme) -> Text<'static> {
     theme.bar_text(&[
-        ("WASD", "nav"), ("F", "cycle"), ("E", "edit"),
+        ("1-6", "fields"), ("^E", "edit"),
         ("⇧R", "pull"), ("^R", "push"), ("^Q", "quit"),
     ], width)
 }
@@ -1182,9 +1185,6 @@ fn type_label(t: &TaskType) -> &'static str {
 }
 
 
-fn status_label(s: &TaskStatus) -> &'static str {
-    match s { TaskStatus::Open => "open", TaskStatus::InProgress => "in-progress", TaskStatus::Done => "done" }
-}
 
 fn priority_label(p: &Priority) -> &'static str {
     match p { Priority::Urgent => "urgent", Priority::High => "high", Priority::Normal => "normal" }
