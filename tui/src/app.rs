@@ -67,11 +67,13 @@ pub enum Screen {
     },
     Detail {
         task: Task,
+        siblings: Vec<Task>,
         message: Option<String>,
         selected_field: DetailField,
         from_planner: bool,
     },
     Create {
+        title:       Input,
         focus:       CreateFocus,
         task_type:   TaskType,
         priority:    Priority,
@@ -232,6 +234,7 @@ impl App {
         if let Some((users, user_sel)) = info {
             let cakes = self.cached_cakes.clone();
             self.screen = Screen::Create {
+                title: Input::default(),
                 focus: CreateFocus::Title,
                 task_type: TaskType::Task, priority: Priority::Normal,
                 users, user_filter: String::new(), user_sel,
@@ -339,7 +342,8 @@ impl App {
         let km = self.config.keys.clone();
         if is_key(&key, &km.detail) {
             if let Some(t) = sel_task {
-                self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: false };
+                let siblings = self.siblings_for(&t);
+                self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Type, from_planner: false };
             }
             return;
         }
@@ -430,11 +434,50 @@ impl App {
 
     // ── detail ────────────────────────────────────────────────────────────────
 
+    fn siblings_for(&self, task: &Task) -> Vec<Task> {
+        let cake_id = match &task.cake_id { Some(id) => id.clone(), None => return vec![] };
+        self.repo.as_ref()
+            .and_then(|r| r.list_all_tasks().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| t.cake_id.as_deref() == Some(&cake_id))
+            .collect()
+    }
+
     fn handle_detail(&mut self, key: KeyEvent) {
         let km = self.config.keys.clone();
         if is_key(&key, &km.quit) { self.try_quit(); return; }
         if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
         if is_key(&key, &km.pull) { self.do_detail_pull(); return; }
+        // Tab / Shift-Tab cycle through cake siblings
+        if key.code == KeyCode::Tab || key.code == KeyCode::BackTab {
+            let (task_id, siblings, from_planner) = match &self.screen {
+                Screen::Detail { task, siblings, from_planner, .. } =>
+                    (task.id.clone(), siblings.clone(), *from_planner),
+                _ => return,
+            };
+            let mut sorted = siblings.clone();
+            sorted.sort_by_key(|t| (
+                match t.status { TaskStatus::InProgress => 0u8, TaskStatus::Open => 1, TaskStatus::Done => 2 },
+                match t.priority { Priority::Urgent => 0u8, Priority::High => 1, Priority::Normal => 2 },
+            ));
+            let n = sorted.len();
+            if n > 1 {
+                let pos = sorted.iter().position(|s| s.id == task_id).unwrap_or(0);
+                let next_pos = if key.code == KeyCode::Tab {
+                    (pos + 1) % n
+                } else {
+                    pos.checked_sub(1).unwrap_or(n - 1)
+                };
+                let next_task = sorted[next_pos].clone();
+                let new_siblings = self.siblings_for(&next_task);
+                self.screen = Screen::Detail {
+                    task: next_task, siblings: new_siblings,
+                    message: None, selected_field: DetailField::Type, from_planner,
+                };
+            }
+            return;
+        }
         let (task_id, task_type, task_status, task_priority, task_ai_flagged, from_planner, sel_field) =
             match &self.screen {
                 Screen::Detail { task, from_planner, selected_field, .. } => (
@@ -519,7 +562,8 @@ impl App {
             None         => None,
         };
         if let Some(t) = self.repo.as_ref().and_then(|r| r.get_task(&task_id).ok()) {
-            self.screen = Screen::Detail { task: t, message: msg, selected_field: DetailField::Type, from_planner };
+            let siblings = self.siblings_for(&t);
+            self.screen = Screen::Detail { task: t, siblings, message: msg, selected_field: DetailField::Type, from_planner };
         }
     }
 
@@ -629,7 +673,8 @@ impl App {
         };
         if from_detail {
             if let Some(t) = self.repo.as_ref().and_then(|r| r.get_task(&task_id).ok()) {
-                self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner };
+                let siblings = self.siblings_for(&t);
+                self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Type, from_planner };
                 return;
             }
         }
@@ -661,7 +706,8 @@ impl App {
         };
         if from_detail {
             if let Some(t) = self.repo.as_ref().and_then(|r| r.get_task(&task_id).ok()) {
-                self.screen = Screen::Detail { task: t, message: msg, selected_field: DetailField::Type, from_planner };
+                let siblings = self.siblings_for(&t);
+                self.screen = Screen::Detail { task: t, siblings, message: msg, selected_field: DetailField::Type, from_planner };
                 return;
             }
         }
@@ -671,67 +717,123 @@ impl App {
     // ── create ────────────────────────────────────────────────────────────────
 
     fn handle_create(&mut self, key: KeyEvent) {
-        if is_ctrl_q(&key) { self.should_quit = true; return; }
+        if is_key(&key, &self.config.keys.quit) { self.should_quit = true; return; }
         let no_mod  = key.modifiers == KeyModifiers::NONE;
-        let is_ctrl = key.modifiers == KeyModifiers::CONTROL;
+        let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let focus = match &self.screen { Screen::Create { focus, .. } => *focus, _ => return };
+        // Global create actions
+        if key.code == KeyCode::Enter && no_mod { self.create_task_from_form(); return; }
         if key.code == KeyCode::Char('c') && is_ctrl { self.open_create_editor(); return; }
-        let focus = match &self.screen {
-            Screen::Create { focus, .. } => *focus,
-            _ => return,
-        };
-        match key.code {
-            KeyCode::Esc => match focus {
-                CreateFocus::Title => self.enter_task_list(None, None),
+        if key.code == KeyCode::Esc {
+            match focus {
+                CreateFocus::Title => { self.enter_task_list(None, None); return; }
                 _ => {
                     if let Screen::Create { focus, user_filter, cake_filter, .. } = &mut self.screen {
                         user_filter.clear(); cake_filter.clear();
                         *focus = CreateFocus::Title;
                     }
+                    return;
                 }
-            },
-            KeyCode::Enter if no_mod => self.open_create_editor(),
-            KeyCode::Char('1') if no_mod => {
-                if let Screen::Create { task_type, .. } = &mut self.screen {
-                    *task_type = match task_type {
-                        TaskType::Task     => TaskType::Bug,
-                        TaskType::Bug      => TaskType::Incident,
-                        TaskType::Incident => TaskType::Task,
-                    };
-                }
-            }
-            KeyCode::Char('2') if no_mod => {
-                if let Screen::Create { priority, .. } = &mut self.screen {
-                    *priority = match priority {
-                        Priority::Normal => Priority::High,
-                        Priority::High   => Priority::Urgent,
-                        Priority::Urgent => Priority::Normal,
-                    };
-                }
-            }
-            KeyCode::Char('3') if no_mod => match focus {
-                CreateFocus::Assignee => self.advance_user_sel(),
-                _ => {
-                    if let Screen::Create { focus, cake_filter, .. } = &mut self.screen {
-                        cake_filter.clear();
-                        *focus = CreateFocus::Assignee;
-                    }
-                }
-            },
-            KeyCode::Char('4') if no_mod => match focus {
-                CreateFocus::Cake => self.advance_cake_sel(),
-                _ => {
-                    if let Screen::Create { focus, user_filter, .. } = &mut self.screen {
-                        user_filter.clear();
-                        *focus = CreateFocus::Cake;
-                    }
-                }
-            },
-            _ => match focus {
-                CreateFocus::Assignee => self.create_assignee_key(key),
-                CreateFocus::Cake     => self.create_cake_key(key),
-                CreateFocus::Title    => {}
             }
         }
+        // 1-4 are always intercepted regardless of which field is focused
+        if no_mod {
+            match key.code {
+                KeyCode::Char('1') => {
+                    if let Screen::Create { task_type, .. } = &mut self.screen {
+                        *task_type = match task_type {
+                            TaskType::Task     => TaskType::Bug,
+                            TaskType::Bug      => TaskType::Incident,
+                            TaskType::Incident => TaskType::Task,
+                        };
+                    }
+                    return;
+                }
+                KeyCode::Char('2') => {
+                    if let Screen::Create { priority, .. } = &mut self.screen {
+                        *priority = match priority {
+                            Priority::Normal => Priority::High,
+                            Priority::High   => Priority::Urgent,
+                            Priority::Urgent => Priority::Normal,
+                        };
+                    }
+                    return;
+                }
+                KeyCode::Char('3') => {
+                    match focus {
+                        CreateFocus::Assignee => self.advance_user_sel(),
+                        _ => {
+                            if let Screen::Create { focus, cake_filter, .. } = &mut self.screen {
+                                cake_filter.clear();
+                                *focus = CreateFocus::Assignee;
+                            }
+                        }
+                    }
+                    return;
+                }
+                KeyCode::Char('4') => {
+                    match focus {
+                        CreateFocus::Cake => self.advance_cake_sel(),
+                        _ => {
+                            if let Screen::Create { focus, user_filter, .. } = &mut self.screen {
+                                user_filter.clear();
+                                *focus = CreateFocus::Cake;
+                            }
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        // Route to focus-specific handler
+        match focus {
+            CreateFocus::Title    => self.create_title_key(key),
+            CreateFocus::Assignee => self.create_assignee_key(key),
+            CreateFocus::Cake     => self.create_cake_key(key),
+        }
+    }
+
+    fn create_title_key(&mut self, key: KeyEvent) {
+        use tui_input::backend::crossterm::EventHandler;
+        if let Screen::Create { title, .. } = &mut self.screen {
+            title.handle_event(&crossterm::event::Event::Key(key));
+        }
+    }
+
+    fn create_task_from_form(&mut self) {
+        let extracted = match &self.screen {
+            Screen::Create { title, task_type, priority, users, user_filter, user_sel,
+                             cakes, cake_sel, cake_filter, .. } => {
+                let title_str = title.value().trim().to_string();
+                if title_str.is_empty() { return; }
+                Some((title_str, task_type.clone(), priority.clone(),
+                      users.clone(), user_filter.clone(), *user_sel,
+                      cakes.clone(), *cake_sel, cake_filter.clone()))
+            }
+            _ => None,
+        };
+        let Some((title_str, tt, priority, users, user_filter, user_sel,
+                  cakes, cake_sel, cake_filter)) = extracted else { return };
+        let ctx = self.context;
+        let f = user_filter.to_lowercase();
+        let filt_u: Vec<&String> = users.iter().filter(|u| f.is_empty() || u.to_lowercase().contains(&f)).collect();
+        let assignee = filt_u.get(user_sel).map(|u| (*u).clone());
+        let cf = cake_filter.to_lowercase();
+        let none_vis = cf.is_empty() || "none".contains(&cf);
+        let filt_c: Vec<&Cake> = cakes.iter().filter(|c| cf.is_empty() || c.title.to_lowercase().contains(&cf)).collect();
+        let cake_id = if none_vis {
+            if cake_sel == 0 { None } else { filt_c.get(cake_sel - 1).map(|c| c.id.clone()) }
+        } else {
+            filt_c.get(cake_sel).map(|c| c.id.clone())
+        };
+        let new_task = NewTask { title: title_str, task_type: tt, priority, cake_id, ..Default::default() };
+        let create_result = match ctx {
+            TaskContext::Personal => self.repo.as_ref().map(|r| r.create_task(new_task)),
+            TaskContext::Backlog  => self.repo.as_ref().map(|r| r.create_backlog_task(new_task)),
+        };
+        let msg = self.apply_create_extras(create_result, assignee, ctx);
+        self.enter_task_list(Some(msg), None);
     }
 
     fn advance_user_sel(&mut self) {
@@ -784,17 +886,23 @@ impl App {
 
     fn open_create_editor(&mut self) {
         let extracted = match &self.screen {
-            Screen::Create { task_type, priority, users, user_filter, user_sel,
+            Screen::Create { title, task_type, priority, users, user_filter, user_sel,
                              cakes, cake_sel, cake_filter, .. } => {
-                Some((task_type.clone(), priority.clone(),
+                Some((title.value().trim().to_string(), task_type.clone(), priority.clone(),
                       users.clone(), user_filter.clone(), *user_sel,
                       cakes.clone(), *cake_sel, cake_filter.clone()))
             }
             _ => None,
         };
-        let Some((tt, priority, users, user_filter, user_sel,
+        let Some((title_val, tt, priority, users, user_filter, user_sel,
                   cakes, cake_sel, cake_filter)) = extracted else { return };
-        let template = CREATE_EDITOR_TEMPLATE;
+        let template_str;
+        let template = if title_val.is_empty() {
+            CREATE_EDITOR_TEMPLATE
+        } else {
+            template_str = format!("# {title_val}\n\n## Description:\n\n");
+            &template_str
+        };
         let content = open_editor(template);
         self.needs_clear = true;
         let content = content.unwrap_or_default();
@@ -928,7 +1036,8 @@ impl App {
                     .get(*selected).map(|(_, t)| t.clone())
             } else { None };
             if let Some(t) = task {
-                self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Type, from_planner: true };
+                let siblings = self.siblings_for(&t);
+                self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Type, from_planner: true };
             }
             return;
         }
@@ -1039,7 +1148,8 @@ impl App {
                 let id = task_id.clone();
                 let patch = TaskPatch { cake_id: Some(chosen), ..Default::default() };
                 if let Some(t) = self.repo.as_ref().and_then(|r| r.update_task(&id, patch).ok()) {
-                    self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
+                    let siblings = self.siblings_for(&t);
+                    self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Cake, from_planner: false };
                 } else {
                     self.enter_task_list(None, None);
                 }
@@ -1048,7 +1158,8 @@ impl App {
                 let id = task_id.clone();
                 let task = self.repo.as_ref().and_then(|r| r.get_task(&id).ok());
                 if let Some(t) = task {
-                    self.screen = Screen::Detail { task: t, message: None, selected_field: DetailField::Cake, from_planner: false };
+                    let siblings = self.siblings_for(&t);
+                    self.screen = Screen::Detail { task: t, siblings, message: None, selected_field: DetailField::Cake, from_planner: false };
                 } else {
                     self.enter_task_list(None, None);
                 }

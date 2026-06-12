@@ -108,6 +108,11 @@ impl TaskRepo {
         Ok(result)
     }
 
+    pub fn list_all_tasks(&self) -> Result<Vec<Task>, AppError> {
+        let (all, _) = scan_all(Path::new(&self.info.path));
+        Ok(all)
+    }
+
     // ── task mutations ────────────────────────────────────────────────────────
 
     /// Creates a new personal task in the appropriate type folder.

@@ -204,33 +204,44 @@ Tree layout groups slices by cake then standalone, with `├──`/`└──` 
 
 ### Create slice view
 
+Full-screen two-pane layout: left = **PROPERTIES** panel (34 cols), right = **PREVIEW** panel.
+
 | Key | Action |
 |---|---|
+| Any char / `Backspace` | Edit title (typed inline at top of PROPERTIES) |
 | `1` | Cycle TYPE (task → bug → incident → task) |
 | `2` | Cycle PRIORITY (normal → high → urgent → normal) |
-| `3` | First press focuses ASSIGN for typing/filtering; subsequent presses advance selection |
-| `4` | First press focuses CAKE for typing/filtering; subsequent presses advance selection |
-| `↑` / `↓` | Navigate list when ASSIGN or CAKE is focused |
-| Any char / `Backspace` | Type to filter when ASSIGN or CAKE is focused |
-| `Enter` / `Ctrl+C` | Open `$EDITOR` to write title and description, then create on save |
-| `Esc` | If ASSIGN/CAKE focused: return to base. If base: cancel |
+| `3` | Focus ASSIGN — type to filter, `↑`/`↓` to select |
+| `4` | Focus CAKE — type to filter, `↑`/`↓` to select |
+| `Enter` | Create immediately with typed title |
+| `E` / `Ctrl+C` | Open `$EDITOR` to write body, then create on save |
+| `Esc` | If ASSIGN/CAKE focused: return to title. If title: cancel |
 
-Centered popup overlay. A hint line at the top reads "Use numbers 1-4 to configure your slice." TYPE and PRIORITY show inline chips with the selected one `[bracketed]`. ASSIGN and CAKE expand to a filterable list when focused; the CAKE null option displays as "None (default)" and is hidden when the filter cannot match it. Pressing `Enter` or `Ctrl+C` opens `$EDITOR` with a template (`# Write title here` + `## Description:`). On save the title is extracted from line 1 and the description from below `## Description:`; an empty title aborts without creating.
+PREVIEW panel shows a live rendering of how the slice will appear in the list, plus the file path it will be written to.
 
 ### Detail view
 
+Three-block layout: left column splits into **SLICE PROPERTIES** (top) and **CAKE SLICES** or **STANDALONE** (bottom); right column is **SLICE CONTENT**. All blocks have 1-line padding on all sides.
+
 | Key | Action |
 |---|---|
-| `W` / `S` | Move cursor between navigable fields (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) |
-| `F` | Cycle or toggle the focused field; on CAKE opens cake picker |
+| `W` / `S` | Move cursor between fields (TYPE, STATUS, PRIORITY, AI FLAG, CAKE, ASSIGN) |
+| `1`–`6` | Directly cycle/toggle the corresponding field |
+| `F` | Cycle the focused field's value |
+| `Space` | Cycle status directly |
+| `Tab` / `Shift+Tab` | Cycle to next/previous slice in the same cake (sorted by status then priority) |
 | `E` | Edit title + description in `$EDITOR` |
-| `A` / `Q` | Back to list |
-| `Shift+R` | Pull |
-| `Ctrl+A` | Assign |
-| `Ctrl+R` | Push |
+| `R` | Open assign picker |
+| `A` / `Esc` | Back to list |
+| `T` | Push |
+| `Shift+T` | Pull |
 | `Ctrl+Q` | Quit |
 
-Detail view shows five navigable rows (TYPE, STATUS, PRIORITY, BLOCKED, CAKE) with a `▶` cursor. `F` cycles the focused field. Changing TYPE does a `git mv` to preserve history. CAKE field opens a picker to attach/detach the slice from a cake.
+**SLICE PROPERTIES** shows six navigable fields with a `◀` caret on the focused row and an expand ribbon beneath it (`↳ opt1 · opt2 · opt3`) for fields with discrete options.
+
+**CAKE SLICES** lists all sibling slices in the same cake, sorted in-progress → open → done, then urgent → high → normal within each group. Priority shown as `++`/`+` before the title. The current slice is highlighted. Standalone slices show a **STANDALONE** panel with "Not part of a Cake".
+
+**SLICE CONTENT** shows: breadcrumb (`cake ▸ slice · #id`) with creation date (`baked YYYY-MM-DD`) right-aligned on the same line, title in bold, a BITES section (if any), and a BODY section rendering the prose description (bite/crumb lines are excluded from BODY since they appear in BITES).
 
 ### Planner view
 

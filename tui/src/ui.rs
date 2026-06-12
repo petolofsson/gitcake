@@ -115,6 +115,8 @@ impl Theme {
 
     fn chip_style(&self) -> Style { Style::new().bg(self.sel_bg).fg(self.fg) }
 
+    fn chip_cap_style(&self) -> Style { Style::new().fg(self.sel_bg).bg(self.bg) }
+
     fn label_style(&self) -> Style { Style::new().fg(self.dim) }
 
     fn cursor_style(&self) -> Style {
@@ -124,18 +126,20 @@ impl Theme {
     // ── bar builders ──────────────────────────────────────────────────────────
 
     fn bar_line<'a>(&self, items: &[(&'a str, &'a str)]) -> Line<'a> {
-        bar_make_line(items, self.chip_style(), self.label_style())
+        bar_make_line(items, self.chip_style(), self.chip_cap_style(), self.label_style())
     }
 
     fn bar_text(&self, items: &[(&'static str, &'static str)], width: u16) -> Text<'static> {
         let chip = self.chip_style();
+        let cap  = self.chip_cap_style();
         let lbl  = self.label_style();
+        // each chip is now: cap(1) + " key "(k+2) + cap(1) + " label  "(l+3)
         let iw = |k: &str, l: &str| -> usize {
-            2 + UnicodeWidthStr::width(k) + 1 + UnicodeWidthStr::width(l) + 2
+            1 + 1 + UnicodeWidthStr::width(k) + 1 + 1 + 1 + UnicodeWidthStr::width(l) + 2
         };
         let total: usize = 1 + items.iter().map(|(k, l)| iw(k, l)).sum::<usize>();
         if total <= width as usize {
-            return Text::from(bar_make_line(items, chip, lbl));
+            return Text::from(bar_make_line(items, chip, cap, lbl));
         }
         let mut w = 1usize;
         let mut split = items.len().max(1);
@@ -144,8 +148,8 @@ impl Theme {
             if w > width as usize { split = i.max(1); break; }
         }
         Text::from(vec![
-            bar_make_line(&items[..split], chip, lbl),
-            bar_make_line(&items[split..], chip, lbl),
+            bar_make_line(&items[..split], chip, cap, lbl),
+            bar_make_line(&items[split..], chip, cap, lbl),
         ])
     }
 }
@@ -200,14 +204,16 @@ pub fn draw(f: &mut Frame, app: &App) {
                 cakes: &app.cached_cakes, repo_name: rn, username: un, theme: &t,
             });
         }
-        Screen::Detail { task, message, selected_field, from_planner } => {
+        Screen::Detail { task, siblings, message, selected_field, from_planner } => {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
-            draw_detail(f, app.context, task, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, &t);
+            draw_detail(f, app.context, task, siblings, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, &t);
         }
-        Screen::Create { focus, task_type, priority,
-                         users, user_filter, user_sel, cakes, cake_filter, cake_sel } =>
-            draw_create(f, *focus, task_type, priority,
-                        users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t),
+        Screen::Create { title, focus, task_type, priority,
+                         users, user_filter, user_sel, cakes, cake_filter, cake_sel } => {
+            let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
+            draw_create(f, *focus, title, task_type, priority,
+                        users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t, rn, un);
+        }
         Screen::EditTask { task_id, title, description, context, from_planner, .. } => {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
             draw_edit_task(f, *context, task_id, title, description, *from_planner, rn, un, &t);
@@ -325,8 +331,9 @@ fn draw_list_view(f: &mut Frame, p: ListViewParams<'_>) {
     let ListViewParams { active, tasks, selected, message, pull_error, lock_warning,
                          filter, filter_active, hide_done, cakes, repo_name, username, theme } = p;
     let area = f.area();
-    let [top_row, rest] = Layout::default().direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+    let [top_row, _gap, rest] = Layout::vertical([
+        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
+    ]).areas(area);
     render_top_bar(f, top_row, active, repo_name, username, None, theme);
     let view_bg = match active {
         ActiveView::Personal => theme.bg_personal,
@@ -622,128 +629,256 @@ fn render_tree_rows(
     }
 }
 
-// ── detail ────────────────────────────────────────────────────────────────────
+// ── detail two-pane ──────────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, _message: Option<&str>, selected: DetailField, cakes: &[Cake], from_planner: bool, repo_name: &str, username: &str, theme: &Theme) {
+fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, siblings: &[Task], _message: Option<&str>, selected: DetailField, cakes: &[Cake], from_planner: bool, repo_name: &str, username: &str, theme: &Theme) {
     let area = f.area();
-    let [top_row, rest] = Layout::default().direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-    let (crumb_label, active_tab) = if from_planner {
-        ("PLANNER", ActiveView::Planner)
-    } else if context == TaskContext::Backlog {
-        ("BACKLOG", ActiveView::Backlog)
-    } else {
-        ("PERSONAL", ActiveView::Personal)
-    };
+    let [top_row, _gap, body, footer] = Layout::vertical([
+        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
+    ]).areas(area);
+    let (crumb_label, active_tab) = if from_planner { ("PLANNER", ActiveView::Planner) }
+        else if context == TaskContext::Backlog { ("BACKLOG", ActiveView::Backlog) }
+        else { ("PERSONAL", ActiveView::Personal) };
     let crumb = format!("{crumb_label} › {}", task.id);
     render_top_bar(f, top_row, active_tab, repo_name, username, Some(&crumb), theme);
-    let block = panel("TASK", theme)
-        .title(
-            Line::from(Span::styled(
-                format!(" {} ", task.id),
-                Style::new().fg(theme.dim).add_modifier(Modifier::BOLD),
-            )).right_aligned()
-        )
-        .padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(rest);
-    f.render_widget(block, rest);
-    let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Length(1), Constraint::Length(1), Constraint::Length(1),
-        Constraint::Fill(1),   Constraint::Length(2),
-    ]).split(inner);
-    render_detail_fields(f, &rows, task, selected, cakes, theme);
-    render_detail_desc(f, rows[12], task, theme);
-    f.render_widget(Paragraph::new(detail_nav_bar(rows[13].width, theme)), rows[13]);
+    let [left, right] = Layout::horizontal([Constraint::Length(34), Constraint::Fill(1)]).areas(body);
+    let sib_h = if siblings.is_empty() { 5u16 } else { (siblings.len() as u16 + 4).min(12) };
+    let [prop_area, sib_area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(sib_h)]).areas(left);
+    let prop_block = panel("SLICE PROPERTIES", theme).padding(Padding::new(1, 1, 1, 1));
+    let prop_inner = prop_block.inner(prop_area);
+    f.render_widget(prop_block, prop_area);
+    draw_detail_properties(f, prop_inner, task, selected, cakes, theme);
+    let sib_title = if siblings.is_empty() { "STANDALONE" } else { "CAKE SLICES" };
+    let sib_block = panel(sib_title, theme).padding(Padding::new(1, 1, 1, 1));
+    let sib_inner = sib_block.inner(sib_area);
+    f.render_widget(sib_block, sib_area);
+    draw_detail_siblings(f, sib_inner, task, siblings, theme);
+    let content_block = panel("SLICE CONTENT", theme).padding(Padding::new(1, 1, 1, 1));
+    let content_inner = content_block.inner(right);
+    f.render_widget(content_block, right);
+    draw_detail_content(f, content_inner, task, cakes, theme);
+    f.render_widget(Paragraph::new(detail_nav_bar(footer.width, theme)), footer);
 }
 
-fn render_detail_fields(f: &mut Frame, rows: &[Rect], task: &Task, selected: DetailField, cakes: &[Cake], theme: &Theme) {
-    draw_detail_chips(f, rows[1], "1", "TYPE", selected == DetailField::Type, &[
-        (task.task_type == TaskType::Task,     "task"),
-        (task.task_type == TaskType::Bug,      "bug"),
-        (task.task_type == TaskType::Incident, "incident"),
-    ], theme);
-    draw_detail_chips(f, rows[2], "2", "STATUS", selected == DetailField::Status, &[
-        (task.status == TaskStatus::Open,       "open"),
-        (task.status == TaskStatus::InProgress, "in-progress"),
-        (task.status == TaskStatus::Done,       "done"),
-    ], theme);
-    draw_detail_chips(f, rows[3], "3", "PRIORITY", selected == DetailField::Priority, &[
-        (task.priority == Priority::Normal, "normal"),
-        (task.priority == Priority::High,   "high"),
-        (task.priority == Priority::Urgent, "urgent"),
-    ], theme);
-    draw_detail_chips(f, rows[4], "4", "AI FLAG", selected == DetailField::AiFlagged, &[
-        (!task.ai_flagged, "no"),
-        (task.ai_flagged,  "yes"),
-    ], theme);
-    let cake_title = task.cake_id.as_deref()
+fn draw_detail_properties(f: &mut Frame, area: Rect, task: &Task, focused: DetailField, cakes: &[Cake], theme: &Theme) {
+    let cake_name = task.cake_id.as_deref()
         .and_then(|id| cakes.iter().find(|c| c.id == id))
-        .map(|c| c.title.as_str()).unwrap_or("none");
-    let owner_val = task.owner.as_deref().unwrap_or("none");
-    draw_detail_value(f, rows[5], "5", "CAKE",   selected == DetailField::Cake,   cake_title, theme);
-    draw_detail_value(f, rows[6], "6", "ASSIGN", selected == DetailField::Assign, owner_val,  theme);
-    let file_path = format!("{}s/{}.md", type_label(&task.task_type), task.id);
-    let ro = |label: &str, value: String| Paragraph::new(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(format!("{:<12}", label), theme.bold_style()),
-        Span::styled(value, theme.dim_style()),
-    ]));
-    f.render_widget(ro("FILE:",    file_path), rows[7]);
-    f.render_widget(ro("CREATED:", task.created.format("%Y-%m-%d %H:%M").to_string()), rows[8]);
-    f.render_widget(ro("TITLE:",   task.title.clone()), rows[10]);
-}
-
-fn draw_detail_chips(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, focused: bool, opts: &[(bool, &'static str)], theme: &Theme) {
-    let label_sty = if focused {
-        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
-    } else {
-        Style::new().add_modifier(Modifier::BOLD)
-    };
-    let mut spans = vec![num_key_badge(badge), Span::styled(format!(" {label:<8} "), label_sty)];
-    for (active, name) in opts {
-        if *active {
-            spans.push(Span::styled(format!("[{name}]"), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
+        .map(|c| c.title.clone())
+        .unwrap_or_else(|| "none".to_string());
+    let fields: &[(DetailField, &str, &str)] = &[
+        (DetailField::Type,      "1", "TYPE"),
+        (DetailField::Status,    "2", "STATUS"),
+        (DetailField::Priority,  "3", "PRIORITY"),
+        (DetailField::AiFlagged, "4", "AI FLAG"),
+        (DetailField::Cake,      "5", "CAKE"),
+        (DetailField::Assign,    "6", "ASSIGN"),
+    ];
+    let mut y = area.y;
+    for (field, badge, label) in fields {
+        if y >= area.y + area.height { break; }
+        let is_focused = *field == focused;
+        let value = detail_field_value(*field, task, &cake_name);
+        let val_sty = detail_field_value_style(*field, task, theme);
+        let bg = if is_focused { Style::new().bg(theme.sel_bg) } else { Style::new() };
+        let lbl_sty = if is_focused {
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
         } else {
-            spans.push(Span::styled(format!(" {name} "), theme.dim_style()));
+            Style::new().fg(theme.fg).add_modifier(Modifier::BOLD)
+        };
+        let caret = if is_focused { " ◀" } else { "   " };
+        let row = Rect { x: area.x, y, width: area.width, height: 1 };
+        let val_max = area.width.saturating_sub(15) as usize;
+        f.render_widget(Paragraph::new(
+            Line::from(vec![
+                Span::styled(format!("[{badge}] "), theme.dim_style()),
+                Span::styled(format!("{label:<9}"), lbl_sty),
+                Span::styled(truncate_title(&value, val_max), val_sty),
+                Span::styled(caret.to_string(), Style::new().fg(theme.accent)),
+            ]).style(bg)
+        ), row);
+        y += 1;
+        if is_focused && y < area.y + area.height {
+            if let Some(opts) = detail_field_options(*field) {
+                let ribbon_row = Rect { x: area.x, y, width: area.width, height: 1 };
+                detail_ribbon(f, ribbon_row, opts, &value, theme);
+                y += 1;
+            }
         }
-        spans.push(Span::raw("  "));
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+    let _ = y;
 }
 
-fn draw_detail_value(f: &mut Frame, area: Rect, badge: &'static str, label: &'static str, focused: bool, value: &str, theme: &Theme) {
-    let label_sty = if focused {
-        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
-    } else {
-        Style::new().add_modifier(Modifier::BOLD)
-    };
-    f.render_widget(Paragraph::new(Line::from(vec![
-        num_key_badge(badge),
-        Span::styled(format!(" {label:<8} "), label_sty),
-        Span::styled(value.to_string(), theme.dim_style()),
-    ])), area);
+fn status_sort_key(s: &TaskStatus) -> u8 {
+    match s { TaskStatus::InProgress => 0, TaskStatus::Open => 1, TaskStatus::Done => 2 }
 }
 
-fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task, theme: &Theme) {
-    const MAX: usize = 850;
-    let desc_str = task.description.as_deref().unwrap_or_default();
-    let count = desc_str.chars().count();
-    let counter_sty = if count > MAX {
-        Style::new().fg(theme.flag).add_modifier(Modifier::BOLD)
-    } else if count > MAX * 7 / 10 {
-        Style::new().fg(theme.in_progress)
-    } else {
-        theme.dim_style()
-    };
-    let mut lines: Vec<Line> = Vec::new();
-    if !desc_str.is_empty() {
-        lines.push(Line::from(Span::styled(format!("  {count}/{MAX} chars"), counter_sty)));
+fn priority_sort_key(p: &Priority) -> u8 {
+    match p { Priority::Urgent => 0, Priority::High => 1, Priority::Normal => 2 }
+}
+
+fn draw_detail_siblings(f: &mut Frame, area: Rect, task: &Task, siblings: &[Task], theme: &Theme) {
+    if siblings.is_empty() {
+        f.render_widget(Paragraph::new(Span::styled(
+            "Not part of a Cake".to_string(), theme.dim_style(),
+        )), area);
+        return;
     }
-    lines.extend(desc_str.lines().map(|l| desc_line_render(l, theme)));
+    let mut sorted: Vec<&Task> = siblings.iter().collect();
+    sorted.sort_by_key(|t| (status_sort_key(&t.status), priority_sort_key(&t.priority)));
+    let mut y = area.y;
+    for sib in sorted {
+        if y >= area.y + area.height { break; }
+        let is_current = sib.id == task.id;
+        let sym = match sib.status {
+            TaskStatus::InProgress => Span::styled(format!("{} ", theme.sym_progress), Style::new().fg(theme.in_progress)),
+            TaskStatus::Done       => Span::styled(format!("{} ", theme.sym_done),     Style::new().fg(theme.done_color).add_modifier(Modifier::DIM)),
+            TaskStatus::Open       => Span::styled(format!("{} ", theme.sym_open),     Style::new().fg(theme.open_color)),
+        };
+        let prio = match sib.priority {
+            Priority::Urgent => Span::styled(format!("{} ", theme.sym_urgent), Style::new().fg(theme.flag).add_modifier(Modifier::BOLD)),
+            Priority::High   => Span::styled(format!("{} ", theme.sym_high),   Style::new().fg(theme.priority_color)),
+            Priority::Normal => Span::raw(""),
+        };
+        let title_max = area.width.saturating_sub(5) as usize;
+        let (title_sty, row_bg) = if is_current {
+            (Style::new().fg(theme.fg).add_modifier(Modifier::BOLD), Style::new().bg(theme.sel_bg))
+        } else {
+            (theme.dim_style(), Style::new())
+        };
+        f.render_widget(Paragraph::new(
+            Line::from(vec![
+                sym, prio,
+                Span::styled(truncate_title(&sib.title, title_max), title_sty),
+            ]).style(row_bg)
+        ), Rect { x: area.x, y, width: area.width, height: 1 });
+        y += 1;
+    }
+}
+
+fn detail_field_value(field: DetailField, task: &Task, cake_name: &str) -> String {
+    match field {
+        DetailField::Type      => type_label(&task.task_type).to_string(),
+        DetailField::Status    => match task.status {
+            TaskStatus::Open       => "open",
+            TaskStatus::InProgress => "in-progress",
+            TaskStatus::Done       => "done",
+        }.to_string(),
+        DetailField::Priority  => priority_label(&task.priority).to_string(),
+        DetailField::AiFlagged => if task.ai_flagged { "yes" } else { "no" }.to_string(),
+        DetailField::Cake      => cake_name.to_string(),
+        DetailField::Assign    => task.owner.clone().unwrap_or_else(|| "none".to_string()),
+    }
+}
+
+fn detail_field_value_style(field: DetailField, task: &Task, theme: &Theme) -> Style {
+    match field {
+        DetailField::Status => match task.status {
+            TaskStatus::InProgress => Style::new().fg(theme.in_progress).add_modifier(Modifier::BOLD),
+            TaskStatus::Done       => Style::new().fg(theme.done_color),
+            TaskStatus::Open       => Style::new().fg(theme.open_color),
+        },
+        DetailField::Priority => match task.priority {
+            Priority::Urgent => Style::new().fg(theme.flag).add_modifier(Modifier::BOLD),
+            Priority::High   => Style::new().fg(theme.priority_color),
+            Priority::Normal => theme.dim_style(),
+        },
+        DetailField::AiFlagged => if task.ai_flagged { Style::new().fg(theme.flag) } else { theme.dim_style() },
+        _                      => theme.dim_style(),
+    }
+}
+
+fn detail_field_options(field: DetailField) -> Option<&'static [&'static str]> {
+    match field {
+        DetailField::Type      => Some(&["task", "bug", "incident"]),
+        DetailField::Status    => Some(&["open", "in-progress", "done"]),
+        DetailField::Priority  => Some(&["normal", "high", "urgent"]),
+        DetailField::AiFlagged => Some(&["no", "yes"]),
+        _                      => None,
+    }
+}
+
+fn detail_ribbon(f: &mut Frame, area: Rect, opts: &[&str], current: &str, theme: &Theme) {
+    let mut spans = vec![Span::styled("   ↳ ", theme.dim_style())];
+    for (i, opt) in opts.iter().enumerate() {
+        if i > 0 { spans.push(Span::styled("  ·  ", theme.dim_style())); }
+        if *opt == current {
+            spans.push(Span::styled(opt.to_string(), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD).bg(theme.sel_bg)));
+        } else {
+            spans.push(Span::styled(opt.to_string(), theme.dim_style()));
+        }
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::new().bg(theme.sel_bg)), area);
+}
+
+fn draw_detail_content(f: &mut Frame, area: Rect, task: &Task, cakes: &[Cake], theme: &Theme) {
+    let cake_name = task.cake_id.as_deref()
+        .and_then(|id| cakes.iter().find(|c| c.id == id))
+        .map(|c| c.title.as_str()).unwrap_or("standalone");
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let created_str = format!("baked {}", task.created.format("%Y-%m-%d"));
+    let left_part = format!("{}  ▸  slice · #{}", cake_name, task.id);
+    let gap = (area.width as usize).saturating_sub(left_part.chars().count() + created_str.len());
+    lines.push(Line::from(vec![
+        Span::styled(cake_name.to_string(), Style::new().fg(theme.accent)),
+        Span::styled("  ▸  slice · #".to_string(), theme.dim_style()),
+        Span::styled(task.id.clone(), theme.dim_style()),
+        Span::styled(" ".repeat(gap), Style::new()),
+        Span::styled(created_str, theme.dim_style()),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(task.title.clone(), Style::new().fg(theme.fg).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from(""));
+    if !task.bites.is_empty() {
+        let done_b = task.bites.iter().filter(|b| b.done).count();
+        let tot_b  = task.bites.len();
+        lines.push(Line::from(vec![
+            Span::styled("BITES".to_string(), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {done_b}/{tot_b}  "), theme.dim_style()),
+            Span::styled("─".repeat(14), Style::new().fg(theme.faint)),
+        ]));
+        for (i, bite) in task.bites.iter().enumerate() {
+            let conn = if i + 1 == tot_b { "└─" } else { "├─" };
+            let (sym, sty, txt) = if bite.done {
+                (&theme.sym_done, Style::new().fg(theme.done_color), Style::new().fg(theme.done_color).add_modifier(Modifier::DIM))
+            } else {
+                (&theme.sym_open, Style::new().fg(theme.open_color), Style::new())
+            };
+            lines.push(Line::from(vec![
+                Span::styled(conn.to_string(), Style::new().fg(theme.faint)),
+                Span::styled(sym.clone(), sty),
+                Span::styled(format!(" {}", bite.text), txt),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+    let desc_str = task.description.as_deref().unwrap_or("");
+    let char_count = desc_str.chars().count();
+    let file_path = format!("{}/{}.md", type_label_plural(&task.task_type), task.id);
+    let count_sty = if char_count > 850 { Style::new().fg(theme.flag).add_modifier(Modifier::BOLD) }
+        else if char_count > 595 { Style::new().fg(theme.in_progress) }
+        else { theme.dim_style() };
+    lines.push(Line::from(vec![
+        Span::styled("BODY".to_string(), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {file_path}  "), theme.dim_style()),
+        Span::styled(format!("{char_count}/850"), count_sty),
+        Span::styled("  ─────", Style::new().fg(theme.faint)),
+    ]));
+    if desc_str.is_empty() {
+        lines.push(Line::from(Span::styled("  (empty — E to edit)", theme.dim_style())));
+    } else {
+        let prose: Vec<&str> = desc_str.lines()
+            .filter(|l| !l.starts_with("!bite ") && !l.starts_with("!!bite ")
+                     && !l.starts_with("!crumb ") && !l.starts_with("!!crumb "))
+            .collect();
+        if prose.is_empty() {
+            lines.push(Line::from(Span::styled("  (bites only — E to edit body)", theme.dim_style())));
+        } else {
+            for l in prose {
+                lines.push(desc_line_render(l, theme));
+            }
+        }
+    }
     if task.order.is_some() || task.parent_id.is_some() {
         let mut meta = String::new();
         if let Some(o) = task.order      { meta.push_str(&format!("order: {o}  ")); }
@@ -755,9 +890,9 @@ fn render_detail_desc(f: &mut Frame, area: Rect, task: &Task, theme: &Theme) {
 
 fn desc_line_render(line: &str, theme: &Theme) -> Line<'static> {
     if let Some(t) = line.strip_prefix("!!bite ") {
-        Line::from(vec![Span::styled(format!("  {} ", theme.sym_done), theme.dim_style()), Span::styled(t.to_string(), theme.dim_style())])
+        Line::from(vec![Span::styled(format!("  {} ", theme.sym_done), Style::new().fg(theme.done_color).add_modifier(Modifier::DIM)), Span::styled(t.to_string(), Style::new().fg(theme.done_color).add_modifier(Modifier::DIM))])
     } else if let Some(t) = line.strip_prefix("!bite ") {
-        Line::from(vec![Span::styled(format!("  {} ", theme.sym_open), theme.bold_style()), Span::styled(t.to_string(), theme.bold_style())])
+        Line::from(vec![Span::styled(format!("  {} ", theme.sym_open), Style::new().fg(theme.open_color)), Span::styled(t.to_string(), Style::new())])
     } else if let Some(t) = line.strip_prefix("!!crumb ").or_else(|| line.strip_prefix("!crumb ")) {
         Line::from(vec![Span::styled(format!("  {} ", theme.sym_dot), theme.dim_style()), Span::styled(t.to_string(), theme.dim_style())])
     } else {
@@ -765,13 +900,18 @@ fn desc_line_render(line: &str, theme: &Theme) -> Line<'static> {
     }
 }
 
+fn type_label_plural(t: &TaskType) -> &'static str {
+    match t { TaskType::Task => "tasks", TaskType::Bug => "bugs", TaskType::Incident => "incidents" }
+}
+
 // ── edit task ─────────────────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
 fn draw_edit_task(f: &mut Frame, context: TaskContext, task_id: &str, title: &Input, description: &str, from_planner: bool, repo_name: &str, username: &str, theme: &Theme) {
     let area = f.area();
-    let [top_row, rest] = Layout::default().direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+    let [top_row, _gap, rest] = Layout::vertical([
+        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1),
+    ]).areas(area);
     let active_tab = if from_planner { ActiveView::Planner }
         else if context == TaskContext::Backlog { ActiveView::Backlog }
         else { ActiveView::Personal };
@@ -824,150 +964,245 @@ fn create_field_label(active: bool, theme: &Theme) -> Style {
     else       { Style::new().fg(theme.dim).add_modifier(Modifier::BOLD) }
 }
 
-fn num_key_badge(n: &'static str) -> Span<'static> {
-    Span::raw(format!("[{n}]"))
-}
+// ── create two-pane ───────────────────────────────────────────────────────────
 
-fn num_field_label(s: &'static str) -> Span<'static> {
-    Span::styled(format!(" {s:<8} "), Style::new().add_modifier(Modifier::BOLD))
+#[allow(clippy::too_many_arguments)]
+fn draw_create(f: &mut Frame, focus: CreateFocus, title: &Input, task_type: &TaskType, priority: &Priority, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme, repo_name: &str, username: &str) {
+    let area = f.area();
+    let [top_row, _gap, body, footer] = Layout::vertical([
+        Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1),
+    ]).areas(area);
+    render_top_bar(f, top_row, ActiveView::Personal, repo_name, username, Some("NEW SLICE"), theme);
+    let [left, right] = Layout::horizontal([Constraint::Length(34), Constraint::Fill(1)]).areas(body);
+    let prop_block = panel("PROPERTIES", theme);
+    let prop_inner = prop_block.inner(left);
+    f.render_widget(prop_block, left);
+    draw_create_properties(f, prop_inner, focus, title, task_type, priority, users, user_filter, user_sel, cakes, cake_filter, cake_sel, theme);
+    let preview_block = panel("PREVIEW", theme).padding(Padding::new(1, 1, 0, 0));
+    let preview_inner = preview_block.inner(right);
+    f.render_widget(preview_block, right);
+    draw_create_preview(f, preview_inner, title.value(), task_type, priority, cakes, cake_filter, cake_sel, theme);
+    f.render_widget(Paragraph::new(create_hint_bar_text(footer.width, theme)), footer);
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_create(f: &mut Frame, focus: CreateFocus, task_type: &TaskType, priority: &Priority, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
-    let area = f.area();
-    let assign_h: u16 = if focus == CreateFocus::Assignee { 4 } else { 1 };
-    let cake_h:   u16 = if focus == CreateFocus::Cake     { 4 } else { 1 };
-    let popup_h = 10 + assign_h + cake_h;
-    let popup = centered_rect(65, popup_h, area);
-    f.render_widget(Clear, popup);
-    let block = panel("New Slice", theme).padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(popup);
-    f.render_widget(block, popup);
-    let rows = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(assign_h),
-        Constraint::Length(cake_h),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ]).split(inner);
-    f.render_widget(
-        Paragraph::new(Span::styled("Use numbers 1-4 to configure your slice.", theme.dim_style())),
-        rows[0],
-    );
-    draw_create_type_chips(f, rows[2], task_type, theme);
-    draw_create_priority_chips(f, rows[3], priority, theme);
-    draw_create_assign(f, rows[4], users, user_filter, user_sel, focus == CreateFocus::Assignee, theme);
-    draw_create_cake_field(f, rows[5], cakes, cake_filter, cake_sel, focus == CreateFocus::Cake, theme);
-    f.render_widget(Paragraph::new(create_hint_bar_text(rows[7].width, theme)), rows[7]);
-}
-
-fn draw_create_type_chips(f: &mut Frame, area: Rect, task_type: &TaskType, theme: &Theme) {
-    let types = [TaskType::Task, TaskType::Bug, TaskType::Incident];
-    let mut spans = vec![num_key_badge("1"), num_field_label("TYPE")];
-    for t in &types {
-        if t == task_type {
-            spans.push(Span::styled(format!("[{}]", type_label(t)), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
+fn draw_create_properties(f: &mut Frame, area: Rect, focus: CreateFocus, title: &Input, task_type: &TaskType, priority: &Priority, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
+    let mut y = area.y;
+    // ── Title row ────────────────────────────────────────────────────────────
+    if y < area.y + area.height {
+        let title_active = focus == CreateFocus::Title;
+        let row = Rect { x: area.x, y, width: area.width, height: 1 };
+        let lbl_sty = if title_active {
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
         } else {
-            spans.push(Span::styled(format!(" {} ", type_label(t)), theme.dim_style()));
-        }
-        spans.push(Span::raw("  "));
-    }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
-fn draw_create_priority_chips(f: &mut Frame, area: Rect, priority: &Priority, theme: &Theme) {
-    let priorities = [Priority::Normal, Priority::High, Priority::Urgent];
-    let mut spans = vec![num_key_badge("2"), num_field_label("PRIORITY")];
-    for p in &priorities {
-        if p == priority {
-            spans.push(Span::styled(format!("[{}]", priority_label(p)), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)));
-        } else {
-            spans.push(Span::styled(format!(" {} ", priority_label(p)), theme.dim_style()));
-        }
-        spans.push(Span::raw("  "));
-    }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
-fn draw_create_assign(f: &mut Frame, area: Rect, users: &[String], filter: &str, sel: usize, active: bool, theme: &Theme) {
-    let f_lower = filter.to_lowercase();
-    let filtered: Vec<&str> = users.iter()
-        .filter(|u| f_lower.is_empty() || u.to_lowercase().contains(&f_lower))
-        .map(|s| s.as_str()).collect();
-    let label = num_field_label("ASSIGN");
-    let key   = num_key_badge("3");
-    if !active {
-        let val = filtered.get(sel).copied().unwrap_or("none");
+            Style::new().fg(theme.fg).add_modifier(Modifier::BOLD)
+        };
+        let title_val = title.value();
+        let max_w = area.width.saturating_sub(9) as usize;
+        let display = truncate_title(title_val, max_w);
+        let cursor_ch = if title_active { "│" } else { "" };
         f.render_widget(Paragraph::new(Line::from(vec![
-            key, label, Span::styled(val.to_string(), theme.dim_style()),
-        ])), area);
-        return;
+            Span::styled("TITLE    ", lbl_sty),
+            Span::styled(display.to_string(), Style::new().fg(theme.fg)),
+            Span::styled(cursor_ch.to_string(), Style::new().fg(theme.accent).add_modifier(Modifier::RAPID_BLINK)),
+        ])).style(if title_active { Style::new().bg(theme.sel_bg) } else { Style::new() }), row);
+        if title_active {
+            let cursor_x = area.x + 9 + title.visual_cursor() as u16;
+            let cursor_x = cursor_x.min(area.x + area.width.saturating_sub(1));
+            f.set_cursor_position((cursor_x, y));
+        }
+        y += 1;
     }
-    let sub = Layout::default().direction(Direction::Vertical)
-        .constraints(vec![Constraint::Length(1); area.height as usize]).split(area);
-    f.render_widget(Paragraph::new(Line::from(vec![
-        key, label.clone(), Span::styled(filter.to_string(), Style::new()),
-    ])), sub[0]);
-    // "[3] ASSIGN   " = 3 + 10 = 13 display cols
-    f.set_cursor_position((sub[0].x + 13 + filter.len() as u16, sub[0].y));
-    for (i, row) in sub.iter().enumerate().skip(1) {
-        if let Some(name) = filtered.get(i - 1) {
-            let is_sel = (i - 1) == sel;
-            let (cur, cur_sty, row_sty) = if is_sel {
-                (format!("{} ", theme.cursor), Style::new().fg(theme.accent), theme.highlight)
-            } else {
-                ("  ".to_string(), theme.dim_style(), Style::new())
-            };
+    if y < area.y + area.height {
+        f.render_widget(Paragraph::new(Span::styled(
+            "─".repeat(area.width as usize), Style::new().fg(theme.faint),
+        )), Rect { x: area.x, y, width: area.width, height: 1 });
+        y += 1;
+    }
+    // ── Type field ───────────────────────────────────────────────────────────
+    let type_focused = focus == CreateFocus::Title; // type has no focus state; always show inline
+    if y < area.y + area.height {
+        let cur_type = type_label(task_type);
+        let row = Rect { x: area.x, y, width: area.width, height: 1 };
+        f.render_widget(Paragraph::new(Line::from(vec![
+            Span::styled("[1] ", theme.dim_style()),
+            Span::styled(format!("{:<9}", "TYPE"), Style::new().fg(theme.fg).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("[{cur_type}]"), Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        ])), row);
+        y += 1;
+        let _ = type_focused;
+    }
+    // ── Priority field ───────────────────────────────────────────────────────
+    if y < area.y + area.height {
+        let cur_prio = priority_label(priority);
+        let prio_sty = match priority {
+            Priority::Urgent => Style::new().fg(theme.flag).add_modifier(Modifier::BOLD),
+            Priority::High   => Style::new().fg(theme.priority_color).add_modifier(Modifier::BOLD),
+            Priority::Normal => Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        };
+        f.render_widget(Paragraph::new(Line::from(vec![
+            Span::styled("[2] ", theme.dim_style()),
+            Span::styled(format!("{:<9}", "PRIORITY"), Style::new().fg(theme.fg).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("[{cur_prio}]"), prio_sty),
+        ])), Rect { x: area.x, y, width: area.width, height: 1 });
+        y += 1;
+    }
+    // ── Assign field ─────────────────────────────────────────────────────────
+    if y < area.y + area.height {
+        let assign_active = focus == CreateFocus::Assignee;
+        let f_lower = user_filter.to_lowercase();
+        let filtered_users: Vec<&str> = users.iter()
+            .filter(|u| f_lower.is_empty() || u.to_lowercase().contains(&f_lower))
+            .map(|s| s.as_str()).collect();
+        let assign_val = filtered_users.get(user_sel).copied().unwrap_or("none");
+        let row_bg = if assign_active { Style::new().bg(theme.sel_bg) } else { Style::new() };
+        let lbl_sty = if assign_active {
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::new().fg(theme.fg).add_modifier(Modifier::BOLD)
+        };
+        if assign_active {
             f.render_widget(Paragraph::new(Line::from(vec![
-                Span::raw("    "), Span::styled(cur, cur_sty), Span::styled(name.to_string(), row_sty),
-            ])), *row);
+                Span::styled("[3] ", theme.dim_style()),
+                Span::styled(format!("{:<9}", "ASSIGN"), lbl_sty),
+                Span::styled(user_filter.to_string(), Style::new()),
+                Span::styled("│", Style::new().fg(theme.accent)),
+            ])).style(row_bg), Rect { x: area.x, y, width: area.width, height: 1 });
+            let cursor_x = (area.x + 13 + user_filter.len() as u16).min(area.x + area.width.saturating_sub(1));
+            f.set_cursor_position((cursor_x, y));
+            y += 1;
+            let list_rows = (area.y + area.height).saturating_sub(y).min(5) as usize;
+            for i in 0..list_rows {
+                if y >= area.y + area.height { break; }
+                if let Some(name) = filtered_users.get(i) {
+                    let is_sel = i == user_sel;
+                    let (cur, sty) = if is_sel {
+                        (format!("{} ", theme.cursor), Style::new().fg(theme.accent))
+                    } else {
+                        ("  ".to_string(), theme.dim_style())
+                    };
+                    let bg = if is_sel { Style::new().bg(theme.sel_bg) } else { Style::new() };
+                    f.render_widget(Paragraph::new(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(cur, sty),
+                        Span::styled(name.to_string(), bg),
+                    ])), Rect { x: area.x, y, width: area.width, height: 1 });
+                    y += 1;
+                }
+            }
+        } else {
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::styled("[3] ", theme.dim_style()),
+                Span::styled(format!("{:<9}", "ASSIGN"), lbl_sty),
+                Span::styled(assign_val.to_string(), theme.dim_style()),
+                Span::styled("   ▶", Style::new().fg(theme.faint)),
+            ])), Rect { x: area.x, y, width: area.width, height: 1 });
+            y += 1;
         }
     }
+    // ── Cake field ───────────────────────────────────────────────────────────
+    if y < area.y + area.height {
+        let cake_active = focus == CreateFocus::Cake;
+        let f_lower = cake_filter.to_lowercase();
+        let none_vis = f_lower.is_empty() || "none".contains(&f_lower);
+        let filtered_cakes: Vec<Option<&Cake>> = (if none_vis { vec![None] } else { vec![] })
+            .into_iter()
+            .chain(cakes.iter().filter(|c| f_lower.is_empty() || c.title.to_lowercase().contains(&f_lower)).map(Some))
+            .collect();
+        let cake_display = filtered_cakes.get(cake_sel)
+            .map(|e| e.map(|c| c.title.as_str()).unwrap_or("none"))
+            .unwrap_or("none");
+        let lbl_sty = if cake_active {
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::new().fg(theme.fg).add_modifier(Modifier::BOLD)
+        };
+        if cake_active {
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::styled("[4] ", theme.dim_style()),
+                Span::styled(format!("{:<9}", "CAKE"), lbl_sty),
+                Span::styled(cake_filter.to_string(), Style::new()),
+                Span::styled("│", Style::new().fg(theme.accent)),
+            ])).style(Style::new().bg(theme.sel_bg)), Rect { x: area.x, y, width: area.width, height: 1 });
+            let cursor_x = (area.x + 13 + cake_filter.len() as u16).min(area.x + area.width.saturating_sub(1));
+            f.set_cursor_position((cursor_x, y));
+            y += 1;
+            let list_rows = (area.y + area.height).saturating_sub(y).min(5) as usize;
+            for i in 0..list_rows {
+                if y >= area.y + area.height { break; }
+                if let Some(entry) = filtered_cakes.get(i) {
+                    let name = entry.map(|c| c.title.as_str()).unwrap_or("None (default)");
+                    let is_sel = i == cake_sel;
+                    let (cur, sty) = if is_sel {
+                        (format!("{} ", theme.cursor), Style::new().fg(theme.accent))
+                    } else {
+                        ("  ".to_string(), theme.dim_style())
+                    };
+                    let bg = if is_sel { Style::new().bg(theme.sel_bg) } else { Style::new() };
+                    f.render_widget(Paragraph::new(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(cur, sty),
+                        Span::styled(name.to_string(), bg),
+                    ])), Rect { x: area.x, y, width: area.width, height: 1 });
+                    y += 1;
+                }
+            }
+        } else {
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::styled("[4] ", theme.dim_style()),
+                Span::styled(format!("{:<9}", "CAKE"), lbl_sty),
+                Span::styled(cake_display.to_string(), theme.dim_style()),
+                Span::styled("   ▶", Style::new().fg(theme.faint)),
+            ])), Rect { x: area.x, y, width: area.width, height: 1 });
+            y += 1;
+        }
+    }
+    let _ = y;
 }
 
-fn draw_create_cake_field(f: &mut Frame, area: Rect, cakes: &[Cake], filter: &str, sel: usize, active: bool, theme: &Theme) {
-    let f_lower = filter.to_lowercase();
+#[allow(clippy::too_many_arguments)]
+fn draw_create_preview(f: &mut Frame, area: Rect, title_val: &str, task_type: &TaskType, priority: &Priority, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme) {
+    let f_lower = cake_filter.to_lowercase();
     let none_vis = f_lower.is_empty() || "none".contains(&f_lower);
-    let opts: Vec<Option<&Cake>> = (if none_vis { vec![None] } else { vec![] })
+    let filtered_cakes: Vec<Option<&Cake>> = (if none_vis { vec![None] } else { vec![] })
         .into_iter()
         .chain(cakes.iter().filter(|c| f_lower.is_empty() || c.title.to_lowercase().contains(&f_lower)).map(Some))
         .collect();
-    let cake_name = |entry: Option<&Cake>| -> String {
-        entry.map(|c| c.title.clone()).unwrap_or_else(|| "None (default)".to_string())
+    let cake_title = filtered_cakes.get(cake_sel)
+        .and_then(|e| *e).map(|c| c.title.as_str()).unwrap_or("standalone");
+    let type_str = type_label_plural(task_type);
+    let file_path = format!("{type_str}/xxxxxxxx.md");
+    let display_title = if title_val.is_empty() { "← type title on the left" } else { title_val };
+    let prio_indicator = match priority {
+        Priority::Urgent => Span::styled(format!("{} ", theme.sym_urgent), Style::new().fg(theme.flag).add_modifier(Modifier::BOLD)),
+        Priority::High   => Span::styled(format!("{} ", theme.sym_high), Style::new().fg(theme.priority_color)),
+        Priority::Normal => Span::raw("  "),
     };
-    let label = num_field_label("CAKE");
-    let key   = num_key_badge("4");
-    if !active {
-        let val = opts.get(sel).map(|e| cake_name(*e)).unwrap_or_else(|| "None (default)".to_string());
-        f.render_widget(Paragraph::new(Line::from(vec![
-            key, label, Span::styled(val, theme.dim_style()),
-        ])), area);
-        return;
-    }
-    let sub = Layout::default().direction(Direction::Vertical)
-        .constraints(vec![Constraint::Length(1); area.height as usize]).split(area);
-    f.render_widget(Paragraph::new(Line::from(vec![
-        key, label.clone(), Span::styled(filter.to_string(), Style::new()),
-    ])), sub[0]);
-    // "[4] CAKE     " = 3 + 10 = 13 display cols
-    f.set_cursor_position((sub[0].x + 13 + filter.len() as u16, sub[0].y));
-    for (i, row) in sub.iter().enumerate().skip(1) {
-        if let Some(entry) = opts.get(i - 1) {
-            let name = cake_name(*entry);
-            let is_sel = i - 1 == sel;
-            let (cur, cur_sty, row_sty) = if is_sel {
-                (format!("{} ", theme.cursor), Style::new().fg(theme.accent), theme.highlight)
-            } else {
-                ("  ".to_string(), theme.dim_style(), Style::new())
-            };
-            f.render_widget(Paragraph::new(Line::from(vec![
-                Span::raw("    "), Span::styled(cur, cur_sty), Span::styled(name.to_string(), row_sty),
-            ])), *row);
-        }
-    }
+    let title_sty = if title_val.is_empty() { theme.dim_style() } else { Style::new().fg(theme.fg) };
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(vec![
+            Span::styled(cake_title.to_string(), Style::new().fg(theme.accent)),
+            Span::styled("  ▸  ".to_string(), theme.dim_style()),
+            Span::styled(type_label(task_type).to_string(), theme.dim_style()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            prio_indicator,
+            Span::styled(display_title.to_string(), title_sty.add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("─".repeat(area.width as usize), Style::new().fg(theme.faint))),
+        Line::from(""),
+        Line::from(Span::styled(file_path, theme.dim_style())),
+        Line::from(Span::styled("E  →  open $EDITOR for body", theme.dim_style())),
+        Line::from(Span::styled("↵  →  create immediately", theme.dim_style())),
+    ];
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("─".repeat(area.width as usize), Style::new().fg(theme.faint))));
+    lines.push(Line::from(Span::styled("Status:  open", theme.dim_style())));
+    lines.push(Line::from(Span::styled(format!("Type:    {}", type_label(task_type)), theme.dim_style())));
+    lines.push(Line::from(Span::styled(format!("Cake:    {cake_title}"), theme.dim_style())));
+    f.render_widget(Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }), area);
 }
 
 fn draw_create_cake(f: &mut Frame, title: &str, theme: &Theme) {
@@ -1125,7 +1360,7 @@ fn render_top_bar(f: &mut Frame, area: Rect, active: ActiveView, repo_name: &str
     );
 }
 
-fn bar_make_line<'a>(items: &[(&'a str, &'a str)], chip: Style, lbl: Style) -> Line<'a> {
+fn bar_make_line<'a>(items: &[(&'a str, &'a str)], chip: Style, _cap: Style, lbl: Style) -> Line<'a> {
     let mut spans = vec![Span::raw(" ")];
     for (key, label) in items {
         spans.push(Span::styled(format!(" {key} "), chip));
