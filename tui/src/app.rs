@@ -85,7 +85,8 @@ pub enum Screen {
         cake_sel:    usize,
     },
     CreateCake {
-        title: String,
+        title:        String,
+        from_planner: bool,
     },
     PickCake {
         task_id: String,
@@ -184,7 +185,7 @@ impl App {
 
         let (pull_msg, pull_error) = classify_pull_result(repo.as_ref().unwrap().pull());
         let repo_path = repo.as_ref().unwrap().info.path.clone();
-        let (lock_path, lock_warning) = acquire_lock(&repo_path);
+        let (lock_path, lock_warning) = acquire_lock(&repo_path, &config.keys.push);
         let (raw_tasks, task_warnings) = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
         let startup_msg = merge_messages(pull_msg, warn_summary(&task_warnings));
         let tasks = sort_for_display(raw_tasks);
@@ -331,7 +332,6 @@ impl App {
     }
 
     fn handle_list_action_keys(&mut self, key: KeyEvent, sel_task: Option<Task>, _no_mod: bool) {
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let km = self.config.keys.clone();
         if is_key(&key, &km.detail) {
             if let Some(t) = sel_task {
@@ -343,10 +343,32 @@ impl App {
         if is_key(&key, &km.create) {
             self.open_create_screen(); return;
         }
+        if is_key(&key, &km.create_cake) {
+            self.screen = Screen::CreateCake { title: String::new(), from_planner: false }; return;
+        }
         if is_key(&key, &km.assign) {
             if let Some(t) = sel_task {
                 let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
                 self.screen = Screen::AssignTask { task_id: t.id, users, selected: 0, filter: String::new() };
+            }
+            return;
+        }
+        if is_key(&key, &km.backlog) {
+            if let Some(t) = sel_task {
+                if self.context != TaskContext::Backlog {
+                    let msg = match self.repo.as_ref().map(|r| r.move_task_to_backlog(&t.id)) {
+                        Some(Ok(())) => Some("Moved to backlog.".to_string()),
+                        Some(Err(e)) => Some(e.to_string()),
+                        None         => Some("No repo.".to_string()),
+                    };
+                    self.enter_task_list(msg, None);
+                }
+            }
+            return;
+        }
+        if is_key(&key, &km.delete) {
+            if let Some(t) = sel_task {
+                self.screen = Screen::DeleteConfirm { task_id: t.id, task_title: t.title };
             }
             return;
         }
@@ -363,25 +385,6 @@ impl App {
                 match self.context {
                     TaskContext::Personal => { self.context = TaskContext::Backlog; self.enter_task_list(None, None); }
                     TaskContext::Backlog  => self.enter_planner_view(),
-                }
-            }
-            KeyCode::Char('b') if ctrl => {
-                if let Some(t) = sel_task {
-                    if self.context == TaskContext::Backlog {
-                        // already in backlog — no-op
-                    } else {
-                        let msg = match self.repo.as_ref().map(|r| r.move_task_to_backlog(&t.id)) {
-                            Some(Ok(())) => Some("Moved to backlog.".to_string()),
-                            Some(Err(e)) => Some(e.to_string()),
-                            None         => Some("No repo.".to_string()),
-                        };
-                        self.enter_task_list(msg, None);
-                    }
-                }
-            }
-            KeyCode::Char('d') if ctrl => {
-                if let Some(t) = sel_task {
-                    self.screen = Screen::DeleteConfirm { task_id: t.id, task_title: t.title };
                 }
             }
             _ => {}
@@ -624,12 +627,11 @@ impl App {
 
     fn handle_create(&mut self, key: KeyEvent) {
         if is_key(&key, &self.config.keys.quit) { self.should_quit = true; return; }
-        let no_mod  = key.modifiers == KeyModifiers::NONE;
-        let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let no_mod = key.modifiers == KeyModifiers::NONE;
         let focus = match &self.screen { Screen::Create { focus, .. } => *focus, _ => return };
         // Global create actions
         if key.code == KeyCode::Enter && no_mod { self.create_task_from_form(); return; }
-        if key.code == KeyCode::Char('c') && is_ctrl { self.open_create_editor(); return; }
+        if is_key(&key, &self.config.keys.create) { self.open_create_editor(); return; }
         if key.code == KeyCode::Esc {
             match focus {
                 CreateFocus::Title => { self.enter_task_list(None, None); return; }
@@ -871,9 +873,10 @@ impl App {
                         TaskContext::Backlog  => r.push_backlog(),
                     })
                     .unwrap_or(Err(gitcake_core::error::AppError::NoRepo));
+                let push_glyph = crate::config::binding_glyph(&self.config.keys.push);
                 let msg = match result {
                     Ok(_)  => "Successfully pushed.".into(),
-                    Err(e) => classify_push_error(&e.to_string()),
+                    Err(e) => classify_push_error(&e.to_string(), &push_glyph),
                 };
                 self.enter_task_list(Some(msg), None);
             }
@@ -889,9 +892,10 @@ impl App {
     fn handle_push_prompt(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
+                let push_glyph = crate::config::binding_glyph(&self.config.keys.push);
                 self.exit_message = Some(match self.repo.as_ref().map(|r| r.push()) {
                     Some(Ok(_))  => "Successfully pushed.".into(),
-                    Some(Err(e)) => classify_push_error(&e.to_string()),
+                    Some(Err(e)) => classify_push_error(&e.to_string(), &push_glyph),
                     None         => "No repo connected.".into(),
                 });
                 self.should_quit = true;
@@ -948,7 +952,7 @@ impl App {
             return;
         }
         if is_key(&key, &km.create_cake) {
-            self.screen = Screen::CreateCake { title: String::new() }; return;
+            self.screen = Screen::CreateCake { title: String::new(), from_planner: true }; return;
         }
         if is_key(&key, &km.create) {
             self.open_create_screen(); return;
@@ -966,10 +970,8 @@ impl App {
             }
             return;
         }
-        if key.code == KeyCode::Char('b') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            self.do_planner_backlog(); return;
-        }
-        if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if is_key(&key, &km.backlog) { self.do_planner_backlog(); return; }
+        if is_key(&key, &km.delete) {
             let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
             let hd = self.hide_done;
             let sel = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
@@ -986,17 +988,22 @@ impl App {
         let visible_count = if let Screen::PlannerView { cakes, tasks, .. } = &self.screen {
             planner_visible_tasks(cakes, tasks, &f, hd, true).len()
         } else { return };
+        let no_mod = key.modifiers == KeyModifiers::NONE;
+        let up_k = km.up.chars().next().unwrap_or('w');
+        let dn_k = km.down.chars().next().unwrap_or('s');
+        let is_up = key.code == KeyCode::Up
+            || (matches!(key.code, KeyCode::Char(c) if c == up_k) && km.up.len() == 1 && no_mod);
+        let is_dn = key.code == KeyCode::Down
+            || (matches!(key.code, KeyCode::Char(c) if c == dn_k) && km.down.len() == 1 && no_mod);
         let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
         if is_key(&key, &km.filter) || key.code == KeyCode::Char('/') {
             self.filter_active = true; self.filter.clear(); *selected = 0; return;
         }
+        if is_up && visible_count > 0 {
+            *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); return;
+        }
+        if is_dn && visible_count > 0 { *selected = (*selected + 1) % visible_count; return; }
         match key.code {
-            KeyCode::Char('w') | KeyCode::Up => {
-                if visible_count > 0 { *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); }
-            }
-            KeyCode::Char('s') | KeyCode::Down => {
-                if visible_count > 0 { *selected = (*selected + 1) % visible_count; }
-            }
             KeyCode::Tab => {
                 self.filter.clear(); self.filter_active = false;
                 self.context = TaskContext::Backlog; self.enter_task_list(None, None);
@@ -1029,21 +1036,25 @@ impl App {
 
     fn handle_create_cake(&mut self, key: KeyEvent) {
         if is_ctrl_q(&key) { self.try_quit(); return; }
-        let Screen::CreateCake { title } = &mut self.screen else { return };
+        let (title_val, from_planner) = match &self.screen {
+            Screen::CreateCake { title, from_planner } => (title.clone(), *from_planner),
+            _ => return,
+        };
         match key.code {
-            KeyCode::Esc => { self.enter_planner_view(); }
-            KeyCode::Enter if !title.is_empty() => {
-                let t = title.clone();
-                let owner = self.repo.as_ref().map(|r| r.info.username.clone());
-                let msg = self.repo.as_ref().map(|r| match r.create_cake(NewCake { title: t, owner, ..Default::default() }) {
-                    Ok(_)  => "Cake created.".to_string(),
-                    Err(e) => e.to_string(),
-                });
-                let _ = msg; // not surfaced in planner flash row currently
-                self.enter_planner_view();
+            KeyCode::Esc => {
+                if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, None); }
             }
-            KeyCode::Backspace => { title.pop(); }
-            KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => { title.push(c); }
+            KeyCode::Enter if !title_val.is_empty() => {
+                let owner = self.repo.as_ref().map(|r| r.info.username.clone());
+                let _ = self.repo.as_ref().map(|r| r.create_cake(NewCake { title: title_val, owner, ..Default::default() }));
+                if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, None); }
+            }
+            KeyCode::Backspace => {
+                if let Screen::CreateCake { title, .. } = &mut self.screen { title.pop(); }
+            }
+            KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE => {
+                if let Screen::CreateCake { title, .. } = &mut self.screen { title.push(c); }
+            }
             _ => {}
         }
     }
@@ -1102,7 +1113,7 @@ impl App {
                     self.config.save();
                     self.repo = Some(repo);
                     let repo_path = self.repo.as_ref().unwrap().info.path.clone();
-                    let (lock_path, lock_warning) = acquire_lock(&repo_path);
+                    let (lock_path, lock_warning) = acquire_lock(&repo_path, &self.config.keys.push);
                     self.lock_path = lock_path;
                     self.lock_warning = lock_warning;
                     let (pull_msg, pull_err) = classify_pull_result(self.repo.as_ref().unwrap().pull());
@@ -1245,22 +1256,23 @@ pub fn is_ctrl_q(event: &KeyEvent) -> bool {
     event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('q')
 }
 
-fn acquire_lock(repo_path: &str) -> (Option<PathBuf>, Option<String>) {
+fn acquire_lock(repo_path: &str, push_binding: &str) -> (Option<PathBuf>, Option<String>) {
     let Some(path) = lock_file_path(repo_path) else { return (None, None) };
     if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); }
-    let warn = if path.exists() { stale_lock_warning(&path) } else { None };
+    let warn = if path.exists() { stale_lock_warning(&path, push_binding) } else { None };
     let _ = fs::write(&path, std::process::id().to_string());
     (Some(path), warn)
 }
 
-fn stale_lock_warning(path: &Path) -> Option<String> {
+fn stale_lock_warning(path: &Path, push_binding: &str) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let pid: u32 = content.trim().parse().ok()?;
     if pid == std::process::id() { return None; }
     if process_running(pid) {
         Some("Another gitcake session is already open for this repo".to_string())
     } else {
-        Some("Last session ended without pushing — consider ^R to sync".to_string())
+        let glyph = crate::config::binding_glyph(push_binding);
+        Some(format!("Last session ended without pushing — consider {glyph} to sync"))
     }
 }
 
@@ -1294,14 +1306,14 @@ fn merge_messages(primary: Option<String>, secondary: Option<String>) -> Option<
     }
 }
 
-fn classify_push_error(err: &str) -> String {
+fn classify_push_error(err: &str, push_glyph: &str) -> String {
     let lower = err.to_lowercase();
     if lower.contains("rejected") || lower.contains("non-fast-forward")
         || lower.contains("fetch first") || lower.contains("updates were rejected")
     {
-        "Push rejected: remote has new commits — run `git pull` in the repo, then ^R to retry".to_string()
+        format!("Push rejected: remote has new commits — run `git pull` in the repo, then {push_glyph} to retry")
     } else {
-        format!("Sync failed: {err} · ^R to retry")
+        format!("Sync failed: {err} · {push_glyph} to retry")
     }
 }
 

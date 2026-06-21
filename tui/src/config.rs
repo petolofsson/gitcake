@@ -89,6 +89,8 @@ pub struct KeyMap {
     pub pull:         String,
     pub filter:       String,
     pub assign:       String,
+    pub backlog:      String,
+    pub delete:       String,
     pub add_bite:     String,
     pub quit:         String,
 }
@@ -98,10 +100,10 @@ impl Default for KeyMap {
         Self {
             up:           "w".into(),
             down:         "s".into(),
-            detail:       "enter".into(),
+            detail:       "d".into(),
             back:         "a".into(),
-            create:       "ctrl+c".into(),
-            create_cake:  "shift+c".into(),
+            create:       "ctrl+v".into(),
+            create_cake:  "shift+v".into(),
             edit:         "e".into(),
             field_cycle:  "f".into(),
             status_cycle: "space".into(),
@@ -109,6 +111,8 @@ impl Default for KeyMap {
             pull:         "shift+t".into(),
             filter:       "q".into(),
             assign:       "ctrl+r".into(),
+            backlog:      "ctrl+b".into(),
+            delete:       "ctrl+d".into(),
             add_bite:     "b".into(),
             quit:         "ctrl+q".into(),
         }
@@ -124,16 +128,41 @@ pub struct Config {
     pub theme: ThemeConfig,
 }
 
+/// Convert a binding string to its display glyph: "ctrl+v" → "^V", "shift+v" → "⇧V", "space" → "Spc".
+pub fn binding_glyph(binding: &str) -> String {
+    if let Some(ctrl_key) = binding.strip_prefix("ctrl+") {
+        let ch = ctrl_key.chars().next().unwrap_or('?').to_ascii_uppercase();
+        return format!("^{ch}");
+    }
+    if let Some(shift_key) = binding.strip_prefix("shift+") {
+        let ch = shift_key.chars().next().unwrap_or('?').to_ascii_uppercase();
+        return format!("⇧{ch}");
+    }
+    match binding {
+        "space"   => "Spc".to_string(),
+        "enter"   => "↵".to_string(),
+        "tab"     => "⇥".to_string(),
+        "backtab" => "⇤".to_string(),
+        "esc"     => "Esc".to_string(),
+        "up"      => "↑".to_string(),
+        "down"    => "↓".to_string(),
+        s if s.len() == 1 => s.to_ascii_uppercase(),
+        s => s.to_string(),
+    }
+}
+
 impl Config {
     pub fn load() -> Self {
         let path = config_path();
         let Ok(text) = fs::read_to_string(&path) else {
             return Self::default();
         };
-        let c: Self = toml::from_str(&text).unwrap_or_default();
-        if !text.contains("[theme]") {
-            c.save();
-        }
+        let mut c: Self = toml::from_str(&text).unwrap_or_default();
+        let mut dirty = !text.contains("[theme]");
+        // Migrate create/create_cake off the C key (terminal SIGINT intercepts ^C).
+        if c.keys.create == "ctrl+c"     { c.keys.create      = "ctrl+v".into();  dirty = true; }
+        if c.keys.create_cake == "shift+c" { c.keys.create_cake = "shift+v".into(); dirty = true; }
+        if dirty { c.save(); }
         c
     }
 
