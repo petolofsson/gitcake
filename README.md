@@ -35,38 +35,43 @@ gitcake --new                  # fresh setup screen
 
 | Key | Action |
 |---|---|
-| `W` / `↑`  `S` / `↓` | Navigate |
+| `W` / `S` | Navigate |
 | `D` | View slice detail |
 | `A` | Back |
-| `C` | Create new slice |
+| `Ctrl+V` | Create new slice |
+| `Shift+V` | Create new cake |
 | `E` | Edit in `$EDITOR` |
-| `F` | Cycle status (open → in-progress → done, wraps) |
-| `B` | Switch to backlog |
-| `T` | Team view (read-only) |
-| `/` | Filter by title, hex ID, owner, type or status. Esc to clear |
-| `Shift+R` | Pull |
-| `Ctrl+A` | Assign to any user (including yourself) |
-| `Ctrl+R` | Push (commit + push) |
-| `Ctrl+D` | Move to backlog |
+| `Space` | Cycle status (open → in-progress → done) |
+| `Q` | Filter by title, hex ID, owner, type, status, cake. Esc to clear |
+| `H` | Toggle done visibility |
+| `Ctrl+R` | Assign to any user (opens picker) |
+| `Ctrl+B` | Move to backlog (clears owner) |
+| `Ctrl+D` | Permanently delete slice |
+| `Shift+T` | Pull |
+| `Ctrl+T` | Push (commit + push) |
 | `Ctrl+Q` | Quit |
 
 ### Backlog view
 
 | Key | Action |
 |---|---|
-| `F` | Claim slice for yourself |
-| `Ctrl+A` | Assign to any user (opens picker) |
+| `Space` | Cycle status / claim slice |
+| `Ctrl+R` | Assign to any user (opens picker) |
 | `Ctrl+D` | Permanently delete |
 
 ### Detail view
 
 | Key | Action |
 |---|---|
-| `A` / `Esc` / `Q` | Back to list |
+| `A` / `Esc` | Back to list |
+| `W` / `S` | Navigate fields |
+| `1`–`6` | Directly cycle the field |
+| `F` | Cycle the focused field's value |
+| `Space` | Cycle status |
 | `E` | Edit in `$EDITOR` |
-| `F` | Cycle status (personal context) |
-| `Shift+R` | Pull |
-| `Ctrl+R` | Push |
+| `Ctrl+R` | Assign to user |
+| `Shift+T` | Pull |
+| `Ctrl+T` | Push |
 | `Ctrl+Q` | Quit |
 
 The TUI pulls on open and prompts to push on quit if there are unsynced changes. Filter persists when navigating to detail and back — press Esc to clear.

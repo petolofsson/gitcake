@@ -169,7 +169,7 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 |---|---|
 | `W` / `↑`  `S` / `↓` | Navigate |
 | `Enter` | View slice detail |
-| `Ctrl+C` | Create new slice |
+| `Ctrl+V` | Create new slice |
 | `Q` / `/` | Filter — matches title, hex ID, owner, type, status, `ai_flagged`, `urgent`, `high`. Prefix `@` for owner, `!` to exclude, `#` for cake name. `Esc` to clear |
 | `Ctrl+R` | Assign slice to any user (opens picker) |
 | `Ctrl+B` | Move to backlog (clears owner, resets status to open) |
@@ -181,7 +181,7 @@ Cycling wraps: `done` → `in-progress`. Transition is explicit (F key) in perso
 | `Shift+Tab` | Cycle view in reverse |
 | `Ctrl+Q` | Quit |
 
-**Planner only:** `Shift+C` creates a new cake inline.
+`Shift+V` creates a new cake — available in all three views (Personal, Planner, Backlog).
 
 List displays a priority/flag indicator: `++` (urgent, red), `+` (high, yellow), `⚑` (ai_flagged, red). Tasks are sorted in-progress → open → done, then urgent → high → normal within each group. Personal view owner column is blank (implied). Backlog shows owner.
 
@@ -201,7 +201,7 @@ Full-screen two-pane layout: left = **PROPERTIES** panel (34 cols), right = **PR
 | `3` | Focus ASSIGN — type to filter, `↑`/`↓` to select |
 | `4` | Focus CAKE — type to filter, `↑`/`↓` to select |
 | `Enter` | Create immediately |
-| `Ctrl+C` | Open `$EDITOR` to write body, then create on save |
+| `Ctrl+V` | Open `$EDITOR` to write body, then create on save |
 | `Esc` | If ASSIGN/CAKE focused: return to title. If title: cancel |
 | `Ctrl+Q` | Quit |
 
@@ -299,10 +299,10 @@ up           = "w"
 down         = "s"
 detail       = "d"
 back         = "a"
-create       = "c"
+create       = "ctrl+v"
 edit         = "e"
-status_cycle = "f"
-push         = "ctrl+r"
+status_cycle = "space"
+push         = "ctrl+t"
 quit         = "ctrl+q"
 ```
 

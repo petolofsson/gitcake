@@ -171,8 +171,8 @@ body:  one full-width TASKS panel
 │  ++ tsk ○ Test1                                                      │
 │     bug ✓ Prod: memory spike on API servers                         │
 └──────────────────────────────────────────────────────────────────────┘
-⚠ last session ended without pushing — T to sync
-WASD move  D/↵ open  C create  Space status  F cycle  R assign  E edit  Q filter  T push
+⚠ last session ended without pushing — ^T to sync
+W/S move  D open  ^V create  ⇧V cake  Q filter  Spc status  F cycle  E edit  ^R assign  ^B backlog  ⇧T pull  ^T push  ^Q quit
 ```
 
 **TASKS panel** — a `List<ListItem>` inside the panel, with a `ListState` driving
@@ -217,7 +217,7 @@ body: left column splits vertically; right = full-height CONTENT
 │ ✓    Setup CI pipeline        ││                                              │
 │                               ││                                              │
 ╰───────────────────────────────╯╰──────────────────────────────────────────────╯
-WS nav  1-6 fields  F cycle  Spc status  E edit  R assign  Tab/⇧Tab siblings  T push
+W/S nav  A back  ⇥/⇧⇥ siblings  1-6 fields  F cycle  Spc status  E edit  ^R assign  ⇧T pull  ^T push  ^Q quit
 ```
 
 All blocks have 1-line padding on all four sides.
@@ -257,7 +257,7 @@ Full-screen two-pane — **not** a popup. Same layout skeleton as Detail.
 │                               ││ E  →  open $EDITOR for body                 │
 │                               ││ ↵  →  create immediately                    │
 ╰───────────────────────────────╯╰──────────────────────────────────────────────╯
-↵/^C write & create  3/4 focus+type  Esc cancel
+1 type  2 priority  3 assign  4 cake  ↵ create  ^V editor  Esc cancel  ^Q quit
 ```
 
 Title typed inline at top of PROPERTIES (full cursor support). Fields 1–2 show
@@ -276,8 +276,8 @@ command keys below are suspended until `Esc`/`↵`.
 ```
  Esc  1  2  3  4  5         1–5  focus property field
  Tab  Q  W  E  R  T         W/S move   A/D out / in
- Ctl  A  S  D  F  G         F cycle    Q filter  E edit  R assign  T push (⇧T pull)
- Sft  Z  X  C  V  B         C create   B bite    Z undo
+ Ctl  A  S  D  F  G         F cycle    Q filter  E edit  ^R assign  ^T push  ⇧T pull
+ Sft  Z  X  C  V  B         ^V create  ⇧V cake
           SPACE             Space  advance status (open→in-progress→done)
 ```
 
@@ -289,12 +289,12 @@ command keys below are suspended until `Esc`/`↵`.
 | `A` / `Esc` | back / go out (Detail → Planning) |
 | `Tab` / `⇧Tab` | switch top tab (PERSONAL · PLANNER · BACKLOG) |
 | `Space` | advance status (open → in-progress → done) |
-| `C` | create a new slice (→ Create) |
+| `Ctrl+V` | create a new slice (→ Create) |
+| `Shift+V` | create a new cake (available in all three views) |
 | `E` | edit title/body in `$EDITOR` |
-| `R` | reassign |
-| `Q` | filter / search (`/` alias) |
-| `T` · `⇧T` | push · pull |
-| `Z` | undo last change |
+| `Ctrl+R` | assign to user |
+| `Q` | filter / search |
+| `Ctrl+T` · `⇧T` | push · pull |
 | `Ctrl+Q` | quit |
 
 ### Detail
@@ -305,10 +305,10 @@ command keys below are suspended until `Esc`/`↵`.
 | `F` | cycle focused field's value |
 | `Space` | advance status (open → in-progress → done) |
 | `Tab` / `⇧Tab` | cycle to next/previous slice in the same cake |
-| `R` | open assign picker |
+| `Ctrl+R` | open assign picker |
 | `E` | edit title + body in `$EDITOR` |
 | `A` / `Esc` | back to list |
-| `T` / `⇧T` | push / pull |
+| `Ctrl+T` / `⇧T` | push / pull |
 
 ### Create
 | Key | Action |
@@ -317,13 +317,10 @@ command keys below are suspended until `Esc`/`↵`.
 | `1`–`4` | cycle TYPE / PRIORITY or focus ASSIGN / CAKE |
 | `↑` / `↓` | navigate list when ASSIGN or CAKE is focused |
 | `↵` | create immediately |
-| `E` / `^C` | open `$EDITOR` for body, then create on save |
+| `Ctrl+V` | open `$EDITOR` for body, then create on save |
 | `Esc` | cancel (or collapse focused field first) |
 
-> `H done` and the `^`/Ctrl chords from the original were dropped — single
-> left-hand letters are faster when the right hand is off the keyboard. Model the
-> bindings as one `match (screen, key_event)` and **generate the footer keymap from
-> that table** so the UI and handler never drift.
+> Generate the footer keymap from the same binding table the handler uses, so the UI and documentation never drift.
 
 ---
 

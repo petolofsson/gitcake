@@ -310,7 +310,7 @@ The setup screen is the first-run experience. It must feel like a tool that has 
 The bottom of every non-input view carries a one-line hint bar:
 
 ```
-  ^C new  D detail  F status  /filter  ^R push  Tab switch  ^Q quit
+  ^V new  ⇧V cake  D detail  Spc status  Q filter  ^R assign  ⇧T pull  ^T push  ^Q quit
 ```
 
 Style: `fg=muted`. Key names are `bold + fg=accent` (or a slightly brighter muted). This mimics the Helix / bottom status bar pattern.
