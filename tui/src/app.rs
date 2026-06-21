@@ -110,6 +110,7 @@ pub enum Screen {
         cakes: Vec<Cake>,
         tasks: Vec<(String, Task)>,
         selected: usize,
+        message: Option<String>,
     },
 }
 
@@ -431,10 +432,14 @@ impl App {
     }
 
     fn enter_planner_view(&mut self) {
+        self.enter_planner_view_msg(None);
+    }
+
+    fn enter_planner_view_msg(&mut self, message: Option<String>) {
         let cakes = self.repo.as_ref().and_then(|r| r.list_cakes().ok()).unwrap_or_default();
         let tasks = self.repo.as_ref().and_then(|r| r.list_team_tasks().ok()).unwrap_or_default();
         self.cached_cakes = cakes.clone();
-        self.screen = Screen::PlannerView { cakes, tasks, selected: 0 };
+        self.screen = Screen::PlannerView { cakes, tasks, selected: 0, message };
     }
 
     // ── detail ────────────────────────────────────────────────────────────────
@@ -459,7 +464,6 @@ impl App {
         if is_key(&key, &km.quit) { self.try_quit(); return; }
         if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
         if is_key(&key, &km.pull) { self.do_detail_pull(); return; }
-        // Tab / Shift-Tab cycle through cake siblings
         if key.code == KeyCode::Tab || key.code == KeyCode::BackTab {
             self.handle_detail_tab(key);
             return;
@@ -474,7 +478,6 @@ impl App {
                 ),
                 _ => return,
             };
-        let no_mod = key.modifiers == KeyModifiers::NONE;
         if is_key(&key, &km.back) || key.code == KeyCode::Esc {
             if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, Some(&task_id)); }
             return;
@@ -497,14 +500,22 @@ impl App {
             self.screen = Screen::AssignTask { task_id, users, selected: 0, filter: String::new() };
             return;
         }
+        self.handle_detail_num_keys(key, task_id, task_type, task_status, task_priority, task_ai_flagged);
+    }
+
+    fn handle_detail_num_keys(
+        &mut self, key: KeyEvent, task_id: String,
+        task_type: TaskType, task_status: TaskStatus, task_priority: Priority, task_ai_flagged: bool,
+    ) {
+        if key.modifiers != KeyModifiers::NONE { return; }
         let mut cycle = |field| self.do_detail_field_cycle(task_id.clone(), field, task_type.clone(), task_status.clone(), task_priority.clone(), task_ai_flagged);
         match key.code {
-            KeyCode::Char('1') if no_mod => cycle(DetailField::Type),
-            KeyCode::Char('2') if no_mod => cycle(DetailField::Status),
-            KeyCode::Char('3') if no_mod => cycle(DetailField::Priority),
-            KeyCode::Char('4') if no_mod => cycle(DetailField::AiFlagged),
-            KeyCode::Char('5') if no_mod => cycle(DetailField::Cake),
-            KeyCode::Char('6') if no_mod => cycle(DetailField::Assign),
+            KeyCode::Char('1') => cycle(DetailField::Type),
+            KeyCode::Char('2') => cycle(DetailField::Status),
+            KeyCode::Char('3') => cycle(DetailField::Priority),
+            KeyCode::Char('4') => cycle(DetailField::AiFlagged),
+            KeyCode::Char('5') => cycle(DetailField::Cake),
+            KeyCode::Char('6') => cycle(DetailField::Assign),
             _ => {}
         }
     }
@@ -637,7 +648,6 @@ impl App {
         if is_key(&key, &self.config.keys.quit) { self.should_quit = true; return; }
         let no_mod = key.modifiers == KeyModifiers::NONE;
         let focus = match &self.screen { Screen::Create { focus, .. } => *focus, _ => return };
-        // Global create actions
         if key.code == KeyCode::Enter && no_mod { self.create_task_from_form(); return; }
         if is_key(&key, &self.config.keys.create) { self.open_create_editor(); return; }
         if key.code == KeyCode::Esc {
@@ -652,62 +662,60 @@ impl App {
                 }
             }
         }
-        // 1-4 are always intercepted regardless of which field is focused
-        if no_mod {
-            match key.code {
-                KeyCode::Char('1') => {
-                    if let Screen::Create { task_type, .. } = &mut self.screen {
-                        *task_type = match task_type {
-                            TaskType::Task     => TaskType::Bug,
-                            TaskType::Bug      => TaskType::Incident,
-                            TaskType::Incident => TaskType::Task,
-                        };
-                    }
-                    return;
-                }
-                KeyCode::Char('2') => {
-                    if let Screen::Create { priority, .. } = &mut self.screen {
-                        *priority = match priority {
-                            Priority::Normal => Priority::High,
-                            Priority::High   => Priority::Urgent,
-                            Priority::Urgent => Priority::Normal,
-                        };
-                    }
-                    return;
-                }
-                KeyCode::Char('3') => {
-                    match focus {
-                        CreateFocus::Assignee => self.advance_user_sel(),
-                        _ => {
-                            if let Screen::Create { focus, cake_filter, .. } = &mut self.screen {
-                                cake_filter.clear();
-                                *focus = CreateFocus::Assignee;
-                            }
-                        }
-                    }
-                    return;
-                }
-                KeyCode::Char('4') => {
-                    match focus {
-                        CreateFocus::Cake => self.advance_cake_sel(),
-                        _ => {
-                            if let Screen::Create { focus, user_filter, .. } = &mut self.screen {
-                                user_filter.clear();
-                                *focus = CreateFocus::Cake;
-                            }
-                        }
-                    }
-                    return;
-                }
-                _ => {}
-            }
-        }
-        // Route to focus-specific handler
+        if self.handle_create_num_keys(key, focus) { return; }
         match focus {
             CreateFocus::Title    => self.create_title_key(key),
             CreateFocus::Assignee => self.create_assignee_key(key),
             CreateFocus::Cake     => self.create_cake_key(key),
         }
+    }
+
+    fn handle_create_num_keys(&mut self, key: KeyEvent, focus: CreateFocus) -> bool {
+        if key.modifiers != KeyModifiers::NONE { return false; }
+        match key.code {
+            KeyCode::Char('1') => {
+                if let Screen::Create { task_type, .. } = &mut self.screen {
+                    *task_type = match task_type {
+                        TaskType::Task     => TaskType::Bug,
+                        TaskType::Bug      => TaskType::Incident,
+                        TaskType::Incident => TaskType::Task,
+                    };
+                }
+            }
+            KeyCode::Char('2') => {
+                if let Screen::Create { priority, .. } = &mut self.screen {
+                    *priority = match priority {
+                        Priority::Normal => Priority::High,
+                        Priority::High   => Priority::Urgent,
+                        Priority::Urgent => Priority::Normal,
+                    };
+                }
+            }
+            KeyCode::Char('3') => {
+                match focus {
+                    CreateFocus::Assignee => self.advance_user_sel(),
+                    _ => {
+                        if let Screen::Create { focus, cake_filter, .. } = &mut self.screen {
+                            cake_filter.clear();
+                            *focus = CreateFocus::Assignee;
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('4') => {
+                match focus {
+                    CreateFocus::Cake => self.advance_cake_sel(),
+                    _ => {
+                        if let Screen::Create { focus, user_filter, .. } = &mut self.screen {
+                            user_filter.clear();
+                            *focus = CreateFocus::Cake;
+                        }
+                    }
+                }
+            }
+            _ => { return false; }
+        }
+        true
     }
 
     fn create_title_key(&mut self, key: KeyEvent) {
@@ -1042,13 +1050,13 @@ impl App {
             KeyCode::Enter if !title_val.is_empty() => {
                 let owner = self.repo.as_ref().map(|r| r.info.username.clone());
                 let result = self.repo.as_ref().map(|r| r.create_cake(NewCake { title: title_val, owner, ..Default::default() }));
-                // Surface create_cake errors to the user via the flash row.
+                // Surface create_cake errors to the user via the flash row (both origins).
                 let msg = match result {
                     Some(Ok(_))  => None,
                     Some(Err(e)) => Some(e.to_string()),
                     None         => Some("No repo.".to_string()),
                 };
-                if from_planner { self.enter_planner_view(); } else { self.enter_task_list(msg, None); }
+                if from_planner { self.enter_planner_view_msg(msg); } else { self.enter_task_list(msg, None); }
             }
             KeyCode::Backspace => {
                 if let Screen::CreateCake { title, .. } = &mut self.screen { title.pop(); }
@@ -1475,25 +1483,46 @@ pub fn filter_matches_with_cakes(task: &Task, cakes: &[Cake], f: &str) -> bool {
         else { must_include.push(token); }
     }
 
-    let title_lower = task.title.to_lowercase();
+    let cake_name = task.cake_id.as_deref()
+        .and_then(|id| cakes.iter().find(|ck| ck.id == id))
+        .map(|ck| ck.title.to_lowercase());
+
+    let field_match = |tok: &str| {
+        let title = task.title.to_lowercase();
+        let owner = task.owner.as_deref().unwrap_or("").to_lowercase();
+        title.contains(tok)
+            || owner.contains(tok)
+            || task.id.starts_with(tok)
+            || task_type_str(&task.task_type).contains(tok)
+            || task_status_str(&task.status).contains(tok)
+            || (tok == "urgent" && task.priority == Priority::Urgent)
+            || (tok == "high"   && task.priority == Priority::High)
+            || (tok == "ai_flagged" && task.ai_flagged)
+    };
+
     for inc in &must_include {
-        if !title_lower.contains(inc) { return false; }
+        if !field_match(inc) { return false; }
     }
     for exc in &must_exclude {
-        if title_lower.contains(exc) { return false; }
+        if field_match(exc) { return false; }
     }
     if let Some(u) = user_filter {
         let owner = task.owner.as_deref().unwrap_or("").to_lowercase();
         if !owner.contains(u) { return false; }
     }
     if let Some(c) = cake_filter {
-        let cake_name = task.cake_id.as_deref()
-            .and_then(|id| cakes.iter().find(|ck| ck.id == id))
-            .map(|ck| ck.title.to_lowercase())
-            .unwrap_or_default();
-        if !cake_name.contains(c) { return false; }
+        let cake_lower = cake_name.as_deref().unwrap_or("");
+        if !cake_lower.contains(c) { return false; }
     }
     true
+}
+
+fn task_type_str(t: &TaskType) -> &'static str {
+    match t { TaskType::Task => "task", TaskType::Bug => "bug", TaskType::Incident => "incident" }
+}
+
+fn task_status_str(s: &TaskStatus) -> &'static str {
+    match s { TaskStatus::Open => "open", TaskStatus::InProgress => "in-progress", TaskStatus::Done => "done" }
 }
 
 // ── internal helpers ──────────────────────────────────────────────────────────
@@ -1508,31 +1537,40 @@ fn next_priority(p: Priority) -> Priority {
 
 fn expand_tilde(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return format!("{}/{}", home.display(), rest);
-        }
+        if let Some(home) = dirs::home_dir() { return home.join(rest).to_string_lossy().into_owned(); }
+    } else if path == "~" {
+        if let Some(home) = dirs::home_dir() { return home.to_string_lossy().into_owned(); }
     }
     path.to_string()
 }
 
 fn is_empty_repo(path: &Path) -> bool {
-    path.read_dir().map(|mut d| d.next().is_none()).unwrap_or(false)
-        || (path.join(".git").exists() && {
-            let head = path.join(".git").join("HEAD");
-            fs::read_to_string(head).map(|s| s.contains("ref: refs/heads/")).unwrap_or(false)
-                && path.join(".git").join("refs").join("heads").read_dir()
-                    .map(|mut d| d.next().is_none()).unwrap_or(true)
-        })
+    let Ok(entries) = fs::read_dir(path) else { return false };
+    entries.flatten().all(|entry| {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        matches!(name.as_str(), ".git" | "readme.md" | "readme" | "readme.txt" | ".gitignore" | ".gitattributes" | ".gitkeep")
+    })
 }
 
 fn open_editor(template: &str) -> Option<String> {
-    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
     let tmp = std::env::temp_dir().join(format!("gitcake-{}.md", std::process::id()));
     fs::write(&tmp, template).ok()?;
-    let status = std::process::Command::new(&editor).arg(&tmp).status().ok()?;
-    if !status.success() { return None; }
-    let content = fs::read_to_string(&tmp).ok()?;
-    let _ = fs::remove_file(&tmp); // best-effort cleanup
-    Some(content)
+    let _ = crossterm::execute!(std::io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        crossterm::terminal::LeaveAlternateScreen,
+    );
+    let _ = crossterm::terminal::disable_raw_mode();
+    let _ = std::process::Command::new(&editor).arg(&tmp).status();
+    let _ = crossterm::terminal::enable_raw_mode();
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
+    while crossterm::event::poll(std::time::Duration::from_millis(0)).unwrap_or(false) {
+        let _ = crossterm::event::read();
+    }
+    let content = fs::read_to_string(&tmp).unwrap_or_default();
+    let _ = fs::remove_file(&tmp);
+    Some(content.trim_end_matches('\n').to_string())
 }
 

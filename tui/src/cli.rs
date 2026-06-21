@@ -146,7 +146,8 @@ impl From<CliPriority> for Priority {
 }
 
 pub fn run(command: Command, repo_flag: Option<String>) -> Result<(), String> {
-    let (config, _) = Config::load();
+    let (config, load_warn) = Config::load();
+    if let Some(w) = load_warn { eprintln!("warning: {w}"); }
     let repo_path = repo_flag
         .or(config.repo_path)
         .ok_or("No repo configured. Run gitcake without arguments to set one up.")?;

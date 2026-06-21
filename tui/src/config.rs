@@ -75,6 +75,7 @@ impl Default for ThemeConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct KeyMap {
     pub up:           String,
     pub down:         String,
@@ -124,6 +125,7 @@ impl Default for KeyMap {
 pub struct NavGlyphs {
     pub nav:             String,  // "W/S"
     pub detail:          String,
+    pub back:            String,
     pub create:          String,
     pub create_cake:     String,
     pub filter:          String,
@@ -150,6 +152,7 @@ impl NavGlyphs {
         Self {
             nav:          binding_glyph(&km.up) + "/" + &binding_glyph(&km.down),
             detail:       binding_glyph(&km.detail),
+            back:         binding_glyph(&km.back),
             create,
             create_cake:  binding_glyph(&km.create_cake),
             filter:       binding_glyph(&km.filter),
@@ -251,7 +254,10 @@ impl Config {
         // Write to .tmp then rename for atomicity (avoids corrupt half-written config).
         let tmp = path.with_extension("toml.tmp");
         fs::write(&tmp, text.as_bytes())?;
-        fs::rename(&tmp, &path)?;
+        if let Err(e) = fs::rename(&tmp, &path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
+        }
         Ok(())
     }
 }

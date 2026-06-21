@@ -223,10 +223,10 @@ pub fn draw(f: &mut Frame, app: &App) {
             draw_delete_confirm(f, task_title, &t),
         Screen::SyncConfirm => draw_sync_confirm(f, app.context, &t),
         Screen::PushPrompt  => draw_push_prompt(f, &t),
-        Screen::PlannerView { cakes, tasks, selected } => {
+        Screen::PlannerView { cakes, tasks, selected, message } => {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
             draw_list_view(f, ListViewParams {
-                active: ActiveView::Planner, tasks, selected: *selected, message: None,
+                active: ActiveView::Planner, tasks, selected: *selected, message: message.as_deref(),
                 pull_error: None, lock_warning: None,
                 filter: &app.filter, filter_active: app.filter_active, hide_done: app.hide_done,
                 cakes, repo_name: rn, username: un, theme: &t, glyphs: &app.glyphs,
@@ -753,8 +753,8 @@ fn draw_detail_siblings(f: &mut Frame, area: Rect, task: &Task, siblings: &[Task
     sorted.sort_by_key(|t| (status_sort_key(&t.status), priority_sort_key(&t.priority)));
     let title_max = area.width.saturating_sub(5) as usize;
     for (row, sib) in sorted.into_iter().enumerate() {
-        let y = area.y + row as u16;
-        if y >= area.y + area.height { break; }
+        let y = area.y.saturating_add(row as u16);
+        if y >= area.y.saturating_add(area.height) { break; }
         let is_current = sib.id == task.id;
         let sym = match sib.status {
             TaskStatus::InProgress => Span::styled(format!("{} ", theme.sym_progress), Style::new().fg(theme.in_progress)),
@@ -1385,6 +1385,7 @@ fn list_view_hint_bar(width: u16, theme: &Theme, g: &NavGlyphs) -> Text<'static>
 fn detail_nav_bar(width: u16, theme: &Theme, g: &NavGlyphs) -> Text<'static> {
     let items: Vec<(&str, &str)> = vec![
         (&g.nav,          "nav"),
+        (&g.back,         "back"),
         ("⇥",            "sibling"),
         ("1-6",          "fields"),
         (&g.field_cycle,  "cycle"),
