@@ -27,13 +27,13 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    let mut config = Config::load();
+    let (mut config, load_warning) = Config::load();
     if parsed.new {
         config.repo_path = None;
     } else if let Some(path) = parsed.repo {
         config.repo_path = Some(path);
     }
-    let mut app = App::new(config);
+    let mut app = App::new(config, load_warning);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();

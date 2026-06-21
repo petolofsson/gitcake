@@ -15,7 +15,7 @@ use gitcake_core::models::{cake::Cake, task::{Priority, Task, TaskStatus, TaskTy
 use tui_input::Input;
 
 use crate::app::{App, CreateFocus, DetailField, Screen, TaskContext};
-use crate::config::{binding_glyph, KeyMap, ThemeConfig};
+use crate::config::{NavGlyphs, ThemeConfig};
 
 // ── style string parser ───────────────────────────────────────────────────────
 
@@ -185,7 +185,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let t = Theme::from_config(&app.config.theme);
     match &app.screen {
         Screen::Setup { input, error, can_cancel } =>
-            draw_setup(f, input, error.as_deref(), *can_cancel, &t),
+            draw_setup(f, input, error.as_deref(), *can_cancel, &t, &app.glyphs.quit),
         Screen::InitRepo { path, name, error } =>
             draw_init_repo(f, path, name, error.as_deref(), &t),
         Screen::TaskList { tasks, selected, message } => {
@@ -201,18 +201,18 @@ pub fn draw(f: &mut Frame, app: &App) {
                 active, tasks: &owned, selected: *selected, message: message.as_deref(),
                 pull_error: app.pull_error.as_deref(), lock_warning: app.lock_warning.as_deref(),
                 filter: &app.filter, filter_active: app.filter_active, hide_done: app.hide_done,
-                cakes: &app.cached_cakes, repo_name: rn, username: un, theme: &t, keys: &app.config.keys,
+                cakes: &app.cached_cakes, repo_name: rn, username: un, theme: &t, glyphs: &app.glyphs,
             });
         }
         Screen::Detail { task, siblings, message, selected_field, from_planner } => {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
-            draw_detail(f, app.context, task, siblings, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, app.git_ahead.as_ref(), &t, &app.config.keys);
+            draw_detail(f, app.context, task, siblings, message.as_deref(), *selected_field, &app.cached_cakes, *from_planner, rn, un, app.git_ahead.as_ref(), &t, &app.glyphs);
         }
         Screen::Create { title, focus, task_type, priority,
                          users, user_filter, user_sel, cakes, cake_filter, cake_sel } => {
             let (rn, un) = app.repo.as_ref().map(|r| (r.info.name.as_str(), r.info.username.as_str())).unwrap_or(("", ""));
             draw_create(f, *focus, title, task_type, priority,
-                        users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t, rn, un, &app.config.keys);
+                        users, user_filter, *user_sel, cakes, cake_filter, *cake_sel, &t, rn, un, &app.glyphs);
         }
         Screen::CreateCake { title, .. } => draw_create_cake(f, title, &t),
         Screen::PickCake { cakes, selected, filter, .. } =>
@@ -229,7 +229,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                 active: ActiveView::Planner, tasks, selected: *selected, message: None,
                 pull_error: None, lock_warning: None,
                 filter: &app.filter, filter_active: app.filter_active, hide_done: app.hide_done,
-                cakes, repo_name: rn, username: un, theme: &t, keys: &app.config.keys,
+                cakes, repo_name: rn, username: un, theme: &t, glyphs: &app.glyphs,
             });
         }
     }
@@ -247,7 +247,7 @@ const LOGO: &str = r#"           o8o      .                       oooo
 d"     YD
 "Y88888P'                                                          "#;
 
-fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool, theme: &Theme) {
+fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool, theme: &Theme, quit_glyph: &str) {
     let area = f.area();
     let block = panel("gitcake", theme).padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
@@ -276,7 +276,7 @@ fn draw_setup(f: &mut Frame, input: &str, error: Option<&str>, can_cancel: bool,
     let bar = if can_cancel {
         theme.bar_line(&[("Enter", "connect"), ("Esc", "cancel")])
     } else {
-        theme.bar_line(&[("Enter", "connect"), ("^Q", "quit")])
+        theme.bar_line(&[("Enter", "connect"), (quit_glyph, "quit")])
     };
     f.render_widget(Paragraph::new(bar), rows[9]);
 }
@@ -321,12 +321,12 @@ struct ListViewParams<'a> {
     repo_name:     &'a str,
     username:      &'a str,
     theme:         &'a Theme,
-    keys:          &'a KeyMap,
+    glyphs:        &'a NavGlyphs,
 }
 
 fn draw_list_view(f: &mut Frame, p: ListViewParams<'_>) {
     let ListViewParams { active, tasks, selected, message, pull_error, lock_warning,
-                         filter, filter_active, hide_done, cakes, repo_name, username, theme, keys } = p;
+                         filter, filter_active, hide_done, cakes, repo_name, username, theme, glyphs } = p;
     let area = f.area();
     let [top_row, _gap, panel_area, hint_area] = Layout::vertical([
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1), Constraint::Length(2),
@@ -347,18 +347,16 @@ fn draw_list_view(f: &mut Frame, p: ListViewParams<'_>) {
     let title_col_width = inner.width.saturating_sub(30) as usize;
     let separate_done = active == ActiveView::Planner;
     let (items, index_map) = build_tree_items(cakes, tasks, selected, filter, title_col_width, hide_done, separate_done, theme);
-    let create_glyph = binding_glyph(&keys.create);
-    let empty_msg_owned = if filter.is_empty() {
-        format!("No tasks yet. {create_glyph} to create one.")
+    let empty_msg = if filter.is_empty() {
+        glyphs.empty_tasks_msg.as_str()
     } else {
-        "No tasks match the filter.".to_string()
+        "No tasks match the filter."
     };
-    let empty_msg = empty_msg_owned.as_str();
     if items.is_empty() {
-        f.render_widget(Paragraph::new(empty_msg).alignment(Alignment::Center).style(theme.dim_style()), rows[0]);
+        f.render_widget(Paragraph::new(empty_msg.to_string()).alignment(Alignment::Center).style(theme.dim_style()), rows[0]);
     } else {
         let table = Table::new(items, TREE_COL_WIDTHS)
-            .header(tree_column_header(hide_done))
+            .header(tree_column_header(hide_done, &glyphs.hide_done_col))
             .column_spacing(1)
             .row_highlight_style(theme.highlight);
         let mut state = TableState::default();
@@ -367,7 +365,7 @@ fn draw_list_view(f: &mut Frame, p: ListViewParams<'_>) {
     }
     f.render_widget(filter_line_widget(filter, filter_active, theme), rows[1]);
     render_flash_row(f, rows[2], message, theme);
-    f.render_widget(Paragraph::new(list_view_hint_bar(hint_area.width, theme, keys)), hint_area);
+    f.render_widget(Paragraph::new(list_view_hint_bar(hint_area.width, theme, glyphs)), hint_area);
 }
 
 fn list_view_block(_active: ActiveView, filter: &str, filter_active: bool, pull_error: Option<&str>, lock_warning: Option<&str>, theme: &Theme) -> Block<'static> {
@@ -462,10 +460,10 @@ const TREE_COL_WIDTHS: [Constraint; 6] = [
     Constraint::Length(5), Constraint::Length(12),
 ];
 
-fn tree_column_header(hide_done: bool) -> Row<'static> {
+fn tree_column_header(hide_done: bool, hide_done_col: &str) -> Row<'static> {
     let rev  = Style::new().add_modifier(Modifier::REVERSED);
     let revd = Style::new().add_modifier(Modifier::REVERSED | Modifier::DIM);
-    let assigned_label = if hide_done { "ASSIGNED [H]" } else { "ASSIGNED" };
+    let assigned_label = if hide_done { hide_done_col.to_string() } else { "ASSIGNED".to_string() };
     Row::new(vec![
         Cell::from("").style(revd),
         Cell::from("").style(revd),
@@ -630,7 +628,7 @@ fn render_tree_rows(
 // ── detail two-pane ──────────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, siblings: &[Task], _message: Option<&str>, selected: DetailField, cakes: &[Cake], from_planner: bool, repo_name: &str, username: &str, git_ahead: Option<&(u32, String)>, theme: &Theme, keys: &KeyMap) {
+fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, siblings: &[Task], _message: Option<&str>, selected: DetailField, cakes: &[Cake], from_planner: bool, repo_name: &str, username: &str, git_ahead: Option<&(u32, String)>, theme: &Theme, glyphs: &NavGlyphs) {
     let area = f.area();
     let [top_row, _gap, body, footer] = Layout::vertical([
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1), Constraint::Length(2),
@@ -656,7 +654,7 @@ fn draw_detail(f: &mut Frame, context: TaskContext, task: &Task, siblings: &[Tas
     let content_inner = content_block.inner(right);
     f.render_widget(content_block, right);
     draw_detail_content(f, content_inner, task, cakes, theme);
-    f.render_widget(Paragraph::new(detail_nav_bar(footer.width, theme, keys)), footer);
+    f.render_widget(Paragraph::new(detail_nav_bar(footer.width, theme, glyphs)), footer);
 }
 
 fn draw_detail_properties(f: &mut Frame, area: Rect, task: &Task, focused: DetailField, cakes: &[Cake], git_ahead: Option<&(u32, String)>, theme: &Theme) {
@@ -753,8 +751,9 @@ fn draw_detail_siblings(f: &mut Frame, area: Rect, task: &Task, siblings: &[Task
     }
     let mut sorted: Vec<&Task> = siblings.iter().collect();
     sorted.sort_by_key(|t| (status_sort_key(&t.status), priority_sort_key(&t.priority)));
-    let mut y = area.y;
-    for sib in sorted {
+    let title_max = area.width.saturating_sub(5) as usize;
+    for (row, sib) in sorted.into_iter().enumerate() {
+        let y = area.y + row as u16;
         if y >= area.y + area.height { break; }
         let is_current = sib.id == task.id;
         let sym = match sib.status {
@@ -767,7 +766,6 @@ fn draw_detail_siblings(f: &mut Frame, area: Rect, task: &Task, siblings: &[Task
             Priority::High   => Span::styled(format!("{} ", theme.sym_high),   Style::new().fg(theme.priority_color)),
             Priority::Normal => Span::raw(""),
         };
-        let title_max = area.width.saturating_sub(5) as usize;
         let (title_sty, row_bg) = if is_current {
             (Style::new().fg(theme.fg).add_modifier(Modifier::BOLD), Style::new().bg(theme.sel_bg))
         } else {
@@ -779,7 +777,6 @@ fn draw_detail_siblings(f: &mut Frame, area: Rect, task: &Task, siblings: &[Task
                 Span::styled(truncate_title(&sib.title, title_max), title_sty),
             ]).style(row_bg)
         ), Rect { x: area.x, y, width: area.width, height: 1 });
-        y += 1;
     }
 }
 
@@ -934,7 +931,7 @@ fn type_label_plural(t: &TaskType) -> &'static str {
 // ── create two-pane ───────────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn draw_create(f: &mut Frame, focus: CreateFocus, title: &Input, task_type: &TaskType, priority: &Priority, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme, repo_name: &str, username: &str, keys: &KeyMap) {
+fn draw_create(f: &mut Frame, focus: CreateFocus, title: &Input, task_type: &TaskType, priority: &Priority, users: &[String], user_filter: &str, user_sel: usize, cakes: &[Cake], cake_filter: &str, cake_sel: usize, theme: &Theme, repo_name: &str, username: &str, glyphs: &NavGlyphs) {
     let area = f.area();
     let [top_row, _gap, body, footer] = Layout::vertical([
         Constraint::Length(1), Constraint::Length(1), Constraint::Fill(1), Constraint::Length(2),
@@ -949,7 +946,7 @@ fn draw_create(f: &mut Frame, focus: CreateFocus, title: &Input, task_type: &Tas
     let preview_inner = preview_block.inner(right);
     f.render_widget(preview_block, right);
     draw_create_preview(f, preview_inner, title.value(), task_type, priority, cakes, cake_filter, cake_sel, theme);
-    f.render_widget(Paragraph::new(create_hint_bar_text(footer.width, theme, keys)), footer);
+    f.render_widget(Paragraph::new(create_hint_bar_text(footer.width, theme, glyphs)), footer);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1367,57 +1364,50 @@ fn bar_make_line(items: &[(&str, &str)], chip: Style, _cap: Style, lbl: Style) -
     Line::from(spans)
 }
 
-fn list_view_hint_bar(width: u16, theme: &Theme, km: &KeyMap) -> Text<'static> {
-    let nav    = binding_glyph(&km.up) + "/" + &binding_glyph(&km.down);
-    let create = binding_glyph(&km.create);
-    let cake   = binding_glyph(&km.create_cake);
-    let filter = binding_glyph(&km.filter);
-    let assign = binding_glyph(&km.assign);
-    let back   = binding_glyph(&km.backlog);
-    let del    = binding_glyph(&km.delete);
-    let pull   = binding_glyph(&km.pull);
-    let push   = binding_glyph(&km.push);
-    let quit   = binding_glyph(&km.quit);
+fn list_view_hint_bar(width: u16, theme: &Theme, g: &NavGlyphs) -> Text<'static> {
     let items: Vec<(&str, &str)> = vec![
-        (nav.as_str(), "nav"),
-        (create.as_str(), "create"),
-        (cake.as_str(), "cake"),
-        (filter.as_str(), "filter"),
-        ("H", "hide done"),
-        (assign.as_str(), "assign"),
-        (back.as_str(), "backlog"),
-        (del.as_str(), "delete"),
-        (pull.as_str(), "pull"),
-        (push.as_str(), "push"),
-        (quit.as_str(), "quit"),
+        (&g.nav,         "nav"),
+        (&g.detail,      "open"),
+        (&g.create,      "create"),
+        (&g.create_cake, "cake"),
+        (&g.filter,      "filter"),
+        (&g.hide_done,   "hide done"),
+        (&g.assign,      "assign"),
+        (&g.backlog,     "backlog"),
+        (&g.delete,      "delete"),
+        (&g.pull,        "pull"),
+        (&g.push,        "push"),
+        (&g.quit,        "quit"),
     ];
     theme.bar_text(&items, width)
 }
 
-fn detail_nav_bar(width: u16, theme: &Theme, km: &KeyMap) -> Text<'static> {
-    let nav    = binding_glyph(&km.up) + "/" + &binding_glyph(&km.down);
-    let assign = binding_glyph(&km.assign);
-    let edit   = binding_glyph(&km.edit);
-    let cycle  = binding_glyph(&km.field_cycle);
-    let status = binding_glyph(&km.status_cycle);
-    let pull   = binding_glyph(&km.pull);
-    let push   = binding_glyph(&km.push);
-    let quit   = binding_glyph(&km.quit);
+fn detail_nav_bar(width: u16, theme: &Theme, g: &NavGlyphs) -> Text<'static> {
     let items: Vec<(&str, &str)> = vec![
-        (nav.as_str(), "nav"), ("⇥", "sibling"), ("1-6", "fields"),
-        (cycle.as_str(), "cycle"), (status.as_str(), "status"),
-        (edit.as_str(), "edit"), (assign.as_str(), "assign"),
-        (pull.as_str(), "pull"), (push.as_str(), "push"), (quit.as_str(), "quit"),
+        (&g.nav,          "nav"),
+        ("⇥",            "sibling"),
+        ("1-6",          "fields"),
+        (&g.field_cycle,  "cycle"),
+        (&g.status_cycle, "status"),
+        (&g.edit,         "edit"),
+        (&g.assign,       "assign"),
+        (&g.pull,         "pull"),
+        (&g.push,         "push"),
+        (&g.quit,         "quit"),
     ];
     theme.bar_text(&items, width)
 }
 
-fn create_hint_bar_text(width: u16, theme: &Theme, km: &KeyMap) -> Text<'static> {
-    let editor = binding_glyph(&km.create);
-    let quit   = binding_glyph(&km.quit);
+fn create_hint_bar_text(width: u16, theme: &Theme, g: &NavGlyphs) -> Text<'static> {
     let items: Vec<(&str, &str)> = vec![
-        ("1", "type"), ("2", "priority"), ("3", "assign"), ("4", "cake"),
-        ("↵", "create"), (editor.as_str(), "editor"), ("Esc", "cancel"), (quit.as_str(), "quit"),
+        ("1",       "type"),
+        ("2",       "priority"),
+        ("3",       "assign"),
+        ("4",       "cake"),
+        ("↵",      "create"),
+        (&g.create, "editor"),
+        ("Esc",     "cancel"),
+        (&g.quit,   "quit"),
     ];
     theme.bar_text(&items, width)
 }

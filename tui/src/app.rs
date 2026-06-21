@@ -11,7 +11,7 @@ use gitcake_core::{
 
 use tui_input::Input;
 
-use crate::config::Config;
+use crate::config::{Config, NavGlyphs};
 
 const DESCRIPTION_MAX_CHARS: usize = 850;
 const DESC_TOO_LONG_MSG: &str = "Whoa there buddy, this is a task tracker, not The Lord of The Rings! Keep it under 850 characters.";
@@ -115,7 +115,7 @@ pub enum Screen {
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum CreateFocus {
-    /// Default: no field focused for typing; 1–4 cycle metadata, ↵/^C opens editor.
+    /// Default: no field focused for typing; 1–4 cycle metadata, ↵/^V opens editor.
     Title,
     Assignee,
     Cake,
@@ -138,6 +138,7 @@ pub struct App {
     pub screen: Screen,
     pub repo: Option<TaskRepo>,
     pub config: Config,
+    pub glyphs: NavGlyphs,
     pub context: TaskContext,
     pub should_quit: bool,
     pub exit_message: Option<String>,
@@ -156,14 +157,16 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, load_warning: Option<String>) -> Self {
+        let glyphs = NavGlyphs::from_keymap(&config.keys);
         if config.repo_path.is_none() {
             return Self {
                 screen: Screen::Setup { input: String::new(), error: None, can_cancel: false },
-                repo: None, config, context: TaskContext::Personal,
+                repo: None, glyphs, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(), git_ahead: None,
+                filter: String::new(), filter_active: false, hide_done: false,
+                needs_clear: false, cached_cakes: Vec::new(), git_ahead: None,
             };
         }
 
@@ -176,26 +179,28 @@ impl App {
                     error: Some("Could not open repo — check the path.".into()),
                     can_cancel: false,
                 },
-                repo: None, config, context: TaskContext::Personal,
+                repo: None, glyphs, config, context: TaskContext::Personal,
                 should_quit: false, exit_message: None,
                 pull_error: None, lock_warning: None, lock_path: None,
-                filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes: Vec::new(), git_ahead: None,
+                filter: String::new(), filter_active: false, hide_done: false,
+                needs_clear: false, cached_cakes: Vec::new(), git_ahead: None,
             };
         }
 
         let (pull_msg, pull_error) = classify_pull_result(repo.as_ref().unwrap().pull());
         let repo_path = repo.as_ref().unwrap().info.path.clone();
-        let (lock_path, lock_warning) = acquire_lock(&repo_path, &config.keys.push);
+        let (lock_path, lock_warning) = acquire_lock(&repo_path, &glyphs.push);
         let (raw_tasks, task_warnings) = repo.as_ref().unwrap().list_tasks().unwrap_or_default();
-        let startup_msg = merge_messages(pull_msg, warn_summary(&task_warnings));
+        let startup_msg = merge_messages(merge_messages(pull_msg, warn_summary(&task_warnings)), load_warning);
         let tasks = sort_for_display(raw_tasks);
         let cached_cakes = repo.as_ref().unwrap().list_cakes().unwrap_or_default();
         let screen = Screen::TaskList { tasks, selected: 0, message: startup_msg };
         Self {
-            screen, repo, config, context: TaskContext::Personal,
+            screen, repo, glyphs, config, context: TaskContext::Personal,
             should_quit: false, exit_message: None,
             pull_error, lock_warning, lock_path,
-            filter: String::new(), filter_active: false, hide_done: false, needs_clear: false, cached_cakes, git_ahead: None,
+            filter: String::new(), filter_active: false, hide_done: false,
+            needs_clear: false, cached_cakes, git_ahead: None,
         }
     }
 
@@ -271,9 +276,10 @@ impl App {
                 match TaskRepo::init(&path, &name) {
                     Ok(repo) => {
                         self.config.repo_path = Some(path);
-                        self.config.save();
+                        let save_err = self.config.save().err().map(|e| format!("config save failed: {e}"));
                         self.repo = Some(repo);
-                        self.enter_task_list(Some("Repo initialized.".into()), None);
+                        let msg = merge_messages(Some("Repo initialized.".into()), save_err);
+                        self.enter_task_list(msg, None);
                     }
                     Err(e) => {
                         self.screen = Screen::InitRepo { path, name, error: Some(e.to_string()) };
@@ -304,21 +310,22 @@ impl App {
             self.pull_error = None;
             return;
         }
+        if is_key(&key, &self.config.keys.filter) || key.code == KeyCode::Char('/') {
+            self.filter_active = true; self.filter.clear();
+            if let Screen::TaskList { selected, .. } = &mut self.screen { *selected = 0; }
+            return;
+        }
+        if is_key(&key, &self.config.keys.hide_done) {
+            self.hide_done = !self.hide_done;
+            if let Screen::TaskList { selected, .. } = &mut self.screen { *selected = 0; }
+            return;
+        }
         let Screen::TaskList { tasks, selected, message } = &mut self.screen else { return };
-        {
-            let km = &self.config.keys;
-            if is_key(&key, &km.filter) || key.code == KeyCode::Char('/') {
-                self.filter_active = true; self.filter.clear(); *selected = 0; return;
-            }
-        }
-        let no_mod = key.modifiers == KeyModifiers::NONE;
-        if key.code == KeyCode::Char('H') && !key.modifiers.contains(KeyModifiers::CONTROL) {
-            self.hide_done = !self.hide_done; *selected = 0; return;
-        }
         let filter = self.filter.clone();
         let hide_done = self.hide_done;
         let visible: Vec<usize> = tree_visible_indices(tasks, &self.cached_cakes, &filter, hide_done);
         let vc = visible.len();
+        let no_mod = key.modifiers == KeyModifiers::NONE;
         let up_k = self.config.keys.up.chars().next().unwrap_or('w');
         let dn_k = self.config.keys.down.chars().next().unwrap_or('s');
         let is_up = key.code == KeyCode::Up
@@ -328,10 +335,10 @@ impl App {
         if is_up && vc > 0 { *selected = selected.checked_sub(1).unwrap_or(vc - 1); *message = None; return; }
         if is_dn && vc > 0 { *selected = (*selected + 1) % vc; *message = None; return; }
         let sel_task = visible.get(*selected).and_then(|&i| tasks.get(i)).cloned();
-        self.handle_list_action_keys(key, sel_task, no_mod);
+        self.handle_list_action_keys(key, sel_task);
     }
 
-    fn handle_list_action_keys(&mut self, key: KeyEvent, sel_task: Option<Task>, _no_mod: bool) {
+    fn handle_list_action_keys(&mut self, key: KeyEvent, sel_task: Option<Task>) {
         let km = self.config.keys.clone();
         if is_key(&key, &km.detail) {
             if let Some(t) = sel_task {
@@ -340,11 +347,10 @@ impl App {
             }
             return;
         }
-        if is_key(&key, &km.create) {
-            self.open_create_screen(); return;
-        }
+        if is_key(&key, &km.create) { self.open_create_screen(); return; }
         if is_key(&key, &km.create_cake) {
-            self.screen = Screen::CreateCake { title: String::new(), from_planner: false }; return;
+            self.screen = Screen::CreateCake { title: String::new(), from_planner: false };
+            return;
         }
         if is_key(&key, &km.assign) {
             if let Some(t) = sel_task {
@@ -372,6 +378,10 @@ impl App {
             }
             return;
         }
+        self.handle_list_tab_nav(key);
+    }
+
+    fn handle_list_tab_nav(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Tab => {
                 self.filter.clear(); self.filter_active = false;
@@ -451,31 +461,7 @@ impl App {
         if is_key(&key, &km.pull) { self.do_detail_pull(); return; }
         // Tab / Shift-Tab cycle through cake siblings
         if key.code == KeyCode::Tab || key.code == KeyCode::BackTab {
-            let (task_id, siblings, from_planner) = match &self.screen {
-                Screen::Detail { task, siblings, from_planner, .. } =>
-                    (task.id.clone(), siblings.clone(), *from_planner),
-                _ => return,
-            };
-            let mut sorted = siblings.clone();
-            sorted.sort_by_key(|t| (
-                match t.status { TaskStatus::InProgress => 0u8, TaskStatus::Open => 1, TaskStatus::Done => 2 },
-                match t.priority { Priority::Urgent => 0u8, Priority::High => 1, Priority::Normal => 2 },
-            ));
-            let n = sorted.len();
-            if n > 1 {
-                let pos = sorted.iter().position(|s| s.id == task_id).unwrap_or(0);
-                let next_pos = if key.code == KeyCode::Tab {
-                    (pos + 1) % n
-                } else {
-                    pos.checked_sub(1).unwrap_or(n - 1)
-                };
-                let next_task = sorted[next_pos].clone();
-                let new_siblings = self.siblings_for(&next_task);
-                self.screen = Screen::Detail {
-                    task: next_task, siblings: new_siblings,
-                    message: None, selected_field: DetailField::Type, from_planner,
-                };
-            }
+            self.handle_detail_tab(key);
             return;
         }
         let (task_id, task_type, task_status, task_priority, task_ai_flagged, from_planner, sel_field) =
@@ -493,35 +479,19 @@ impl App {
             if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, Some(&task_id)); }
             return;
         }
-        if is_key(&key, &km.edit) {
-            self.open_detail_editor(task_id, from_planner); return;
-        }
-        // W/S navigate fields
+        if is_key(&key, &km.edit) { self.open_detail_editor(task_id, from_planner); return; }
         if is_key(&key, &km.up) || is_key(&key, &km.down) {
-            let fields = [DetailField::Type, DetailField::Status, DetailField::Priority,
-                          DetailField::AiFlagged, DetailField::Cake, DetailField::Assign];
-            let cur = fields.iter().position(|f| *f == sel_field).unwrap_or(0);
-            let next = if is_key(&key, &km.up) {
-                cur.checked_sub(1).unwrap_or(fields.len() - 1)
-            } else {
-                (cur + 1) % fields.len()
-            };
-            if let Screen::Detail { selected_field, .. } = &mut self.screen {
-                *selected_field = fields[next];
-            }
+            self.detail_nav_field(sel_field, &km, &key);
             return;
         }
-        // F cycles the focused field
         if is_key(&key, &km.field_cycle) {
             self.do_detail_field_cycle(task_id, sel_field, task_type, task_status, task_priority, task_ai_flagged);
             return;
         }
-        // Space cycles status directly
         if is_key(&key, &km.status_cycle) {
             self.do_detail_field_cycle(task_id, DetailField::Status, task_type, task_status, task_priority, task_ai_flagged);
             return;
         }
-        // R opens assign picker
         if is_key(&key, &km.assign) {
             let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
             self.screen = Screen::AssignTask { task_id, users, selected: 0, filter: String::new() };
@@ -536,6 +506,44 @@ impl App {
             KeyCode::Char('5') if no_mod => cycle(DetailField::Cake),
             KeyCode::Char('6') if no_mod => cycle(DetailField::Assign),
             _ => {}
+        }
+    }
+
+    fn handle_detail_tab(&mut self, key: KeyEvent) {
+        let (task_id, siblings, from_planner) = match &self.screen {
+            Screen::Detail { task, siblings, from_planner, .. } =>
+                (task.id.clone(), siblings.clone(), *from_planner),
+            _ => return,
+        };
+        let mut sorted = siblings.clone();
+        sorted.sort_by_key(|t| (
+            match t.status { TaskStatus::InProgress => 0u8, TaskStatus::Open => 1, TaskStatus::Done => 2 },
+            match t.priority { Priority::Urgent => 0u8, Priority::High => 1, Priority::Normal => 2 },
+        ));
+        let n = sorted.len();
+        if n > 1 {
+            let pos = sorted.iter().position(|s| s.id == task_id).unwrap_or(0);
+            let next_pos = if key.code == KeyCode::Tab { (pos + 1) % n } else { pos.checked_sub(1).unwrap_or(n - 1) };
+            let next_task = sorted[next_pos].clone();
+            let new_siblings = self.siblings_for(&next_task);
+            self.screen = Screen::Detail {
+                task: next_task, siblings: new_siblings,
+                message: None, selected_field: DetailField::Type, from_planner,
+            };
+        }
+    }
+
+    fn detail_nav_field(&mut self, sel_field: DetailField, km: &crate::config::KeyMap, key: &KeyEvent) {
+        let fields = [DetailField::Type, DetailField::Status, DetailField::Priority,
+                      DetailField::AiFlagged, DetailField::Cake, DetailField::Assign];
+        let cur = fields.iter().position(|f| *f == sel_field).unwrap_or(0);
+        let next = if is_key(key, &km.up) {
+            cur.checked_sub(1).unwrap_or(fields.len() - 1)
+        } else {
+            (cur + 1) % fields.len()
+        };
+        if let Screen::Detail { selected_field, .. } = &mut self.screen {
+            *selected_field = fields[next];
         }
     }
 
@@ -854,9 +862,8 @@ impl App {
         };
         let id = &task.id;
         if let Some(a) = assignee {
-            match self.repo.as_ref().map(|r| r.assign_task(id, Some(a))) {
-                Some(Err(e)) => return format!("Task created but assign failed: {e}"),
-                _ => {}
+            if let Some(Err(e)) = self.repo.as_ref().map(|r| r.assign_task(id, Some(a))) {
+                return format!("Task created but assign failed: {e}");
             }
         }
         "Task created.".to_string()
@@ -873,10 +880,9 @@ impl App {
                         TaskContext::Backlog  => r.push_backlog(),
                     })
                     .unwrap_or(Err(gitcake_core::error::AppError::NoRepo));
-                let push_glyph = crate::config::binding_glyph(&self.config.keys.push);
                 let msg = match result {
                     Ok(_)  => "Successfully pushed.".into(),
-                    Err(e) => classify_push_error(&e.to_string(), &push_glyph),
+                    Err(e) => classify_push_error(&e.to_string(), &self.glyphs.push),
                 };
                 self.enter_task_list(Some(msg), None);
             }
@@ -892,10 +898,9 @@ impl App {
     fn handle_push_prompt(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let push_glyph = crate::config::binding_glyph(&self.config.keys.push);
                 self.exit_message = Some(match self.repo.as_ref().map(|r| r.push()) {
                     Some(Ok(_))  => "Successfully pushed.".into(),
-                    Some(Err(e)) => classify_push_error(&e.to_string(), &push_glyph),
+                    Some(Err(e)) => classify_push_error(&e.to_string(), &self.glyphs.push),
                     None         => "No repo connected.".into(),
                 });
                 self.should_quit = true;
@@ -917,77 +922,76 @@ impl App {
         if is_key(&key, &km.quit) { self.try_quit(); return; }
         if is_key(&key, &km.push) { self.screen = Screen::SyncConfirm; return; }
         if is_key(&key, &km.pull) { self.handle_list_pull(); return; }
-        if self.filter_active {
-            let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
-            match key.code {
-                KeyCode::Esc       => { if self.filter.is_empty() { self.filter_active = false; } else { self.filter.clear(); *selected = 0; } }
-                KeyCode::Enter     => { self.filter_active = false; }
-                KeyCode::Backspace => { self.filter.pop(); *selected = 0; }
-                KeyCode::Char(c)   => { self.filter.push(c); *selected = 0; }
-                _ => {}
-            }
-            return;
-        }
+        if self.filter_active { self.handle_planner_filter_active(key); return; }
         if key.code == KeyCode::Esc && !self.filter.is_empty() {
             self.filter.clear();
             if let Screen::PlannerView { selected, .. } = &mut self.screen { *selected = 0; }
             return;
         }
-        if key.code == KeyCode::Char('H') && !key.modifiers.contains(KeyModifiers::CONTROL) {
+        if is_key(&key, &km.hide_done) {
             self.hide_done = !self.hide_done;
             if let Screen::PlannerView { selected, .. } = &mut self.screen { *selected = 0; }
             return;
         }
-        if is_key(&key, &km.detail) {
-            let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-            let hd = self.hide_done;
-            let task = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
-                planner_visible_tasks(cakes, tasks, &f, hd, true)
-                    .get(*selected).map(|(_, t)| t.clone())
-            } else { None };
-            if let Some(t) = task {
-                let siblings = self.siblings_for(&t);
-                self.enter_detail(t, siblings, true);
-            }
-            return;
-        }
-        if is_key(&key, &km.create_cake) {
-            self.screen = Screen::CreateCake { title: String::new(), from_planner: true }; return;
-        }
-        if is_key(&key, &km.create) {
-            self.open_create_screen(); return;
-        }
-        if is_key(&key, &km.assign) {
-            let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-            let hd = self.hide_done;
-            let task_id = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
-                planner_visible_tasks(cakes, tasks, &f, hd, true)
-                    .get(*selected).map(|(_, t)| t.id.clone())
-            } else { None };
-            if let Some(id) = task_id {
-                let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
-                self.screen = Screen::AssignTask { task_id: id, users, selected: 0, filter: String::new() };
-            }
-            return;
-        }
-        if is_key(&key, &km.backlog) { self.do_planner_backlog(); return; }
-        if is_key(&key, &km.delete) {
-            let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
-            let hd = self.hide_done;
-            let sel = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
-                planner_visible_tasks(cakes, tasks, &f, hd, true)
-                    .get(*selected).map(|(_, t)| (t.id.clone(), t.title.clone()))
-            } else { None };
-            if let Some((id, title)) = sel {
-                self.screen = Screen::DeleteConfirm { task_id: id, task_title: title };
-            }
-            return;
-        }
+        if self.handle_planner_action(key, &km) { return; }
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let hd = self.hide_done;
         let visible_count = if let Screen::PlannerView { cakes, tasks, .. } = &self.screen {
             planner_visible_tasks(cakes, tasks, &f, hd, true).len()
         } else { return };
+        self.handle_planner_nav(key, &km, visible_count);
+    }
+
+    fn handle_planner_filter_active(&mut self, key: KeyEvent) {
+        let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
+        match key.code {
+            KeyCode::Esc       => { if self.filter.is_empty() { self.filter_active = false; } else { self.filter.clear(); *selected = 0; } }
+            KeyCode::Enter     => { self.filter_active = false; }
+            KeyCode::Backspace => { self.filter.pop(); *selected = 0; }
+            KeyCode::Char(c)   => { self.filter.push(c); *selected = 0; }
+            _ => {}
+        }
+    }
+
+    fn handle_planner_action(&mut self, key: KeyEvent, km: &crate::config::KeyMap) -> bool {
+        let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
+        let hd = self.hide_done;
+        if is_key(&key, &km.detail) {
+            let task = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
+                planner_visible_tasks(cakes, tasks, &f, hd, true).get(*selected).map(|(_, t)| t.clone())
+            } else { None };
+            if let Some(t) = task { let siblings = self.siblings_for(&t); self.enter_detail(t, siblings, true); }
+            return true;
+        }
+        if is_key(&key, &km.create_cake) {
+            self.screen = Screen::CreateCake { title: String::new(), from_planner: true };
+            return true;
+        }
+        if is_key(&key, &km.create) { self.open_create_screen(); return true; }
+        if is_key(&key, &km.assign) {
+            let task_id = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
+                planner_visible_tasks(cakes, tasks, &f, hd, true).get(*selected).map(|(_, t)| t.id.clone())
+            } else { None };
+            if let Some(id) = task_id {
+                let users = self.repo.as_ref().and_then(|r| r.list_users().ok()).unwrap_or_default();
+                self.screen = Screen::AssignTask { task_id: id, users, selected: 0, filter: String::new() };
+            }
+            return true;
+        }
+        if is_key(&key, &km.backlog) { self.do_planner_backlog(); return true; }
+        if is_key(&key, &km.delete) {
+            let sel = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
+                planner_visible_tasks(cakes, tasks, &f, hd, true).get(*selected).map(|(_, t)| (t.id.clone(), t.title.clone()))
+            } else { None };
+            if let Some((id, title)) = sel {
+                self.screen = Screen::DeleteConfirm { task_id: id, task_title: title };
+            }
+            return true;
+        }
+        false
+    }
+
+    fn handle_planner_nav(&mut self, key: KeyEvent, km: &crate::config::KeyMap, visible_count: usize) {
         let no_mod = key.modifiers == KeyModifiers::NONE;
         let up_k = km.up.chars().next().unwrap_or('w');
         let dn_k = km.down.chars().next().unwrap_or('s');
@@ -995,23 +999,17 @@ impl App {
             || (matches!(key.code, KeyCode::Char(c) if c == up_k) && km.up.len() == 1 && no_mod);
         let is_dn = key.code == KeyCode::Down
             || (matches!(key.code, KeyCode::Char(c) if c == dn_k) && km.down.len() == 1 && no_mod);
-        let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
         if is_key(&key, &km.filter) || key.code == KeyCode::Char('/') {
-            self.filter_active = true; self.filter.clear(); *selected = 0; return;
+            self.filter_active = true; self.filter.clear();
+            if let Screen::PlannerView { selected, .. } = &mut self.screen { *selected = 0; }
+            return;
         }
-        if is_up && visible_count > 0 {
-            *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); return;
-        }
+        let Screen::PlannerView { selected, .. } = &mut self.screen else { return };
+        if is_up && visible_count > 0 { *selected = selected.checked_sub(1).unwrap_or(visible_count - 1); return; }
         if is_dn && visible_count > 0 { *selected = (*selected + 1) % visible_count; return; }
         match key.code {
-            KeyCode::Tab => {
-                self.filter.clear(); self.filter_active = false;
-                self.context = TaskContext::Backlog; self.enter_task_list(None, None);
-            }
-            KeyCode::BackTab => {
-                self.filter.clear(); self.filter_active = false;
-                self.context = TaskContext::Personal; self.enter_task_list(None, None);
-            }
+            KeyCode::Tab    => { self.filter.clear(); self.filter_active = false; self.context = TaskContext::Backlog;  self.enter_task_list(None, None); }
+            KeyCode::BackTab => { self.filter.clear(); self.filter_active = false; self.context = TaskContext::Personal; self.enter_task_list(None, None); }
             _ => {}
         }
     }
@@ -1019,17 +1017,14 @@ impl App {
     fn do_planner_backlog(&mut self) {
         let f = if self.filter.is_empty() { String::new() } else { self.filter.to_lowercase() };
         let hd = self.hide_done;
-
         let task_id = if let Screen::PlannerView { cakes, tasks, selected, .. } = &self.screen {
             planner_visible_tasks(cakes, tasks, &f, hd, true)
                 .get(*selected).map(|(_, t)| t.id.clone())
         } else { None };
         let Some(id) = task_id else { return };
         if let Some(repo) = &self.repo {
-            match repo.move_task_to_backlog(&id) {
-                Ok(()) => {}
-                Err(_) => {} // may not be a personal task; refresh shows current state
-            }
+            // Ignore error — may not be a personal task; refresh shows current state.
+            let _ = repo.move_task_to_backlog(&id);
         }
         self.enter_planner_view();
     }
@@ -1046,8 +1041,14 @@ impl App {
             }
             KeyCode::Enter if !title_val.is_empty() => {
                 let owner = self.repo.as_ref().map(|r| r.info.username.clone());
-                let _ = self.repo.as_ref().map(|r| r.create_cake(NewCake { title: title_val, owner, ..Default::default() }));
-                if from_planner { self.enter_planner_view(); } else { self.enter_task_list(None, None); }
+                let result = self.repo.as_ref().map(|r| r.create_cake(NewCake { title: title_val, owner, ..Default::default() }));
+                // Surface create_cake errors to the user via the flash row.
+                let msg = match result {
+                    Some(Ok(_))  => None,
+                    Some(Err(e)) => Some(e.to_string()),
+                    None         => Some("No repo.".to_string()),
+                };
+                if from_planner { self.enter_planner_view(); } else { self.enter_task_list(msg, None); }
             }
             KeyCode::Backspace => {
                 if let Screen::CreateCake { title, .. } = &mut self.screen { title.pop(); }
@@ -1110,15 +1111,15 @@ impl App {
             match TaskRepo::open(&path) {
                 Ok(repo) => {
                     self.config.repo_path = Some(path);
-                    self.config.save();
+                    let save_err = self.config.save().err().map(|e| format!("config save failed: {e}"));
                     self.repo = Some(repo);
                     let repo_path = self.repo.as_ref().unwrap().info.path.clone();
-                    let (lock_path, lock_warning) = acquire_lock(&repo_path, &self.config.keys.push);
+                    let (lock_path, lock_warning) = acquire_lock(&repo_path, &self.glyphs.push);
                     self.lock_path = lock_path;
                     self.lock_warning = lock_warning;
                     let (pull_msg, pull_err) = classify_pull_result(self.repo.as_ref().unwrap().pull());
                     self.pull_error = pull_err;
-                    self.enter_task_list(pull_msg, None);
+                    self.enter_task_list(merge_messages(pull_msg, save_err), None);
                 }
                 Err(e) => {
                     self.screen = Screen::Setup { input: path, error: Some(e.to_string()), can_cancel };
@@ -1222,7 +1223,7 @@ impl App {
     /// Removes the session lock file. Call only on clean exit.
     pub fn cleanup(&self) {
         if let Some(ref path) = self.lock_path {
-            let _ = fs::remove_file(path);
+            let _ = fs::remove_file(path); // best-effort cleanup; errors are non-fatal
         }
     }
 }
@@ -1247,6 +1248,10 @@ pub fn is_key(event: &KeyEvent, binding: &str) -> bool {
     }
     if binding.len() == 1 {
         let ch = binding.chars().next().unwrap_or('\0');
+        // Uppercase single-char bindings match regardless of modifier (Shift generates uppercase).
+        if ch.is_ascii_uppercase() {
+            return event.code == KeyCode::Char(ch);
+        }
         return event.modifiers == KeyModifiers::NONE && event.code == KeyCode::Char(ch);
     }
     false
@@ -1256,23 +1261,22 @@ pub fn is_ctrl_q(event: &KeyEvent) -> bool {
     event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('q')
 }
 
-fn acquire_lock(repo_path: &str, push_binding: &str) -> (Option<PathBuf>, Option<String>) {
+fn acquire_lock(repo_path: &str, push_glyph: &str) -> (Option<PathBuf>, Option<String>) {
     let Some(path) = lock_file_path(repo_path) else { return (None, None) };
-    if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); }
-    let warn = if path.exists() { stale_lock_warning(&path, push_binding) } else { None };
-    let _ = fs::write(&path, std::process::id().to_string());
+    if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); } // best-effort
+    let warn = if path.exists() { stale_lock_warning(&path, push_glyph) } else { None };
+    let _ = fs::write(&path, std::process::id().to_string()); // best-effort
     (Some(path), warn)
 }
 
-fn stale_lock_warning(path: &Path, push_binding: &str) -> Option<String> {
+fn stale_lock_warning(path: &Path, push_glyph: &str) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let pid: u32 = content.trim().parse().ok()?;
     if pid == std::process::id() { return None; }
     if process_running(pid) {
         Some("Another gitcake session is already open for this repo".to_string())
     } else {
-        let glyph = crate::config::binding_glyph(push_binding);
-        Some(format!("Last session ended without pushing — consider {glyph} to sync"))
+        Some(format!("Last session ended without pushing — consider {push_glyph} to sync"))
     }
 }
 
@@ -1375,7 +1379,7 @@ pub(crate) fn tree_visible_indices(tasks: &[Task], cakes: &[Cake], filter: &str,
     fn process(result: &mut Vec<usize>, tasks: &[Task], indices: &[usize]) {
         let roots: Vec<usize> = indices.iter().copied()
             .filter(|&i| tasks[i].parent_id.as_ref()
-                .map_or(true, |pid| !indices.iter().any(|&j| tasks[j].id == *pid)))
+                .is_none_or(|pid| !indices.iter().any(|&j| tasks[j].id == *pid)))
             .collect();
         for ri in roots {
             result.push(ri);
@@ -1419,7 +1423,7 @@ pub(crate) fn planner_visible_tasks<'a>(
         if !tree { result.extend_from_slice(group); return; }
         let roots: Vec<&(String, Task)> = group.iter().copied()
             .filter(|(_, t)| t.parent_id.as_ref()
-                .map_or(true, |pid| !group.iter().any(|(_, pt)| pt.id == *pid)))
+                .is_none_or(|pid| !group.iter().any(|(_, pt)| pt.id == *pid)))
             .collect();
         for (_, root_task) in &roots {
             let item = group.iter().copied().find(|(_, t)| t.id == root_task.id).unwrap();
@@ -1450,95 +1454,85 @@ pub(crate) fn planner_visible_tasks<'a>(
     result
 }
 
+// ── filter helpers ────────────────────────────────────────────────────────────
+
+pub fn filter_matches(task: &Task, f: &str) -> bool {
+    filter_matches_with_cakes(task, &[], f)
+}
+
+pub fn filter_matches_with_cakes(task: &Task, cakes: &[Cake], f: &str) -> bool {
+    if f.is_empty() { return true; }
+
+    let mut must_include = Vec::new();
+    let mut must_exclude = Vec::new();
+    let mut user_filter: Option<&str> = None;
+    let mut cake_filter: Option<&str> = None;
+
+    for token in f.split_whitespace() {
+        if let Some(u) = token.strip_prefix('@') { user_filter = Some(u); }
+        else if let Some(c) = token.strip_prefix('#') { cake_filter = Some(c); }
+        else if let Some(e) = token.strip_prefix('!') { must_exclude.push(e); }
+        else { must_include.push(token); }
+    }
+
+    let title_lower = task.title.to_lowercase();
+    for inc in &must_include {
+        if !title_lower.contains(inc) { return false; }
+    }
+    for exc in &must_exclude {
+        if title_lower.contains(exc) { return false; }
+    }
+    if let Some(u) = user_filter {
+        let owner = task.owner.as_deref().unwrap_or("").to_lowercase();
+        if !owner.contains(u) { return false; }
+    }
+    if let Some(c) = cake_filter {
+        let cake_name = task.cake_id.as_deref()
+            .and_then(|id| cakes.iter().find(|ck| ck.id == id))
+            .map(|ck| ck.title.to_lowercase())
+            .unwrap_or_default();
+        if !cake_name.contains(c) { return false; }
+    }
+    true
+}
+
+// ── internal helpers ──────────────────────────────────────────────────────────
+
 fn next_task_type(t: TaskType) -> TaskType {
     match t { TaskType::Task => TaskType::Bug, TaskType::Bug => TaskType::Incident, TaskType::Incident => TaskType::Task }
 }
 
 fn next_priority(p: Priority) -> Priority {
-    match p { Priority::Urgent => Priority::Normal, Priority::High => Priority::Urgent, Priority::Normal => Priority::High }
-}
-
-pub(crate) fn task_matches(t: &Task, f: &str) -> bool {
-    use gitcake_core::models::task::Priority;
-    t.id.starts_with(f)
-        || t.title.to_lowercase().contains(f)
-        || t.owner.as_deref().map(|o| o.to_lowercase().contains(f)).unwrap_or(false)
-        || type_str(&t.task_type).contains(f)
-        || status_str(&t.status).contains(f)
-        || (f == "ai_flagged" && t.ai_flagged)
-        || (f == "urgent" && t.priority == Priority::Urgent)
-        || (f == "high"   && t.priority == Priority::High)
-}
-
-pub(crate) fn filter_matches(t: &Task, filter: &str) -> bool {
-    if filter.is_empty() { return true; }
-    if let Some(neg) = filter.strip_prefix('!') { return !task_matches(t, neg); }
-    if let Some(owner_q) = filter.strip_prefix('@') {
-        return t.owner.as_deref().map(|o| o.to_lowercase().contains(owner_q)).unwrap_or(false);
-    }
-    task_matches(t, filter)
-}
-
-pub(crate) fn filter_matches_with_cakes(t: &Task, cakes: &[Cake], filter: &str) -> bool {
-    if filter.is_empty() { return true; }
-    if let Some(cake_q) = filter.strip_prefix('#') {
-        return t.cake_id.as_deref()
-            .and_then(|cid| cakes.iter().find(|c| c.id == cid))
-            .map(|c| cake_q.is_empty() || c.title.to_lowercase().contains(cake_q))
-            .unwrap_or(false);
-    }
-    filter_matches(t, filter)
-}
-
-fn type_str(t: &gitcake_core::models::task::TaskType) -> &'static str {
-    use gitcake_core::models::task::TaskType;
-    match t { TaskType::Task => "task", TaskType::Bug => "bug", TaskType::Incident => "incident" }
-}
-
-fn status_str(s: &TaskStatus) -> &'static str {
-    match s { TaskStatus::Open => "open", TaskStatus::InProgress => "in-progress", TaskStatus::Done => "done" }
+    match p { Priority::Normal => Priority::High, Priority::High => Priority::Urgent, Priority::Urgent => Priority::Normal }
 }
 
 fn expand_tilde(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() { return home.join(rest).to_string_lossy().into_owned(); }
-    } else if path == "~" {
-        if let Some(home) = dirs::home_dir() { return home.to_string_lossy().into_owned(); }
+        if let Some(home) = dirs::home_dir() {
+            return format!("{}/{}", home.display(), rest);
+        }
     }
     path.to_string()
 }
 
-fn open_editor(initial: &str) -> Option<String> {
-    let tmp_path = std::env::temp_dir().join(format!("gitcake-{}.md", std::process::id()));
-    fs::write(&tmp_path, initial).ok()?;
-
-    let _ = crossterm::execute!(std::io::stdout(),
-        crossterm::event::DisableMouseCapture,
-        crossterm::terminal::LeaveAlternateScreen,
-    );
-    let _ = crossterm::terminal::disable_raw_mode();
-
-    let editor = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".to_string());
-    let _ = std::process::Command::new(&editor).arg(&tmp_path).status();
-
-    let _ = crossterm::terminal::enable_raw_mode();
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
-    // drain any queued events (mouse moves etc.) that accumulated during the editor session
-    while crossterm::event::poll(std::time::Duration::from_millis(0)).unwrap_or(false) {
-        let _ = crossterm::event::read();
-    }
-
-    let content = fs::read_to_string(&tmp_path).unwrap_or_default();
-    let _ = fs::remove_file(&tmp_path);
-    Some(content.trim_end_matches('\n').to_string())
-}
-
 fn is_empty_repo(path: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(path) else { return false };
-    entries.flatten().all(|entry| {
-        let name = entry.file_name().to_string_lossy().to_lowercase();
-        matches!(name.as_str(), ".git" | "readme.md" | "readme" | "readme.txt" | ".gitignore" | ".gitattributes" | ".gitkeep")
-    })
+    path.read_dir().map(|mut d| d.next().is_none()).unwrap_or(false)
+        || (path.join(".git").exists() && {
+            let head = path.join(".git").join("HEAD");
+            fs::read_to_string(head).map(|s| s.contains("ref: refs/heads/")).unwrap_or(false)
+                && path.join(".git").join("refs").join("heads").read_dir()
+                    .map(|mut d| d.next().is_none()).unwrap_or(true)
+        })
 }
+
+fn open_editor(template: &str) -> Option<String> {
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let tmp = std::env::temp_dir().join(format!("gitcake-{}.md", std::process::id()));
+    fs::write(&tmp, template).ok()?;
+    let status = std::process::Command::new(&editor).arg(&tmp).status().ok()?;
+    if !status.success() { return None; }
+    let content = fs::read_to_string(&tmp).ok()?;
+    let _ = fs::remove_file(&tmp); // best-effort cleanup
+    Some(content)
+}
+

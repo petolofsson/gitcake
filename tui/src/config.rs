@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -91,7 +91,7 @@ pub struct KeyMap {
     pub assign:       String,
     pub backlog:      String,
     pub delete:       String,
-    pub add_bite:     String,
+    pub hide_done:    String,
     pub quit:         String,
 }
 
@@ -113,8 +113,58 @@ impl Default for KeyMap {
             assign:       "ctrl+r".into(),
             backlog:      "ctrl+b".into(),
             delete:       "ctrl+d".into(),
-            add_bite:     "b".into(),
+            hide_done:    "H".into(),
             quit:         "ctrl+q".into(),
+        }
+    }
+}
+
+/// Precomputed display glyphs for all key bindings.
+/// Built once from KeyMap at startup; avoids per-frame String allocations in render functions.
+pub struct NavGlyphs {
+    pub nav:             String,  // "W/S"
+    pub detail:          String,
+    pub create:          String,
+    pub create_cake:     String,
+    pub filter:          String,
+    pub hide_done:       String,
+    pub hide_done_col:   String,  // "ASSIGNED [H]" for column header
+    pub empty_tasks_msg: String,  // "No tasks yet. ^V to create one."
+    pub assign:          String,
+    pub backlog:         String,
+    pub delete:          String,
+    pub pull:            String,
+    pub push:            String,
+    pub quit:            String,
+    pub edit:            String,
+    pub field_cycle:     String,
+    pub status_cycle:    String,
+}
+
+impl NavGlyphs {
+    pub fn from_keymap(km: &KeyMap) -> Self {
+        let create    = binding_glyph(&km.create);
+        let hide_done = binding_glyph(&km.hide_done);
+        let empty_tasks_msg = format!("No tasks yet. {create} to create one.");
+        let hide_done_col   = format!("ASSIGNED [{}]", hide_done);
+        Self {
+            nav:          binding_glyph(&km.up) + "/" + &binding_glyph(&km.down),
+            detail:       binding_glyph(&km.detail),
+            create,
+            create_cake:  binding_glyph(&km.create_cake),
+            filter:       binding_glyph(&km.filter),
+            hide_done,
+            hide_done_col,
+            empty_tasks_msg,
+            assign:       binding_glyph(&km.assign),
+            backlog:      binding_glyph(&km.backlog),
+            delete:       binding_glyph(&km.delete),
+            pull:         binding_glyph(&km.pull),
+            push:         binding_glyph(&km.push),
+            quit:         binding_glyph(&km.quit),
+            edit:         binding_glyph(&km.edit),
+            field_cycle:  binding_glyph(&km.field_cycle),
+            status_cycle: binding_glyph(&km.status_cycle),
         }
     }
 }
@@ -152,28 +202,49 @@ pub fn binding_glyph(binding: &str) -> String {
 }
 
 impl Config {
-    pub fn load() -> Self {
+    /// Load config from disk, running migrations if needed.
+    /// Returns (config, optional_write_error). On parse failure the file is left untouched.
+    pub fn load() -> (Self, Option<String>) {
         let path = config_path();
         let Ok(text) = fs::read_to_string(&path) else {
-            return Self::default();
+            return (Self::default(), None);
         };
-        let mut c: Self = toml::from_str(&text).unwrap_or_default();
+        // If parsing fails, return defaults without touching the file (auditor N1).
+        let Ok(mut c) = toml::from_str::<Self>(&text) else {
+            return (Self::default(), None);
+        };
         let mut dirty = !text.contains("[theme]");
-        // Migrate create/create_cake off the C key (terminal SIGINT intercepts ^C).
-        if c.keys.create == "ctrl+c"     { c.keys.create      = "ctrl+v".into();  dirty = true; }
-        if c.keys.create_cake == "shift+c" { c.keys.create_cake = "shift+v".into(); dirty = true; }
-        if dirty { c.save(); }
-        c
+        // Migrate create off the C key. Both bare "c" (live config) and "ctrl+c" (old default)
+        // must be rewritten; bare C conflicts with terminal shortcuts in some environments.
+        if c.keys.create == "c" || c.keys.create == "ctrl+c" {
+            c.keys.create = "ctrl+v".into();
+            dirty = true;
+        }
+        if c.keys.create_cake == "shift+c" {
+            c.keys.create_cake = "shift+v".into();
+            dirty = true;
+        }
+        let warn = if dirty {
+            c.save().err().map(|e| format!("config write failed: {e}"))
+        } else {
+            None
+        };
+        (c, warn)
     }
 
-    pub fn save(&self) {
+    /// Atomically write config to disk. Returns an error if the write fails.
+    pub fn save(&self) -> io::Result<()> {
         let path = config_path();
         if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
+            fs::create_dir_all(parent)?;
         }
-        if let Ok(text) = toml::to_string_pretty(self) {
-            let _ = fs::write(path, text);
-        }
+        let text = toml::to_string_pretty(self)
+            .map_err(|e| io::Error::other(e.to_string()))?;
+        // Write to .tmp then rename for atomicity (avoids corrupt half-written config).
+        let tmp = path.with_extension("toml.tmp");
+        fs::write(&tmp, text.as_bytes())?;
+        fs::rename(&tmp, &path)?;
+        Ok(())
     }
 }
 
