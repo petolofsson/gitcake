@@ -224,6 +224,14 @@ impl Config {
             c.keys.create_cake = "shift+v".into();
             dirty = true;
         }
+        if c.keys.push == "t" {
+            c.keys.push = "ctrl+t".into();
+            dirty = true;
+        }
+        if c.keys.assign == "r" {
+            c.keys.assign = "ctrl+r".into();
+            dirty = true;
+        }
         let warn = if dirty {
             c.save().err().map(|e| format!("config write failed: {e}"))
         } else {
